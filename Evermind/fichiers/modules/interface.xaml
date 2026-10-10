@@ -1,6 +1,6 @@
 ﻿<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Evermind" Width="1060" Height="780" MinWidth="900" MinHeight="680"
+        Title="Evermind" Width="1200" Height="880" MinWidth="1040" MinHeight="760"
         WindowStartupLocation="CenterScreen" Background="#09080F"
         FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="15" Foreground="#EEEBF7">
   <Window.Resources>
@@ -19,26 +19,27 @@
       <GradientStop Color="#B04BFF" Offset="1"/>
     </LinearGradientBrush>
 
-    <Style x:Key="BtnPrimary" TargetType="Button">
+    <!-- Boutons : exactement ceux de Nevermind -->
+<Style x:Key="BtnPrimary" TargetType="Button">
       <Setter Property="Background" Value="{StaticResource AccentBg}"/>
       <Setter Property="Foreground" Value="#08060F"/>
       <Setter Property="BorderBrush" Value="#00FFFFFF"/>
       <Setter Property="BorderThickness" Value="0"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
-      <Setter Property="FontSize" Value="15"/>
-      <Setter Property="Padding" Value="22,12"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Padding" Value="18,9"/>
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
             <Grid x:Name="Root" RenderTransformOrigin="0.5,0.5">
               <Grid.RenderTransform><ScaleTransform x:Name="Scale" ScaleX="1" ScaleY="1"/></Grid.RenderTransform>
-              <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                      BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="23" Padding="{TemplateBinding Padding}">
+              <Border x:Name="B" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                      BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="19" Padding="{TemplateBinding Padding}">
                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
               </Border>
               <!-- Reflet qui apparaît au survol -->
-              <Border x:Name="Shine" CornerRadius="23" IsHitTestVisible="False" Opacity="0">
+              <Border x:Name="Shine" CornerRadius="19" IsHitTestVisible="False" Opacity="0">
                 <Border.Background>
                   <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
                     <GradientStop Color="#38FFFFFF" Offset="0"/>
@@ -66,7 +67,7 @@
                   <DoubleAnimation Storyboard.TargetName="Scale" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.15"/>
                 </Storyboard></BeginStoryboard></Trigger.ExitActions>
               </Trigger>
-              <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Root" Property="Opacity" Value="0.35"/></Trigger>
+              <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Root" Property="Opacity" Value="0.4"/></Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
@@ -83,9 +84,6 @@
       <Setter Property="Foreground" Value="#F2EFFA"/>
       <Setter Property="BorderBrush" Value="#26FFFFFF"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="FontWeight" Value="Normal"/>
-      <Setter Property="FontSize" Value="13"/>
-      <Setter Property="Padding" Value="14,7"/>
       <Style.Triggers>
         <Trigger Property="IsMouseOver" Value="True">
           <Setter Property="BorderBrush" Value="#8000E5FF"/>
@@ -93,49 +91,15 @@
         </Trigger>
       </Style.Triggers>
     </Style>
-    <!-- Bouton qui demande confirmation (supprimer) -->
-    <Style x:Key="BtnDanger" TargetType="Button" BasedOn="{StaticResource BtnSecondary}">
-      <Setter Property="Background" Value="#33FF2E6E"/>
-      <Setter Property="BorderBrush" Value="#FF2E6E"/>
-      <Setter Property="FontWeight" Value="SemiBold"/>
+    <!-- Bouton qui supprime (fenêtre « Êtes-vous sûr ? ») : même forme que les autres, en rouge -->
+    <Style x:Key="BtnDanger" TargetType="Button" BasedOn="{StaticResource BtnPrimary}">
+      <Setter Property="Background" Value="#F04438"/>
+      <Setter Property="Foreground" Value="White"/>
       <Style.Triggers>
         <Trigger Property="IsMouseOver" Value="True">
-          <Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#FF2E6E" BlurRadius="16" ShadowDepth="0" Opacity="0.5"/></Setter.Value></Setter>
+          <Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#F04438" BlurRadius="22" ShadowDepth="0" Opacity="0.6"/></Setter.Value></Setter>
         </Trigger>
       </Style.Triggers>
-    </Style>
-    <!-- Flèches rondes du calendrier -->
-    <Style x:Key="BtnRond" TargetType="Button" BasedOn="{StaticResource BtnSecondary}">
-      <Setter Property="Width" Value="34"/>
-      <Setter Property="Height" Value="34"/>
-      <Setter Property="Padding" Value="0"/>
-      <Setter Property="FontSize" Value="16"/>
-    </Style>
-    <!-- Un jour du calendrier : rond, lueur au survol, en dégradé quand il est choisi -->
-    <Style x:Key="Jour" TargetType="Button">
-      <Setter Property="Height" Value="32"/>
-      <Setter Property="Margin" Value="2,1"/>
-      <Setter Property="Background" Value="#00FFFFFF"/>
-      <Setter Property="BorderBrush" Value="#00FFFFFF"/>
-      <Setter Property="Foreground" Value="#E4E0F2"/>
-      <Setter Property="FontSize" Value="14"/>
-      <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="Focusable" Value="False"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Grid x:Name="Root">
-              <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1.5" CornerRadius="16"/>
-              <Border x:Name="Hover" Background="#24FFFFFF" CornerRadius="16" Opacity="0" IsHitTestVisible="False"/>
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Grid>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Hover" Property="Opacity" Value="1"/></Trigger>
-              <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Root" Property="Opacity" Value="0.25"/></Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
     </Style>
 
     <Style x:Key="Card" TargetType="Border">
@@ -274,17 +238,111 @@
         </Setter.Value>
       </Setter>
     </Style>
+    <!-- Flèches rondes des calendriers -->
+    <Style x:Key="BtnRond" TargetType="Button" BasedOn="{StaticResource BtnSecondary}">
+      <Setter Property="Width" Value="36"/>
+      <Setter Property="Height" Value="36"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="FontSize" Value="17"/>
+    </Style>
+    <!-- Choix en pilule (« Chaque semaine »...) : allumé quand Tag vaut « on » -->
+    <Style x:Key="Chip" TargetType="Button" BasedOn="{StaticResource BtnSecondary}">
+      <Setter Property="Margin" Value="0,0,8,8"/>
+      <Setter Property="Padding" Value="14,8"/>
+      <Style.Triggers>
+        <Trigger Property="Tag" Value="on">
+          <Setter Property="Background" Value="{StaticResource AccentBg}"/>
+          <Setter Property="Foreground" Value="#08060F"/>
+          <Setter Property="FontWeight" Value="SemiBold"/>
+          <Setter Property="BorderBrush" Value="#00FFFFFF"/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+    <!-- Un jour du petit calendrier du formulaire : rond, en dégradé quand il est choisi -->
+    <Style x:Key="Jour" TargetType="Button">
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="Margin" Value="2,1"/>
+      <Setter Property="Background" Value="#00FFFFFF"/>
+      <Setter Property="BorderBrush" Value="#00FFFFFF"/>
+      <Setter Property="Foreground" Value="#E4E0F2"/>
+      <Setter Property="FontSize" Value="14"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Focusable" Value="False"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Grid x:Name="Root">
+              <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1.5" CornerRadius="16"/>
+              <Border x:Name="Hover" Background="#24FFFFFF" CornerRadius="16" Opacity="0" IsHitTestVisible="False"/>
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Hover" Property="Opacity" Value="1"/></Trigger>
+              <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Root" Property="Opacity" Value="0.25"/></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <!-- Bouton micro : rond, dégradé de la marque, magenta pendant l'écoute (Tag « ecoute ») -->
+    <Style x:Key="BtnMicro" TargetType="Button">
+      <Setter Property="Width" Value="52"/>
+      <Setter Property="Height" Value="52"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Foreground" Value="#08060F"/>
+      <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets"/>
+      <Setter Property="FontSize" Value="21"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Grid x:Name="Root" RenderTransformOrigin="0.5,0.5">
+              <Grid.RenderTransform><ScaleTransform x:Name="Scale" ScaleX="1" ScaleY="1"/></Grid.RenderTransform>
+              <Ellipse x:Name="Disc" Fill="{StaticResource AccentBg}"/>
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="Tag" Value="ecoute">
+                <Setter TargetName="Disc" Property="Fill">
+                  <Setter.Value>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                      <GradientStop Color="#FF2EB5" Offset="0"/>
+                      <GradientStop Color="#B04BFF" Offset="1"/>
+                    </LinearGradientBrush>
+                  </Setter.Value>
+                </Setter>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Trigger.EnterActions><BeginStoryboard><Storyboard>
+                  <DoubleAnimation Storyboard.TargetName="Scale" Storyboard.TargetProperty="ScaleX" To="0.92" Duration="0:0:0.08"/>
+                  <DoubleAnimation Storyboard.TargetName="Scale" Storyboard.TargetProperty="ScaleY" To="0.92" Duration="0:0:0.08"/>
+                </Storyboard></BeginStoryboard></Trigger.EnterActions>
+                <Trigger.ExitActions><BeginStoryboard><Storyboard>
+                  <DoubleAnimation Storyboard.TargetName="Scale" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.15"/>
+                  <DoubleAnimation Storyboard.TargetName="Scale" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.15"/>
+                </Storyboard></BeginStoryboard></Trigger.ExitActions>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+      <Style.Triggers>
+        <Trigger Property="IsMouseOver" Value="True">
+          <Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#00E5FF" BlurRadius="22" ShadowDepth="0" Opacity="0.7"/></Setter.Value></Setter>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
   </Window.Resources>
 
   <Grid>
     <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="*"/>
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
     <!-- Fond : nuit violette et trois lueurs (cyan en haut à gauche, violet au centre, magenta en bas à droite) -->
-    <Grid Grid.RowSpan="3" IsHitTestVisible="False">
+    <Grid Grid.RowSpan="4" IsHitTestVisible="False">
       <Rectangle>
         <Rectangle.Fill>
           <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
@@ -319,69 +377,106 @@
       </Rectangle>
     </Grid>
 
-    <!-- En-tête : logo et nom -->
-    <DockPanel Margin="32,24,32,8">
-      <Image x:Name="Logo" Width="54" Height="54" Margin="0,0,16,0" VerticalAlignment="Center">
-        <Image.Effect><DropShadowEffect Color="#00E5FF" BlurRadius="24" ShadowDepth="0" Opacity="0.45"/></Image.Effect>
-      </Image>
+    <!-- En-tête : logo, nom, et le bouton pour ajouter un rendez-vous à la main -->
+    <DockPanel Margin="32,22,32,6">
+      <Button x:Name="BtnNouveau" DockPanel.Dock="Right" Style="{StaticResource BtnPrimary}" Content="+  Nouveau rendez-vous" VerticalAlignment="Center"/>
+      <Button x:Name="BtnReglages" DockPanel.Dock="Right" Style="{StaticResource BtnSecondary}" Content="Réglages" VerticalAlignment="Center" Margin="0,0,12,0"/>
+      <!-- Logo animé en boucle (logo.ps1) : E qui glitche, anneaux qui tournent, halo, balayage -->
+      <Grid x:Name="LogoHote" Width="84" Height="84" Margin="-14,-14,2,-14" VerticalAlignment="Center" Cursor="Hand"/>
       <StackPanel VerticalAlignment="Center">
         <TextBlock Text="Evermind" Style="{StaticResource H1}"/>
         <TextBlock x:Name="Greeting" Text="Je me souviens de tout pour toi." Style="{StaticResource Sub}" FontSize="15" Margin="1,0,0,0"/>
       </StackPanel>
     </DockPanel>
 
-    <Grid Grid.Row="1" Margin="32,14,32,0">
+    <!-- Barre rapide : écrire ou dire son rendez-vous en une phrase -->
+    <Border Grid.Row="1" Style="{StaticResource Card}" Margin="32,12,32,0" Padding="18,14">
+      <StackPanel>
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <TextBox x:Name="InPhrase" Style="{StaticResource Champ}" Tag="Écris ou dis ton rendez-vous : « mardi prochain à 15 h dentiste »" MaxLength="200"/>
+          <Grid Grid.Column="1" Margin="14,0,0,0" Width="60" Height="60">
+            <Ellipse x:Name="MicHalo" Opacity="0" IsHitTestVisible="False">
+              <Ellipse.Fill>
+                <RadialGradientBrush>
+                  <GradientStop Color="#AAFF2EB5" Offset="0.55"/>
+                  <GradientStop Color="#00FF2EB5" Offset="1"/>
+                </RadialGradientBrush>
+              </Ellipse.Fill>
+            </Ellipse>
+            <Button x:Name="BtnMicro" Style="{StaticResource BtnMicro}" Content="&#xE720;" ToolTip="Parler (ou Ctrl + Maj + Espace, même en jeu)"/>
+          </Grid>
+          <Button x:Name="BtnAjouter" Grid.Column="2" Style="{StaticResource BtnPrimary}" Content="Ajouter" IsDefault="True" Margin="12,0,0,0" VerticalAlignment="Center"/>
+        </Grid>
+        <TextBlock x:Name="ApercuLigne" FontSize="14" TextWrapping="Wrap" Margin="6,10,0,0" Visibility="Collapsed"/>
+        <TextBlock x:Name="FormMessage" FontSize="14" TextWrapping="Wrap" Margin="6,10,0,0" Visibility="Collapsed"/>
+        <TextBlock x:Name="VoixEtat" Style="{StaticResource Sub}" FontSize="13" Margin="6,8,0,0" Visibility="Collapsed"/>
+        <!-- Installation de la dictée, la première fois -->
+        <Border x:Name="VoixInstall" Visibility="Collapsed" Margin="0,12,0,0" Background="#1400E5FF" BorderBrush="#5500E5FF" BorderThickness="1" CornerRadius="14" Padding="16,12">
+          <DockPanel>
+            <Button x:Name="BtnVoixInstall" DockPanel.Dock="Right" Style="{StaticResource BtnPrimary}" Content="Installer la dictée" VerticalAlignment="Center" Margin="14,0,0,0"/>
+            <Button x:Name="BtnVoixPlusTard" DockPanel.Dock="Right" Style="{StaticResource BtnSecondary}" Content="Plus tard" VerticalAlignment="Center" Margin="14,0,0,0" Visibility="Collapsed"/>
+            <StackPanel VerticalAlignment="Center">
+              <TextBlock x:Name="VoixInstallTexte" FontSize="14" Foreground="#EEEBF7" TextWrapping="Wrap"/>
+              <Border x:Name="VoixBarreFond" Height="6" CornerRadius="3" Background="#22FFFFFF" Margin="0,10,0,0" Visibility="Collapsed">
+                <Border x:Name="VoixBarre" HorizontalAlignment="Left" Width="4" CornerRadius="3" Background="{StaticResource AccentBg}"/>
+              </Border>
+            </StackPanel>
+          </DockPanel>
+        </Border>
+      </StackPanel>
+    </Border>
+
+    <Grid Grid.Row="2" Margin="32,14,32,0">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="420"/>
-        <ColumnDefinition Width="22"/>
         <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="20"/>
+        <ColumnDefinition Width="380"/>
       </Grid.ColumnDefinitions>
 
-      <!-- Nouveau rendez-vous -->
-      <Border Style="{StaticResource Card}" VerticalAlignment="Top">
-        <StackPanel>
-          <TextBlock Text="Nouveau rendez-vous" Style="{StaticResource H2}"/>
-
-          <TextBlock Text="C'est quoi ?" Style="{StaticResource Label}"/>
-          <TextBox x:Name="InTitre" Style="{StaticResource Champ}" Tag="Dentiste, anniversaire de Léa..." MaxLength="120"/>
-
-          <TextBlock Text="Quel jour ?" Style="{StaticResource Label}"/>
-          <DockPanel Margin="0,0,0,4">
-            <Button x:Name="BtnMoisPrec" DockPanel.Dock="Left" Style="{StaticResource BtnRond}" Content="‹" ToolTip="Mois d'avant"/>
-            <Button x:Name="BtnMoisSuiv" DockPanel.Dock="Right" Style="{StaticResource BtnRond}" Content="›" ToolTip="Mois d'après"/>
-            <TextBlock x:Name="MoisTitre" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
+      <!-- Calendrier du mois -->
+      <Border Style="{StaticResource Card}" Padding="20,16">
+        <DockPanel>
+          <DockPanel DockPanel.Dock="Top" Margin="4,0,0,10">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+              <Button x:Name="BtnAujourdhui" Style="{StaticResource BtnSecondary}" Content="Aujourd'hui" Margin="0,0,10,0"/>
+              <Button x:Name="BtnMoisPrec" Style="{StaticResource BtnRond}" Content="‹" ToolTip="Mois d'avant"/>
+              <Button x:Name="BtnMoisSuiv" Style="{StaticResource BtnRond}" Content="›" ToolTip="Mois d'après" Margin="6,0,0,0"/>
+            </StackPanel>
+            <TextBlock x:Name="MoisTitre" Style="{StaticResource H2}" VerticalAlignment="Center"/>
           </DockPanel>
-          <UniformGrid Columns="7" Margin="0,4,0,2">
-            <TextBlock Text="lun" Style="{StaticResource Sub}" FontSize="12" HorizontalAlignment="Center"/>
-            <TextBlock Text="mar" Style="{StaticResource Sub}" FontSize="12" HorizontalAlignment="Center"/>
-            <TextBlock Text="mer" Style="{StaticResource Sub}" FontSize="12" HorizontalAlignment="Center"/>
-            <TextBlock Text="jeu" Style="{StaticResource Sub}" FontSize="12" HorizontalAlignment="Center"/>
-            <TextBlock Text="ven" Style="{StaticResource Sub}" FontSize="12" HorizontalAlignment="Center"/>
-            <TextBlock Text="sam" Style="{StaticResource Sub}" FontSize="12" HorizontalAlignment="Center"/>
-            <TextBlock Text="dim" Style="{StaticResource Sub}" FontSize="12" HorizontalAlignment="Center"/>
+          <UniformGrid DockPanel.Dock="Top" Columns="7" Margin="0,0,0,4">
+            <TextBlock Text="lundi" Style="{StaticResource Sub}" FontSize="12" Margin="10,0,0,0"/>
+            <TextBlock Text="mardi" Style="{StaticResource Sub}" FontSize="12" Margin="10,0,0,0"/>
+            <TextBlock Text="mercredi" Style="{StaticResource Sub}" FontSize="12" Margin="10,0,0,0"/>
+            <TextBlock Text="jeudi" Style="{StaticResource Sub}" FontSize="12" Margin="10,0,0,0"/>
+            <TextBlock Text="vendredi" Style="{StaticResource Sub}" FontSize="12" Margin="10,0,0,0"/>
+            <TextBlock Text="samedi" Style="{StaticResource Sub}" FontSize="12" Margin="10,0,0,0"/>
+            <TextBlock Text="dimanche" Style="{StaticResource Sub}" FontSize="12" Margin="10,0,0,0"/>
           </UniformGrid>
-          <UniformGrid x:Name="CalJours" Columns="7" Rows="6"/>
-
-          <TextBlock Text="À quelle heure ?" Style="{StaticResource Label}"/>
-          <DockPanel>
-            <TextBox x:Name="InHeure" Style="{StaticResource Champ}" Tag="15 h 30" Width="130" MaxLength="12" DockPanel.Dock="Left"/>
-            <Button x:Name="BtnAjouter" Style="{StaticResource BtnPrimary}" Content="Ajouter" IsDefault="True" Margin="14,0,0,0"/>
-          </DockPanel>
-          <TextBlock x:Name="FormMessage" FontSize="14" TextWrapping="Wrap" Margin="4,12,0,0" Visibility="Collapsed"/>
-        </StackPanel>
+          <UniformGrid x:Name="CalGrille" Columns="7" Rows="6"/>
+        </DockPanel>
       </Border>
 
-      <!-- À venir -->
-      <Border Grid.Column="2" Style="{StaticResource Card}" Padding="24,22,12,22">
+      <!-- À venir, ou les rendez-vous du jour choisi -->
+      <Border Grid.Column="2" Style="{StaticResource Card}" Padding="20,18,8,18">
         <DockPanel>
-          <DockPanel DockPanel.Dock="Top" Margin="0,0,12,14">
-            <TextBlock x:Name="ListeCompte" DockPanel.Dock="Right" Style="{StaticResource Sub}" VerticalAlignment="Bottom"/>
-            <TextBlock Text="À venir" Style="{StaticResource H2}"/>
+          <DockPanel DockPanel.Dock="Top" Margin="0,0,12,12">
+            <Button x:Name="BtnToutVoir" DockPanel.Dock="Right" Style="{StaticResource BtnSecondary}" Content="Tout voir" VerticalAlignment="Center" Visibility="Collapsed"/>
+            <StackPanel>
+              <TextBlock x:Name="PanneauTitre" Text="À venir" Style="{StaticResource H2}" TextTrimming="CharacterEllipsis"/>
+              <TextBlock x:Name="ListeCompte" Style="{StaticResource Sub}" Margin="1,2,0,0"/>
+            </StackPanel>
           </DockPanel>
+          <Button x:Name="BtnAjouterJour" DockPanel.Dock="Bottom" Style="{StaticResource BtnSecondary}" Content="+  Ajouter ce jour-là" Margin="0,10,12,0" Visibility="Collapsed"/>
           <Grid>
             <StackPanel x:Name="ListeVide" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,0,12,40" Visibility="Collapsed">
-              <TextBlock Text="Rien de prévu pour l'instant." FontSize="17" FontWeight="SemiBold" Foreground="White" HorizontalAlignment="Center"/>
-              <TextBlock Text="Ajoute ton premier rendez-vous à gauche." Style="{StaticResource Sub}" HorizontalAlignment="Center" Margin="0,6,0,0"/>
+              <TextBlock x:Name="ListeVideTitre" Text="Rien de prévu pour l'instant." FontSize="17" FontWeight="SemiBold" Foreground="White" HorizontalAlignment="Center"/>
+              <TextBlock x:Name="ListeVideTexte" Text="Dis-moi ton premier rendez-vous !" Style="{StaticResource Sub}" HorizontalAlignment="Center" TextAlignment="Center" Margin="0,6,0,0"/>
             </StackPanel>
             <ScrollViewer VerticalScrollBarVisibility="Auto">
               <StackPanel x:Name="ListeAVenir" Margin="0,0,12,0"/>
@@ -392,13 +487,210 @@
     </Grid>
 
     <!-- Bas de la fenêtre -->
-    <DockPanel Grid.Row="2" Margin="32,16,32,20">
+    <DockPanel Grid.Row="3" Margin="32,14,32,18">
       <TextBlock x:Name="VersionText" DockPanel.Dock="Right" Style="{StaticResource Sub}" FontSize="12" VerticalAlignment="Center"/>
       <StackPanel Orientation="Horizontal">
         <CheckBox x:Name="ChkDemarrage" Style="{StaticResource Switch}" VerticalAlignment="Center"/>
         <TextBlock Text="Démarrer avec Windows" Foreground="#EEEBF7" FontSize="14" Margin="12,0,0,0" VerticalAlignment="Center"/>
         <TextBlock Text="(conseillé, pour ne rater aucun rappel)" Style="{StaticResource Sub}" FontSize="13" Margin="6,0,0,0" VerticalAlignment="Center"/>
+        <TextBlock x:Name="RaccourciTexte" Style="{StaticResource Sub}" FontSize="13" Margin="28,0,0,0" VerticalAlignment="Center"/>
       </StackPanel>
     </DockPanel>
+
+    <!-- Formulaire : ajouter ou modifier un rendez-vous à la main. À gauche l'essentiel, à droite les détails (facultatifs). -->
+    <Grid x:Name="Formulaire" Grid.RowSpan="4" Visibility="Collapsed">
+      <Rectangle x:Name="FormFond" Fill="#C8050410"/>
+      <Border Style="{StaticResource Card}" Background="#F2141026" Width="1080" Margin="24,24" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="28,22,18,20">
+        <Border.Effect><DropShadowEffect Color="#7A3CFF" BlurRadius="40" ShadowDepth="0" Opacity="0.45"/></Border.Effect>
+        <DockPanel>
+          <TextBlock x:Name="FormTitre" DockPanel.Dock="Top" Text="Nouveau rendez-vous" Style="{StaticResource H2}" Margin="0,0,0,4"/>
+          <DockPanel DockPanel.Dock="Bottom" Margin="0,14,10,0">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+              <Button x:Name="BtnFAnnuler" Style="{StaticResource BtnSecondary}" Content="Annuler"/>
+              <Button x:Name="BtnFEnregistrer" Style="{StaticResource BtnPrimary}" Content="Ajouter" Margin="10,0,0,0"/>
+            </StackPanel>
+            <TextBlock x:Name="FMessage" FontSize="14" TextWrapping="Wrap" Margin="4,0,16,0" VerticalAlignment="Center" Visibility="Collapsed"/>
+          </DockPanel>
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <Grid Margin="0,0,10,0">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="480"/>
+                <ColumnDefinition Width="36"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+
+              <StackPanel>
+                <TextBlock Text="C'est quoi ?" Style="{StaticResource Label}"/>
+                <TextBox x:Name="FTitre" Style="{StaticResource Champ}" Tag="Dentiste, anniversaire de Léa..." MaxLength="120"/>
+
+                <TextBlock Text="Quelle sorte ?" Style="{StaticResource Label}"/>
+                <WrapPanel x:Name="FTypes"/>
+
+                <TextBlock Text="Quel jour ?" Style="{StaticResource Label}"/>
+                <DockPanel Margin="0,0,0,4">
+                  <Button x:Name="FMoisPrec" DockPanel.Dock="Left" Style="{StaticResource BtnRond}" Content="‹" ToolTip="Mois d'avant"/>
+                  <Button x:Name="FMoisSuiv" DockPanel.Dock="Right" Style="{StaticResource BtnRond}" Content="›" ToolTip="Mois d'après"/>
+                  <TextBlock x:Name="FMoisTitre" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
+                </DockPanel>
+                <UniformGrid Columns="7" Margin="0,4,0,2">
+                  <TextBlock Text="lun" Style="{StaticResource Sub}" FontSize="12" HorizontalAlignment="Center"/>
+                  <TextBlock Text="mar" Style="{StaticResource Sub}" FontSize="12" HorizontalAlignment="Center"/>
+                  <TextBlock Text="mer" Style="{StaticResource Sub}" FontSize="12" HorizontalAlignment="Center"/>
+                  <TextBlock Text="jeu" Style="{StaticResource Sub}" FontSize="12" HorizontalAlignment="Center"/>
+                  <TextBlock Text="ven" Style="{StaticResource Sub}" FontSize="12" HorizontalAlignment="Center"/>
+                  <TextBlock Text="sam" Style="{StaticResource Sub}" FontSize="12" HorizontalAlignment="Center"/>
+                  <TextBlock Text="dim" Style="{StaticResource Sub}" FontSize="12" HorizontalAlignment="Center"/>
+                </UniformGrid>
+                <UniformGrid x:Name="FJours" Columns="7" Rows="6"/>
+
+                <TextBlock Text="À quelle heure ? (vide = toute la journée)" Style="{StaticResource Label}"/>
+                <StackPanel Orientation="Horizontal">
+                  <TextBox x:Name="FHeure" Style="{StaticResource Champ}" Tag="15 h 30" Width="140" MaxLength="30" ToolTip="Laisse vide pour toute la journée"/>
+                  <Button x:Name="FJournee" Style="{StaticResource Chip}" Content="Toute la journée" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                  <TextBlock x:Name="FHeureInfo" Style="{StaticResource Sub}" FontSize="14" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                </StackPanel>
+
+                <TextBlock Text="Ça revient ?" Style="{StaticResource Label}"/>
+                <WrapPanel>
+                  <Button x:Name="FRepUne" Style="{StaticResource Chip}" Content="Une seule fois"/>
+                  <Button x:Name="FRepSemaine" Style="{StaticResource Chip}" Content="Chaque semaine"/>
+                  <Button x:Name="FRepMois" Style="{StaticResource Chip}" Content="Chaque mois"/>
+                  <Button x:Name="FRepAn" Style="{StaticResource Chip}" Content="Chaque année"/>
+                </WrapPanel>
+              </StackPanel>
+
+              <!-- Plus de détails : tout est facultatif -->
+              <StackPanel Grid.Column="2">
+                <TextBlock Text="Plus de détails" Style="{StaticResource Label}" FontSize="16" Foreground="White"/>
+                <TextBlock Text="Tout est facultatif. Evermind s'en sert pour te prévenir et te rappeler quoi prendre." Style="{StaticResource Sub}" Margin="4,0,0,4"/>
+
+                <StackPanel x:Name="FFinPanel">
+                  <TextBlock Text="Jusqu'à quelle heure ?" Style="{StaticResource Label}"/>
+                  <WrapPanel>
+                    <TextBox x:Name="FFin" Style="{StaticResource Champ}" Tag="16 h" Width="110" MaxLength="30" Margin="0,0,8,0"/>
+                    <Button x:Name="FDuree30" Style="{StaticResource Chip}" Content="30 min" Margin="0,4,6,4"/>
+                    <Button x:Name="FDuree60" Style="{StaticResource Chip}" Content="1 h" Margin="0,4,6,4"/>
+                    <Button x:Name="FDuree120" Style="{StaticResource Chip}" Content="2 h" Margin="0,4,6,4"/>
+                    <TextBlock x:Name="FFinInfo" Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                  </WrapPanel>
+                </StackPanel>
+
+                <TextBlock Text="Où ?" Style="{StaticResource Label}"/>
+                <TextBox x:Name="FLieu" Style="{StaticResource Champ}" Tag="Adresse ou lieu (ex : 12 rue des Lilas, Zénith de Paris)" MaxLength="200"/>
+
+                <TextBlock Text="Avec qui ?" Style="{StaticResource Label}"/>
+                <TextBox x:Name="FAvec" Style="{StaticResource Champ}" Tag="Paul, Léa..." MaxLength="200"/>
+
+                <TextBlock Text="Lien (visio, Discord, billet...)" Style="{StaticResource Label}"/>
+                <TextBox x:Name="FLien" Style="{StaticResource Champ}" Tag="https://..." MaxLength="500"/>
+
+                <TextBlock Text="Me prévenir" Style="{StaticResource Label}"/>
+                <WrapPanel x:Name="FRappels"/>
+
+                <TextBlock Text="À préparer" Style="{StaticResource Label}"/>
+                <TextBox x:Name="FPreparer" Style="{StaticResource Champ}" Tag="Une chose par ligne (ex : carte Vitale)" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" MaxHeight="130" VerticalScrollBarVisibility="Auto"/>
+                <WrapPanel x:Name="FSuggestions" Margin="0,8,0,0"/>
+
+                <TextBlock Text="Notes" Style="{StaticResource Label}"/>
+                <TextBox x:Name="FNotes" Style="{StaticResource Champ}" Tag="Tout ce qu'il faut savoir : code d'entrée, étage, idées de cadeau..." AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" MaxHeight="150" VerticalScrollBarVisibility="Auto"/>
+
+                <StackPanel x:Name="FAnnivPanel" Visibility="Collapsed">
+                  <TextBlock Text="Année de naissance" Style="{StaticResource Label}"/>
+                  <StackPanel Orientation="Horizontal">
+                    <TextBox x:Name="FNaissance" Style="{StaticResource Champ}" Tag="1998" Width="110" MaxLength="4"/>
+                    <TextBlock x:Name="FAgeInfo" Style="{StaticResource Sub}" FontSize="14" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                  </StackPanel>
+                </StackPanel>
+
+                <WrapPanel Margin="0,16,0,0">
+                  <Button x:Name="FImportant" Style="{StaticResource Chip}" Content="★  Important"/>
+                </WrapPanel>
+              </StackPanel>
+            </Grid>
+          </ScrollViewer>
+        </DockPanel>
+      </Border>
+    </Grid>
+
+    <!-- Fiche d'un rendez-vous : tous ses détails -->
+    <Grid x:Name="Fiche" Grid.RowSpan="4" Visibility="Collapsed">
+      <Rectangle x:Name="FicheFond" Fill="#C8050410"/>
+      <Border Style="{StaticResource Card}" Background="#F2141026" Width="640" Margin="0,30" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="0">
+        <Border.Effect><DropShadowEffect x:Name="FicheLueur" Color="#7A3CFF" BlurRadius="44" ShadowDepth="0" Opacity="0.5"/></Border.Effect>
+        <DockPanel>
+          <Border x:Name="FicheTete" DockPanel.Dock="Top" CornerRadius="22,22,0,0" Padding="26,22">
+            <DockPanel>
+              <Border x:Name="FicheRond" Width="72" Height="72" CornerRadius="36" BorderThickness="2" Margin="0,0,18,0" VerticalAlignment="Center">
+                <TextBlock x:Name="FicheIcone" FontFamily="Segoe UI Emoji" FontSize="34" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              </Border>
+              <StackPanel VerticalAlignment="Center">
+                <TextBlock x:Name="FicheSorte" FontSize="12" FontWeight="Bold"/>
+                <TextBlock x:Name="FicheTitre" FontFamily="Segoe UI Variable Display, Segoe UI" FontSize="26" FontWeight="Bold" Foreground="White" TextWrapping="Wrap"/>
+                <TextBlock x:Name="FicheQuand" FontSize="15" Foreground="#EEEBF7" TextWrapping="Wrap" Margin="0,4,0,0"/>
+              </StackPanel>
+            </DockPanel>
+          </Border>
+          <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="26,12,26,22">
+            <Button x:Name="BtnFicheFait" Style="{StaticResource BtnSecondary}" Content="✓  C'est fait" Margin="0,0,10,0"/>
+            <Button x:Name="BtnFicheDupliquer" Style="{StaticResource BtnSecondary}" Content="Dupliquer" Margin="0,0,10,0"/>
+            <Button x:Name="BtnFicheSupprimer" Style="{StaticResource BtnSecondary}" Content="Supprimer" Margin="0,0,10,0"/>
+            <Button x:Name="BtnFicheModifier" Style="{StaticResource BtnSecondary}" Content="Modifier" Margin="0,0,10,0"/>
+            <Button x:Name="BtnFicheFermer" Style="{StaticResource BtnPrimary}" Content="Fermer"/>
+          </StackPanel>
+          <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="26,16,12,0">
+            <StackPanel x:Name="FicheCorps" Margin="0,0,14,0"/>
+          </ScrollViewer>
+        </DockPanel>
+      </Border>
+    </Grid>
+
+    <!-- Réglages : la voix d'Evermind -->
+    <Grid x:Name="Reglages" Grid.RowSpan="4" Visibility="Collapsed">
+      <Rectangle x:Name="ReglagesFond" Fill="#C8050410"/>
+      <Border Style="{StaticResource Card}" Background="#F2141026" Width="580" Margin="0,24" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="26,22,12,22">
+        <Border.Effect><DropShadowEffect Color="#7A3CFF" BlurRadius="40" ShadowDepth="0" Opacity="0.45"/></Border.Effect>
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="0,0,14,0">
+            <TextBlock Text="Réglages" Style="{StaticResource H2}"/>
+            <TextBlock Text="La voix d'Evermind" Style="{StaticResource Label}" FontSize="16" Margin="2,18,0,4"/>
+            <TextBlock Text="Choisis la voix qui te parle (confirmations et rappels). Clique sur une voix pour l'écouter." Style="{StaticResource Sub}" Margin="2,0,0,12"/>
+            <StackPanel x:Name="VoixChoix"/>
+            <TextBlock x:Name="VoixReglageInfo" Style="{StaticResource Sub}" Margin="2,6,0,0" Visibility="Collapsed"/>
+            <TextBlock Text="Réveil par la voix" Style="{StaticResource Label}" FontSize="16" Margin="2,22,0,4"/>
+            <DockPanel>
+              <CheckBox x:Name="ChkEveil" DockPanel.Dock="Left" Style="{StaticResource Switch}" VerticalAlignment="Center" Margin="2,0,14,0"/>
+              <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="Réagir quand je dis « OK Eve »" Foreground="#EEEBF7" FontSize="14"/>
+                <TextBlock x:Name="EveilEtat" Style="{StaticResource Sub}" FontSize="13" Margin="0,2,0,0"/>
+              </StackPanel>
+            </DockPanel>
+
+            <TextBlock Text="L'assistant" Style="{StaticResource Label}" FontSize="16" Margin="2,22,0,4"/>
+            <DockPanel>
+              <Button x:Name="BtnAssistant" DockPanel.Dock="Right" Style="{StaticResource BtnPrimary}" Content="Installer l'assistant" VerticalAlignment="Center" Margin="14,0,0,0"/>
+              <TextBlock x:Name="AssistantEtat" Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="2,0,0,0"/>
+            </DockPanel>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+              <Button x:Name="BtnReglagesFermer" Style="{StaticResource BtnPrimary}" Content="Fermer"/>
+            </StackPanel>
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+    </Grid>
+    <!-- « Êtes-vous sûr ? » : par dessus tout le reste -->
+    <Grid x:Name="Confirmation" Grid.RowSpan="4" Visibility="Collapsed">
+      <Rectangle x:Name="ConfirmationFond" Fill="#B0050410"/>
+      <Border Style="{StaticResource Card}" Background="#F7141026" Width="440" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="28,24">
+        <Border.Effect><DropShadowEffect Color="#F04438" BlurRadius="40" ShadowDepth="0" Opacity="0.35"/></Border.Effect>
+        <StackPanel>
+          <TextBlock x:Name="ConfirmationTitre" Style="{StaticResource H2}" TextWrapping="Wrap"/>
+          <TextBlock x:Name="ConfirmationTexte" Style="{StaticResource Sub}" FontSize="14" Margin="0,10,0,0"/>
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
+            <Button x:Name="BtnConfirmationNon" Style="{StaticResource BtnSecondary}" Content="Annuler" Margin="0,0,10,0"/>
+            <Button x:Name="BtnConfirmationOui" Style="{StaticResource BtnDanger}" Content="Supprimer"/>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Grid>
   </Grid>
 </Window>

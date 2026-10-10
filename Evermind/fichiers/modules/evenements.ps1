@@ -3,14 +3,65 @@
 
 $ui.VersionText.Text = "Evermind $AppVersion"
 Update-Greeting
-Update-Calendrier
-Update-Liste
+Start-LogoAnime $ui.LogoHote 84
+Update-Agenda
 
+# Barre rapide
+$ui.BtnAjouter.Add_Click({ Invoke-Ajouter })
+$ui.InPhrase.Add_TextChanged({
+    Update-Apercu
+    if ($ui.InPhrase.Text) { $ui.FormMessage.Visibility = 'Collapsed' }
+})
+
+# Voix
+$ui.BtnMicro.Add_Click({ Start-Ecoute 'bouton' })
+$ui.BtnVoixInstall.Add_Click({ Start-VoixInstall })
+$ui.BtnVoixPlusTard.Add_Click({ Set-Setting 'AssistantPlusTard' $true; Update-VoixInstall })
+$ui.BtnAssistant.Add_Click({ Set-Setting 'AssistantPlusTard' $false; Close-Reglages; Start-VoixInstall 'ia' })
+Register-VoixHotkey
+Update-RaccourciTexte
+Start-Eveil   # « OK Eve », si activé dans les réglages
+$ui.ChkEveil.Add_Click({ Set-EveilReglage ([bool]$ui.ChkEveil.IsChecked) })
+if (Test-DicteeInstallee) { Set-VoixEtat 'Appuie sur le micro ou sur Ctrl + Maj + Espace (même en jeu), puis parle. Je m''arrête tout seul quand tu te tais.' }
+Update-VoixInstall
+
+# Réglages (choix de la voix)
+$ui.BtnReglages.Add_Click({ Open-Reglages })
+$ui.BtnReglagesFermer.Add_Click({ Close-Reglages })
+$ui.ReglagesFond.Add_MouseLeftButtonDown({ Close-Reglages })
+
+# Calendrier et panneau
 $ui.BtnMoisPrec.Add_Click({ Move-Mois -1 })
 $ui.BtnMoisSuiv.Add_Click({ Move-Mois 1 })
-$ui.BtnAjouter.Add_Click({ Invoke-Ajouter })
-# Un message d'erreur sous le formulaire disparaît dès qu'on corrige
-foreach ($box in $ui.InTitre, $ui.InHeure) { $box.Add_TextChanged({ if ($script:FormMsgErreur) { $ui.FormMessage.Visibility = 'Collapsed' } }) }
+$ui.BtnAujourdhui.Add_Click({ Show-Aujourdhui })
+$ui.BtnToutVoir.Add_Click({ $script:JourChoisi = $null; Update-Agenda })
+$ui.BtnAjouterJour.Add_Click({ Open-Formulaire -Jour $script:JourChoisi })
+$ui.BtnNouveau.Add_Click({ Open-Formulaire })
+
+# Formulaire
+$ui.FMoisPrec.Add_Click({ $script:FMois = $script:FMois.AddMonths(-1); Update-FCalendrier })
+$ui.FMoisSuiv.Add_Click({ $script:FMois = $script:FMois.AddMonths(1); Update-FCalendrier })
+$ui.FRepUne.Add_Click({ Set-FRepet 'une' })
+$ui.FRepSemaine.Add_Click({ Set-FRepet 'semaine' })
+$ui.FRepMois.Add_Click({ Set-FRepet 'mois' })
+$ui.FRepAn.Add_Click({ Set-FRepet 'an' })
+$ui.FHeure.Add_TextChanged({ Update-FHeureInfo })
+Initialize-FTypes
+Initialize-FDetails
+Initialize-Fiche
+$ui.BtnConfirmationNon.Add_Click({ Close-Confirmation })
+$ui.ConfirmationFond.Add_MouseLeftButtonDown({ Close-Confirmation })
+$ui.BtnConfirmationOui.Add_Click({ $a = $script:ConfirmationAction; Close-Confirmation; if ($a) { & $a } })
+$ui.FTitre.Add_TextChanged({ Update-FTypeAuto })
+$ui.FJournee.Add_Click({ Set-FJournee (-not $script:FJournee) })
+$ui.BtnFAnnuler.Add_Click({ Close-Formulaire })
+$ui.FormFond.Add_MouseLeftButtonDown({ Close-Formulaire })
+$ui.BtnFEnregistrer.Add_Click({ Save-Formulaire })
+$Window.Add_PreviewKeyDown({ param($s, $e) if ($e.Key -ne 'Escape') { return }
+    if ($ui.Confirmation.Visibility -eq 'Visible') { Close-Confirmation; $e.Handled = $true }
+    elseif ($ui.Formulaire.Visibility -eq 'Visible') { Close-Formulaire; $e.Handled = $true }
+    elseif ($ui.Reglages.Visibility -eq 'Visible') { Close-Reglages; $e.Handled = $true }
+    elseif ($ui.Fiche.Visibility -eq 'Visible') { Close-Fiche; $e.Handled = $true } })
 
 $ui.ChkDemarrage.IsChecked = if ($EnTest) { $true } else { Test-AutoStart }
 $ui.ChkDemarrage.Add_Click({
@@ -21,8 +72,8 @@ $ui.ChkDemarrage.Add_Click({
 
 # La croix cache Evermind près de l'horloge, « Quitter » (clic droit sur l'icône) le ferme vraiment
 $Window.Add_Closing({ param($s, $e) if (-not $script:Quitting) { $e.Cancel = $true; Hide-ToTray } })
-$Window.Add_Activated({ Update-Greeting; Update-Liste })   # la liste se remet à jour (« demain » devient « aujourd'hui »)
-$Window.Add_Loaded({ [void]$ui.InTitre.Focus() })
+$Window.Add_Activated({ Update-Greeting; Update-Agenda; Update-Apercu })   # « demain » devient « aujourd'hui »
+$Window.Add_Loaded({ [void]$ui.InPhrase.Focus() })
 
 # Un nouveau lancement d'Evermind demande d'afficher cette fenêtre (elle peut être cachée près de l'horloge)
 if ($script:ShowSignal) {
@@ -31,3 +82,27 @@ if ($script:ShowSignal) {
     $script:ShowWatch.Add_Tick({ if ($script:ShowSignal.WaitOne(0)) { Show-MainWindow } })
     $script:ShowWatch.Start()
 }
+
+# Tests automatiques : phrase tapée d'avance, ajout, formulaire ouvert, dictée d'un fichier son
+if ($env:EVERMIND_PHRASE) { $ui.InPhrase.Text = $env:EVERMIND_PHRASE; if ($env:EVERMIND_AJOUTER) { Invoke-Ajouter } }
+if ($env:EVERMIND_FORMULAIRE) { Open-Formulaire }
+if ($env:EVERMIND_REGLAGES) { Open-Reglages }
+if ($env:EVERMIND_CONFIRMATION) { Confirm-Suppression (@($script:Agenda | Where-Object { $_.Titre -like $env:EVERMIND_CONFIRMATION })[0]).Id; if ($env:EVERMIND_CONFIRMATION_OUI) { $ui.BtnConfirmationOui.RaiseEvent((New-Object System.Windows.RoutedEventArgs ([System.Windows.Controls.Button]::ClickEvent))) } }
+if ($env:EVERMIND_FICHE) { $it = @(Get-Upcoming | Where-Object { $_.RV.Titre -like $env:EVERMIND_FICHE })[0]; if ($it) { Show-Fiche $it.RV $it.Prochain } }
+if ($env:EVERMIND_FORMULAIRE_RV) { Open-Formulaire -RV (@($script:Agenda | Where-Object { $_.Titre -like $env:EVERMIND_FORMULAIRE_RV })[0]) }
+if ($env:EVERMIND_TEST_PAROLE) { Invoke-Parole 'Salut ! C''est noté : anniversaire de Jordan, le 12 mars.' $env:EVERMIND_TEST_PAROLE }
+if ($env:EVERMIND_DICTEE_WAV) { Start-Transcription $env:EVERMIND_DICTEE_WAV }
+# Plusieurs phrases séparées par « || » : une conversation, chaque phrase après la réponse à la précédente
+if ($env:EVERMIND_COMMANDE) {
+    $script:TestPhrases = New-Object System.Collections.Queue
+    foreach ($x in ($env:EVERMIND_COMMANDE -split '\|\|')) { if ($x.Trim()) { $script:TestPhrases.Enqueue($x.Trim()) } }
+    $script:TestTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $script:TestTimer.Interval = [TimeSpan]::FromMilliseconds(200)
+    $script:TestTimer.Add_Tick({
+        if ($script:Demande) { return }
+        if (-not $script:TestPhrases.Count) { $script:TestTimer.Stop(); $script:TestTimer = $null; return }
+        if (-not (Invoke-Commande $script:TestPhrases.Dequeue() 'test')) { Write-Log 'Assistant absent'; $script:TestPhrases.Clear() }
+    })
+    $script:TestTimer.Start()
+}
+if ($env:EVERMIND_INSTALLER) { Start-VoixInstall }

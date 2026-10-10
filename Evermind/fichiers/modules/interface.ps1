@@ -5,7 +5,15 @@
 # Fenêtre (décrite dans interface.xaml)
 # ---------------------------------------------------------------------------
 [xml]$Xaml = [IO.File]::ReadAllText((Join-Path $ModulesDir 'interface.xaml'), [Text.Encoding]::UTF8)
-$Window = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $Xaml))
+try { $Window = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $Xaml)) }
+catch {
+    # Sans fenêtre, Evermind resterait caché sans rien faire : on prévient et on s'arrête
+    $e = $_.Exception; while ($e.InnerException) { $e = $e.InnerException }
+    Write-Log "Fenêtre impossible à charger : $($e.Message)"
+    [Console]::Error.WriteLine("Fenêtre impossible à charger : $($e.Message)")
+    if (-not $EnTest) { [System.Windows.MessageBox]::Show("Evermind n'a pas pu s'ouvrir :`n`n$($e.Message)`n`nRetélécharge Evermind et remplace tout le dossier.", 'Evermind', 'OK', 'Error') | Out-Null }
+    exit 1
+}
 $ui = @{}
 foreach ($node in $Xaml.SelectNodes('//*[@*[local-name()="Name"]]')) {
     $n = $node.Attributes | Where-Object { $_.LocalName -eq 'Name' } | Select-Object -First 1
@@ -24,7 +32,6 @@ if (Test-Path -LiteralPath $IconPath) {
     try {
         $frames = [System.Windows.Media.Imaging.BitmapDecoder]::Create((New-Object IO.MemoryStream (, [IO.File]::ReadAllBytes($IconPath))), 'None', 'OnLoad').Frames
         $Window.Icon = $frames | Sort-Object PixelWidth | Where-Object { $_.PixelWidth -ge 32 } | Select-Object -First 1
-        $ui.Logo.Source = $frames | Sort-Object PixelWidth -Descending | Select-Object -First 1
     } catch { Write-Log "Icône : $_" }
 }
 
@@ -36,6 +43,28 @@ $Window.Add_SourceInitialized({
     try { [EMNative]::SetWindowIdentity($h, $AppId, (Get-LaunchCommand), $IconPath, 'Evermind') }
     catch { Write-Log "Identité de la fenêtre : $_" }
 })
+
+# « Êtes-vous sûr ? » : petite fenêtre par dessus tout. $Oui est lancé seulement si on confirme.
+function Show-Confirmation([string]$Titre, [string]$Texte, [string]$Bouton, [scriptblock]$Oui) {
+    $ui.ConfirmationTitre.Text = $Titre
+    $ui.ConfirmationTexte.Text = $Texte
+    $ui.ConfirmationTexte.Visibility = if ($Texte) { 'Visible' } else { 'Collapsed' }
+    $ui.BtnConfirmationOui.Content = $Bouton
+    $script:ConfirmationAction = $Oui
+    $ui.Confirmation.Visibility = 'Visible'
+    [void]$ui.BtnConfirmationNon.Focus()   # Entrée par erreur = Annuler
+}
+
+function Close-Confirmation { $ui.Confirmation.Visibility = 'Collapsed'; $script:ConfirmationAction = $null }
+
+# Bouton comme dans Nevermind (même style partout)
+function New-Button([string]$Text, [string]$Style = 'BtnSecondary') {
+    $btn = New-Object System.Windows.Controls.Button
+    $btn.Content = $Text
+    $btn.Style = $Window.FindResource($Style)
+    $btn.VerticalAlignment = 'Center'
+    $btn
+}
 
 # Bonjour selon l'heure
 function Update-Greeting {
@@ -51,8 +80,13 @@ function Update-Greeting {
 function Start-Capture([string]$Path) {
     $Window.WindowStartupLocation = 'Manual'
     $Window.Left = -10000; $Window.Top = 0; $Window.ShowActivated = $false
+    # Capture une fois la fenêtre dessinée et la dictée de test (s'il y en a une) terminée
     $Window.Add_ContentRendered({
-        $Window.Dispatcher.BeginInvoke([Action]{
+        $script:CaptureTimer = New-Object System.Windows.Threading.DispatcherTimer
+        $script:CaptureTimer.Interval = [TimeSpan]::FromMilliseconds(300)
+        $script:CaptureTimer.Add_Tick({
+            if ($script:Transcription -or $script:Demande -or $script:TestTimer -or ($script:Eveil -and $script:Eveil.Detecte) -or $script:Piper -or ($script:VoixDl -and -not $script:VoixDl.Fini)) { return }
+            $script:CaptureTimer.Stop()
             try {
                 $root = $Window.Content
                 $w = [int]$root.ActualWidth; $h = [int]$root.ActualHeight
@@ -64,6 +98,7 @@ function Start-Capture([string]$Path) {
                 try { $enc.Save($fs) } finally { $fs.Dispose() }
             } catch { Write-Log "Capture : $_"; [Console]::Error.WriteLine("Capture : $_") }
             Exit-App
-        }, [System.Windows.Threading.DispatcherPriority]::ApplicationIdle) | Out-Null
+        })
+        $script:CaptureTimer.Start()
     })
 }

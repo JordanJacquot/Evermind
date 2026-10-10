@@ -1,6 +1,354 @@
 ﻿// Evermind : fonctions natives de Windows, compilées au lancement par Evermind.ps1.
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+
+// ---------------------------------------------------------------------------
+// Micro : enregistrement en 16 kHz mono (le format de Whisper), avec le niveau du son
+// pour savoir quand on parle et quand on s'est tu.
+// ---------------------------------------------------------------------------
+public class EMMicro
+{
+    [StructLayout(LayoutKind.Sequential)]
+    struct WAVEFORMATEX { public ushort wFormatTag, nChannels; public uint nSamplesPerSec, nAvgBytesPerSec; public ushort nBlockAlign, wBitsPerSample, cbSize; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct WAVEHDR { public IntPtr lpData; public uint dwBufferLength, dwBytesRecorded; public IntPtr dwUser; public uint dwFlags, dwLoops; public IntPtr lpNext, reserved; }
+
+    [DllImport("winmm.dll")] static extern int waveInOpen(out IntPtr h, uint dev, ref WAVEFORMATEX f, IntPtr cb, IntPtr inst, uint flags);
+    [DllImport("winmm.dll")] static extern int waveInPrepareHeader(IntPtr h, IntPtr hdr, uint size);
+    [DllImport("winmm.dll")] static extern int waveInUnprepareHeader(IntPtr h, IntPtr hdr, uint size);
+    [DllImport("winmm.dll")] static extern int waveInAddBuffer(IntPtr h, IntPtr hdr, uint size);
+    [DllImport("winmm.dll")] static extern int waveInStart(IntPtr h);
+    [DllImport("winmm.dll")] static extern int waveInReset(IntPtr h);
+    [DllImport("winmm.dll")] static extern int waveInClose(IntPtr h);
+    [DllImport("winmm.dll")] static extern uint waveInGetNumDevs();
+
+    const uint WAVE_MAPPER = 0xFFFFFFFF, CALLBACK_EVENT = 0x50000, WHDR_DONE = 1;
+    const int Rate = 16000, BufBytes = 3200;   // tampons de 100 ms
+
+    IntPtr h = IntPtr.Zero;
+    readonly IntPtr[] hdrs = new IntPtr[4];
+    readonly AutoResetEvent ev = new AutoResetEvent(false);
+    readonly MemoryStream data = new MemoryStream();
+    Thread th;
+    volatile bool run;
+    double floor = 0; int floorCount = 0;
+
+    public volatile float Level;              // niveau du son, de 0 à 1 (pour l'animation)
+    public volatile int Millis;               // durée enregistrée
+    public volatile bool HeardVoice;          // on a entendu parler
+    public volatile int MillisSinceVoice;     // depuis combien de temps on s'est tu
+
+    public static bool HasDevice() { return waveInGetNumDevs() > 0; }
+    static int HeaderSize { get { return Marshal.SizeOf(typeof(WAVEHDR)); } }
+
+    // 0 si l'enregistrement a commencé, sinon le code d'erreur de Windows (micro absent ou refusé)
+    public int Start()
+    {
+        WAVEFORMATEX f = new WAVEFORMATEX { wFormatTag = 1, nChannels = 1, nSamplesPerSec = Rate, wBitsPerSample = 16, nBlockAlign = 2, nAvgBytesPerSec = Rate * 2, cbSize = 0 };
+        int r = waveInOpen(out h, WAVE_MAPPER, ref f, ev.SafeWaitHandle.DangerousGetHandle(), IntPtr.Zero, CALLBACK_EVENT);
+        if (r != 0) { h = IntPtr.Zero; return r; }
+        for (int i = 0; i < hdrs.Length; i++)
+        {
+            WAVEHDR hd = new WAVEHDR { lpData = Marshal.AllocHGlobal(BufBytes), dwBufferLength = BufBytes };
+            hdrs[i] = Marshal.AllocHGlobal(HeaderSize);
+            Marshal.StructureToPtr(hd, hdrs[i], false);
+            waveInPrepareHeader(h, hdrs[i], (uint)HeaderSize);
+            waveInAddBuffer(h, hdrs[i], (uint)HeaderSize);
+        }
+        run = true;
+        th = new Thread(Loop) { IsBackground = true };
+        th.Start();
+        return waveInStart(h);
+    }
+
+    void Loop()
+    {
+        while (run)
+        {
+            ev.WaitOne(200);
+            for (int i = 0; i < hdrs.Length && run; i++)
+            {
+                WAVEHDR hd = (WAVEHDR)Marshal.PtrToStructure(hdrs[i], typeof(WAVEHDR));
+                if ((hd.dwFlags & WHDR_DONE) == 0) continue;
+                int n = (int)hd.dwBytesRecorded;
+                if (n > 0)
+                {
+                    byte[] b = new byte[n];
+                    Marshal.Copy(hd.lpData, b, 0, n);
+                    lock (data) data.Write(b, 0, n);
+                    Analyse(b, n);
+                }
+                waveInUnprepareHeader(h, hdrs[i], (uint)HeaderSize);
+                hd.dwFlags = 0; hd.dwBytesRecorded = 0;
+                Marshal.StructureToPtr(hd, hdrs[i], false);
+                waveInPrepareHeader(h, hdrs[i], (uint)HeaderSize);
+                waveInAddBuffer(h, hdrs[i], (uint)HeaderSize);
+            }
+        }
+    }
+
+    // Niveau du son ; le bruit de fond est mesuré sur les 300 premières millisecondes
+    void Analyse(byte[] b, int n)
+    {
+        double sum = 0; int count = n / 2;
+        for (int i = 0; i + 1 < n; i += 2) { short s = (short)(b[i] | (b[i + 1] << 8)); sum += (double)s * s; }
+        double rms = count > 0 ? Math.Sqrt(sum / count) / 32768.0 : 0;
+        int ms = count * 1000 / Rate;
+        Millis += ms;
+        Level = (float)Math.Min(1.0, rms * 8);
+        if (floorCount < 3) { floor = (floor * floorCount + rms) / (floorCount + 1); floorCount++; return; }
+        double seuil = Math.Max(0.012, floor * 3);
+        if (rms > seuil) { HeardVoice = true; MillisSinceVoice = 0; }
+        else MillisSinceVoice += ms;
+    }
+
+    public void Stop()
+    {
+        if (h == IntPtr.Zero) return;
+        run = false;
+        ev.Set();
+        if (th != null) th.Join(1000);
+        waveInReset(h);
+        for (int i = 0; i < hdrs.Length; i++)
+        {
+            if (hdrs[i] == IntPtr.Zero) continue;
+            WAVEHDR hd = (WAVEHDR)Marshal.PtrToStructure(hdrs[i], typeof(WAVEHDR));
+            waveInUnprepareHeader(h, hdrs[i], (uint)HeaderSize);
+            Marshal.FreeHGlobal(hd.lpData);
+            Marshal.FreeHGlobal(hdrs[i]);
+            hdrs[i] = IntPtr.Zero;
+        }
+        waveInClose(h);
+        h = IntPtr.Zero;
+    }
+
+    // Enregistre ce qui a été entendu dans un fichier .wav
+    public void SaveWav(string path)
+    {
+        byte[] pcm; lock (data) pcm = data.ToArray();
+        using (BinaryWriter w = new BinaryWriter(File.Create(path)))
+        {
+            w.Write(new[] { 'R', 'I', 'F', 'F' }); w.Write(36 + pcm.Length);
+            w.Write(new[] { 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ' }); w.Write(16);
+            w.Write((short)1); w.Write((short)1); w.Write(Rate); w.Write(Rate * 2); w.Write((short)2); w.Write((short)16);
+            w.Write(new[] { 'd', 'a', 't', 'a' }); w.Write(pcm.Length); w.Write(pcm);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Écoute du mot de réveil « OK Eve » : Vosk (reconnaissance vocale locale, petite et légère) écoute le micro
+// en continu sur son propre fil, et ne sait reconnaître que « ok ève » (tout le reste devient « inconnu »).
+// Rien n'est enregistré ni envoyé : chaque phrase est oubliée dès qu'elle est finie, sauf celle qui commence par « OK Eve ».
+// ---------------------------------------------------------------------------
+public class EMEveil
+{
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool SetDllDirectory(string p);
+    [DllImport("libvosk.dll")] static extern void vosk_set_log_level(int l);
+    [DllImport("libvosk.dll")] static extern IntPtr vosk_model_new(byte[] path);
+    [DllImport("libvosk.dll")] static extern void vosk_model_free(IntPtr m);
+    [DllImport("libvosk.dll")] static extern IntPtr vosk_recognizer_new_grm(IntPtr m, float rate, byte[] grm);
+    [DllImport("libvosk.dll")] static extern void vosk_recognizer_set_words(IntPtr r, int w);
+    [DllImport("libvosk.dll")] static extern int vosk_recognizer_accept_waveform(IntPtr r, byte[] data, int len);
+    [DllImport("libvosk.dll")] static extern IntPtr vosk_recognizer_result(IntPtr r);
+    [DllImport("libvosk.dll")] static extern IntPtr vosk_recognizer_final_result(IntPtr r);
+    [DllImport("libvosk.dll")] static extern void vosk_recognizer_reset(IntPtr r);
+    [DllImport("libvosk.dll")] static extern void vosk_recognizer_free(IntPtr r);
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct WAVEFORMATEX { public ushort wFormatTag, nChannels; public uint nSamplesPerSec, nAvgBytesPerSec; public ushort nBlockAlign, wBitsPerSample, cbSize; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct WAVEHDR { public IntPtr lpData; public uint dwBufferLength, dwBytesRecorded; public IntPtr dwUser; public uint dwFlags, dwLoops; public IntPtr lpNext, reserved; }
+    [DllImport("winmm.dll")] static extern int waveInOpen(out IntPtr h, uint dev, ref WAVEFORMATEX f, IntPtr cb, IntPtr inst, uint flags);
+    [DllImport("winmm.dll")] static extern int waveInPrepareHeader(IntPtr h, IntPtr hdr, uint size);
+    [DllImport("winmm.dll")] static extern int waveInUnprepareHeader(IntPtr h, IntPtr hdr, uint size);
+    [DllImport("winmm.dll")] static extern int waveInAddBuffer(IntPtr h, IntPtr hdr, uint size);
+    [DllImport("winmm.dll")] static extern int waveInStart(IntPtr h);
+    [DllImport("winmm.dll")] static extern int waveInReset(IntPtr h);
+    [DllImport("winmm.dll")] static extern int waveInClose(IntPtr h);
+
+    const int Rate = 16000, BufBytes = 3200;
+    const string Grammaire = "[\"ok ève\", \"[unk]\"]";
+    IntPtr model = IntPtr.Zero, rec = IntPtr.Zero, h = IntPtr.Zero;
+    readonly IntPtr[] hdrs = new IntPtr[4];
+    readonly AutoResetEvent ev = new AutoResetEvent(false);
+    readonly MemoryStream phrase = new MemoryStream();   // la phrase en cours (gardée seulement si elle commence par « OK Eve »)
+    Thread th;
+    volatile bool run;
+
+    public volatile bool Pause;          // pendant qu'Evermind parle, écoute ou réfléchit
+    public volatile bool Detecte;        // « OK Eve » vient d'être entendu
+    public volatile bool AvecCommande;   // ... suivi d'autres mots dans la même phrase (« OK Eve, supprime le foot »)
+    public double Seuil = 0.3;           // confiance minimale pour être « candidat » (Whisper confirme ensuite chaque fois)
+    public double ConfMin;               // la plus petite confiance de « ok » et « ève » (0.99 et plus : sûr)
+    public string Erreur = "";
+    public string DernierTexte = "";
+    byte[] pcmDetecte;
+    public int RateDetecte = Rate;
+
+    static int HeaderSize { get { return Marshal.SizeOf(typeof(WAVEHDR)); } }
+
+    // Charge Vosk et son modèle français (environ une seconde)
+    public bool Charger(string dossierLib, string dossierModele)
+    {
+        try
+        {
+            SetDllDirectory(dossierLib);
+            vosk_set_log_level(-1);
+            model = vosk_model_new(Encoding.UTF8.GetBytes(dossierModele + "\0"));
+            if (model == IntPtr.Zero) { Erreur = "modèle illisible"; return false; }
+            return true;
+        }
+        catch (Exception e) { Erreur = e.Message; return false; }
+    }
+
+    IntPtr NouveauRecognizer(int rate)
+    {
+        IntPtr r = vosk_recognizer_new_grm(model, rate, Encoding.UTF8.GetBytes(Grammaire + "\0"));
+        vosk_recognizer_set_words(r, 1);
+        return r;
+    }
+
+    // 0 si l'écoute du micro a commencé, sinon le code d'erreur de Windows
+    public int Start()
+    {
+        if (model == IntPtr.Zero) return -1;
+        rec = NouveauRecognizer(Rate);
+        WAVEFORMATEX f = new WAVEFORMATEX { wFormatTag = 1, nChannels = 1, nSamplesPerSec = Rate, wBitsPerSample = 16, nBlockAlign = 2, nAvgBytesPerSec = Rate * 2, cbSize = 0 };
+        int r = waveInOpen(out h, 0xFFFFFFFF, ref f, ev.SafeWaitHandle.DangerousGetHandle(), IntPtr.Zero, 0x50000);
+        if (r != 0) { h = IntPtr.Zero; return r; }
+        for (int i = 0; i < hdrs.Length; i++)
+        {
+            WAVEHDR hd = new WAVEHDR { lpData = Marshal.AllocHGlobal(BufBytes), dwBufferLength = BufBytes };
+            hdrs[i] = Marshal.AllocHGlobal(HeaderSize);
+            Marshal.StructureToPtr(hd, hdrs[i], false);
+            waveInPrepareHeader(h, hdrs[i], (uint)HeaderSize);
+            waveInAddBuffer(h, hdrs[i], (uint)HeaderSize);
+        }
+        run = true;
+        th = new Thread(Boucle) { IsBackground = true, Priority = ThreadPriority.BelowNormal };
+        th.Start();
+        return waveInStart(h);
+    }
+
+    void Boucle()
+    {
+        bool enPause = false;
+        while (run)
+        {
+            ev.WaitOne(200);
+            for (int i = 0; i < hdrs.Length && run; i++)
+            {
+                WAVEHDR hd = (WAVEHDR)Marshal.PtrToStructure(hdrs[i], typeof(WAVEHDR));
+                if ((hd.dwFlags & 1) == 0) continue;
+                int n = (int)hd.dwBytesRecorded;
+                if (Pause) { if (!enPause) { vosk_recognizer_reset(rec); phrase.SetLength(0); enPause = true; } }
+                else if (n > 0)
+                {
+                    enPause = false;
+                    byte[] b = new byte[n];
+                    Marshal.Copy(hd.lpData, b, 0, n);
+                    Traiter(rec, b, n, Rate);
+                }
+                waveInUnprepareHeader(h, hdrs[i], (uint)HeaderSize);
+                hd.dwFlags = 0; hd.dwBytesRecorded = 0;
+                Marshal.StructureToPtr(hd, hdrs[i], false);
+                waveInPrepareHeader(h, hdrs[i], (uint)HeaderSize);
+                waveInAddBuffer(h, hdrs[i], (uint)HeaderSize);
+            }
+        }
+    }
+
+    void Traiter(IntPtr r, byte[] b, int n, int rate)
+    {
+        phrase.Write(b, 0, n);
+        if (phrase.Length > rate * 2 * 20) phrase.SetLength(0);   // jamais plus de 20 secondes en mémoire
+        if (vosk_recognizer_accept_waveform(r, b, n) == 1) Analyser(PtrToString(vosk_recognizer_result(r)), rate);
+    }
+
+    // Fin d'une phrase : « ok » puis « ève », tout au début et sûrs à coup sûr ? Sinon la phrase est oubliée.
+    public string Phrases = "";          // ce que Vosk a compris des dernières phrases (pour les tests)
+    void Analyser(string json, int rate)
+    {
+        Phrases = (Phrases + " | " + System.Text.RegularExpressions.Regex.Match(json, "\"text\"\\s*:\\s*\"([^\"]*)\"").Groups[1].Value);
+        if (Phrases.Length > 300) Phrases = Phrases.Substring(Phrases.Length - 300);
+        var mots = System.Text.RegularExpressions.Regex.Matches(json, "\"conf\"\\s*:\\s*([0-9.]+)[^}]*?\"word\"\\s*:\\s*\"([^\"]*)\"");
+        if (mots.Count >= 2)
+        {
+            double c0 = double.Parse(mots[0].Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            double c1 = double.Parse(mots[1].Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            if (mots[0].Groups[2].Value == "ok" && mots[1].Groups[2].Value == "ève" && c0 >= Seuil && c1 >= Seuil && !Detecte)
+            {
+                AvecCommande = mots.Count > 2;
+                ConfMin = Math.Min(c0, c1);
+                pcmDetecte = phrase.ToArray();
+                RateDetecte = rate;
+                DernierTexte = json;
+                Detecte = true;
+            }
+        }
+        phrase.SetLength(0);
+    }
+
+    // La phrase qui a réveillé Evermind, en .wav (quand la demande était dans la même phrase)
+    public void SaveWav(string path)
+    {
+        byte[] pcm = pcmDetecte ?? new byte[0];
+        using (BinaryWriter w = new BinaryWriter(File.Create(path)))
+        {
+            w.Write(new[] { 'R', 'I', 'F', 'F' }); w.Write(36 + pcm.Length);
+            w.Write(new[] { 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ' }); w.Write(16);
+            w.Write((short)1); w.Write((short)1); w.Write(RateDetecte); w.Write(RateDetecte * 2); w.Write((short)2); w.Write((short)16);
+            w.Write(new[] { 'd', 'a', 't', 'a' }); w.Write(pcm.Length); w.Write(pcm);
+        }
+    }
+
+    // Tests automatiques : passe un fichier son (PCM 16 bits mono) comme s'il venait du micro
+    public void TestPcm(byte[] pcm, int rate)
+    {
+        IntPtr r = NouveauRecognizer(rate);
+        phrase.SetLength(0);
+        for (int i = 0; i < pcm.Length; i += BufBytes)
+        {
+            int n = Math.Min(BufBytes, pcm.Length - i);
+            byte[] b = new byte[n]; Array.Copy(pcm, i, b, 0, n);
+            Traiter(r, b, n, rate);
+        }
+        Analyser(PtrToString(vosk_recognizer_final_result(r)), rate);
+        vosk_recognizer_free(r);
+        if (Detecte) pcmDetecte = pcm;   // en test, il n'y a pas de micro pour la suite : toute la phrase est gardée
+    }
+
+    public void Stop()
+    {
+        run = false; ev.Set();
+        if (th != null) th.Join(1000);
+        if (h != IntPtr.Zero)
+        {
+            waveInReset(h);
+            for (int i = 0; i < hdrs.Length; i++)
+            {
+                if (hdrs[i] == IntPtr.Zero) continue;
+                WAVEHDR hd = (WAVEHDR)Marshal.PtrToStructure(hdrs[i], typeof(WAVEHDR));
+                waveInUnprepareHeader(h, hdrs[i], (uint)HeaderSize);
+                Marshal.FreeHGlobal(hd.lpData); Marshal.FreeHGlobal(hdrs[i]); hdrs[i] = IntPtr.Zero;
+            }
+            waveInClose(h); h = IntPtr.Zero;
+        }
+        if (rec != IntPtr.Zero) { vosk_recognizer_free(rec); rec = IntPtr.Zero; }
+    }
+
+    static string PtrToString(IntPtr p)
+    {
+        if (p == IntPtr.Zero) return "";
+        int n = 0; while (Marshal.ReadByte(p, n) != 0) n++;
+        byte[] b = new byte[n]; Marshal.Copy(p, b, 0, n);
+        return Encoding.UTF8.GetString(b);
+    }
+}
 
 public static class EMNative
 {
@@ -13,6 +361,24 @@ public static class EMNative
         int on = 1;
         if (DwmSetWindowAttribute(hwnd, 20, ref on, 4) != 0) DwmSetWindowAttribute(hwnd, 19, ref on, 4);
         DwmSetWindowAttribute(hwnd, 35, ref captionBgr, 4);
+    }
+
+    // -----------------------------------------------------------------------
+    // Raccourci clavier global (marche même en jeu) et état des touches
+    // -----------------------------------------------------------------------
+    [DllImport("user32.dll")] static extern bool RegisterHotKey(IntPtr hwnd, int id, uint mods, uint vk);
+    [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr hwnd, int id);
+    [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vk);
+    public static bool AddHotKey(IntPtr hwnd, int id, uint mods, uint vk) { return RegisterHotKey(hwnd, id, mods | 0x4000, vk); }   // 0x4000 : pas de répétition
+    public static void RemoveHotKey(IntPtr hwnd, int id) { UnregisterHotKey(hwnd, id); }
+    public static bool IsKeyDown(int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; }
+
+    // Fenêtre qui ne prend jamais le focus (la bulle « Je t'écoute » ne sort pas du jeu)
+    [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hwnd, int index);
+    [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hwnd, int index, int value);
+    public static void MakeNoActivate(IntPtr hwnd)
+    {
+        SetWindowLong(hwnd, -20, GetWindowLong(hwnd, -20) | 0x08000000 | 0x80 | 0x20);   // WS_EX_NOACTIVATE, TOOLWINDOW, TRANSPARENT
     }
 
     // -----------------------------------------------------------------------

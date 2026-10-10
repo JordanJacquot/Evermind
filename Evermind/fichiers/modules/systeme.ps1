@@ -92,6 +92,13 @@ function Exit-App {
     $script:Quitting = $true
     Write-Log 'Fermeture'
     try { if ($script:ShowWatch) { $script:ShowWatch.Stop() } } catch {}
+    try { if ($script:Ecoute) { $script:Ecoute.Mic.Stop(); $script:Ecoute = $null } } catch {}
+    try { if ($script:VoixHotkeyOk) { [EMNative]::RemoveHotKey((New-Object System.Windows.Interop.WindowInteropHelper $Window).Handle, $VoixHotkeyId) } } catch {}
+    try { if ($script:Bulle) { $script:Bulle.Win.Close() } } catch {}
+    try { if ($script:Synth) { $script:Synth.Dispose() } } catch {}
+    try { Stop-Cerveau } catch {}
+    try { Stop-Eveil } catch {}
+    try { if ($script:LogoTimer) { $script:LogoTimer.Stop() } } catch {}
     try { if ($script:NotifyIcon) { $script:NotifyIcon.Visible = $false; $script:NotifyIcon.Dispose() } } catch {}
     try { $Window.Close() } catch {}
     [System.Windows.Threading.Dispatcher]::CurrentDispatcher.InvokeShutdown()

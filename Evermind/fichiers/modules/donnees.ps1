@@ -69,18 +69,46 @@ function Set-Setting([string]$Name, $Value) {
 # Rendez-vous
 # ---------------------------------------------------------------------------
 # Dans le fichier, chaque rendez-vous ressemble à :
-#   { "Id": "...", "Titre": "Dentiste", "Quand": "2027-02-27T15:00", "Repetition": null, "Rappels": null, "Cree": "..." }
-#   Repetition : null pour un rendez-vous unique (les rendez-vous qui reviennent arrivent avec la saisie en français)
+#   { "Id": "...", "Titre": "Dentiste", "Type": "sante", "Quand": "2027-02-27T15:00", "Journee": false, "Repetition": null, "Rappels": null, "Cree": "..." }
+#   Type       : sorte de rendez-vous (anniv, sante, jeu... voir $Types dans comprendre.ps1)
+#   Journee    : toute la journée (un anniversaire) ; « Quand » est alors le jour à 0 h
+#   Repetition : null pour un rendez-vous unique, sinon par exemple { "Type": "semaine", "Jour": 1 } (voir comprendre.ps1)
+#                « Quand » est alors la première fois
 #   Rappels    : null = les rappels par défaut des réglages
 $DateFormat = 'yyyy-MM-ddTHH:mm'
 
+# Détails d'un rendez-vous, en plus du quoi et du quand
+#   Fin        : heure de fin ("2027-02-27T16:00") ou null
+#   Lieu, Lien, Notes : texte ; Avec : liste de noms ; APreparer : liste de { Texte, Fait }
+#   Important, Fait (« À faire » terminé) : oui ou non ; Naissance : année de naissance (anniversaire)
+$Details = 'Fin', 'Lieu', 'Avec', 'Lien', 'Notes', 'APreparer', 'Rappels', 'Important', 'Fait', 'Naissance'
+
+# Une date de détail abîmée ne doit jamais faire perdre le rendez-vous : elle est simplement ignorée
+function Read-DateSouple($Valeur) {
+    if ($Valeur -isnot [string] -or -not $Valeur) { return $null }
+    $d = [datetime]::MinValue
+    if ([datetime]::TryParseExact($Valeur, $DateFormat, [Globalization.CultureInfo]::InvariantCulture, 'None', [ref]$d)) { $d } else { $null }
+}
+
 function ConvertTo-RendezVous($Raw) {
+    $ic = [Globalization.CultureInfo]::InvariantCulture
     [pscustomobject]@{
         Id         = [string]$Raw.Id
         Titre      = [string]$Raw.Titre
-        Quand      = [datetime]::ParseExact([string]$Raw.Quand, $DateFormat, [Globalization.CultureInfo]::InvariantCulture)
+        Type       = [string]$Raw.Type
+        Journee    = [bool]$Raw.Journee
+        Quand      = [datetime]::ParseExact([string]$Raw.Quand, $DateFormat, $ic)
+        Fin        = Read-DateSouple $Raw.Fin
         Repetition = $Raw.Repetition
-        Rappels    = $Raw.Rappels
+        Lieu       = if ($Raw.Lieu -is [string]) { $Raw.Lieu } else { '' }
+        Avec       = @($Raw.Avec | Where-Object { $_ -is [string] -and $_ })
+        Lien       = if ($Raw.Lien -is [string]) { $Raw.Lien } else { '' }
+        Notes      = if ($Raw.Notes -is [string]) { $Raw.Notes } else { '' }
+        APreparer  = @(foreach ($x in @($Raw.APreparer)) { if ($x -and $x.Texte) { [pscustomobject]@{ Texte = [string]$x.Texte; Fait = [bool]$x.Fait } } })
+        Rappels    = if ($null -ne $Raw.Rappels) { @($Raw.Rappels | Where-Object { $_ -is [string] }) } else { $null }
+        Important  = [bool]$Raw.Important
+        Fait       = [bool]$Raw.Fait
+        Naissance  = if ($Raw.Naissance -is [int] -or $Raw.Naissance -is [long] -or "$($Raw.Naissance)" -match '^\d{4}$') { [int]"$($Raw.Naissance)" } else { $null }
         Cree       = [string]$Raw.Cree
     }
 }
@@ -96,17 +124,43 @@ function Import-Agenda {
     }
 }
 
-function Save-Agenda {
-    $list = @(foreach ($r in $script:Agenda) {
-        [ordered]@{ Id = $r.Id; Titre = $r.Titre; Quand = $r.Quand.ToString($DateFormat, [Globalization.CultureInfo]::InvariantCulture)
-                    Repetition = $r.Repetition; Rappels = $r.Rappels; Cree = $r.Cree }
+# L'agenda tel qu'il est écrit dans le fichier (sert aussi à « annule », qui en garde une copie)
+function Get-AgendaDonnees {
+    $ic = [Globalization.CultureInfo]::InvariantCulture
+    @(foreach ($r in $script:Agenda) {
+        [ordered]@{ Id = $r.Id; Titre = $r.Titre; Type = $r.Type; Journee = [bool]$r.Journee
+                    Quand = $r.Quand.ToString($DateFormat, $ic); Fin = $(if ($r.Fin) { $r.Fin.ToString($DateFormat, $ic) } else { $null })
+                    Repetition = $r.Repetition; Lieu = $r.Lieu; Avec = @($r.Avec); Lien = $r.Lien; Notes = $r.Notes
+                    APreparer = @($r.APreparer | ForEach-Object { [ordered]@{ Texte = $_.Texte; Fait = [bool]$_.Fait } })
+                    Rappels = $(if ($null -ne $r.Rappels) { @($r.Rappels) } else { $null })
+                    Important = [bool]$r.Important; Fait = [bool]$r.Fait; Naissance = $r.Naissance; Cree = $r.Cree }
     })
-    Save-JsonFile $AgendaFile ([ordered]@{ Version = 1; RendezVous = $list })
 }
 
-function Add-RendezVous([string]$Titre, [datetime]$Quand) {
-    $r = [pscustomobject]@{ Id = [guid]::NewGuid().ToString('N'); Titre = $Titre.Trim(); Quand = $Quand
-                            Repetition = $null; Rappels = $null; Cree = (Get-Date -Format s) }
+function Save-Agenda {
+    Save-JsonFile $AgendaFile ([ordered]@{ Version = 2; RendezVous = @(Get-AgendaDonnees) })
+}
+
+# $Detail : table avec les détails à mettre (Fin, Lieu, Avec...) ; ceux qui manquent restent vides
+function Set-Details($r, $Detail) {
+    if (-not $Detail) { return }
+    foreach ($k in $Details) {
+        if (-not $Detail.Contains($k)) { continue }
+        $v = $Detail[$k]
+        switch ($k) {
+            'Avec'      { $r.Avec = @($v | Where-Object { $_ }) }
+            'APreparer' { $r.APreparer = @($v | Where-Object { $_ } | ForEach-Object { if ($_ -is [string]) { [pscustomobject]@{ Texte = $_; Fait = $false } } else { [pscustomobject]@{ Texte = [string]$_.Texte; Fait = [bool]$_.Fait } } }) }
+            'Rappels'   { $r.Rappels = if ($null -ne $v) { @($v) } else { $null } }
+            default     { $r.$k = $v }
+        }
+    }
+}
+
+function Add-RendezVous([string]$Titre, [datetime]$Quand, $Repetition, [string]$Type = 'rdv', [bool]$Journee = $false, $Detail) {
+    $r = [pscustomobject]@{ Id = [guid]::NewGuid().ToString('N'); Titre = $Titre.Trim(); Type = $Type; Journee = $Journee; Quand = $Quand; Fin = $null
+                            Repetition = $Repetition; Lieu = ''; Avec = @(); Lien = ''; Notes = ''; APreparer = @(); Rappels = $null
+                            Important = $false; Fait = $false; Naissance = $null; Cree = (Get-Date -Format s) }
+    Set-Details $r $Detail
     [void]$script:Agenda.Add($r)
     Save-Agenda
     Write-Log "Rendez-vous ajouté : $($r.Titre), $($r.Quand.ToString($DateFormat))"
@@ -121,47 +175,70 @@ function Remove-RendezVous([string]$Id) {
     Write-Log "Rendez-vous supprimé : $($r.Titre), $($r.Quand.ToString($DateFormat))"
 }
 
+function Update-RendezVous([string]$Id, [string]$Titre, [datetime]$Quand, $Repetition, [string]$Type = 'rdv', [bool]$Journee = $false, $Detail) {
+    $r = Get-RendezVous $Id
+    if (-not $r) { throw 'ce rendez-vous n''existe plus' }
+    $r.Titre = $Titre.Trim(); $r.Quand = $Quand; $r.Repetition = $Repetition; $r.Type = $Type; $r.Journee = $Journee
+    Set-Details $r $Detail
+    Save-Agenda
+    Write-Log "Rendez-vous modifié : $($r.Titre), $($r.Quand.ToString($DateFormat))"
+    $r
+}
+
+function Get-RendezVous([string]$Id) { $script:Agenda | Where-Object { $_.Id -eq $Id } | Select-Object -First 1 }
+
+# Change un seul détail (« c'est fait », une case de la liste à préparer) et enregistre
+function Set-RendezVousDetail([string]$Id, [string]$Nom, $Valeur) {
+    $r = Get-RendezVous $Id
+    if (-not $r) { return }
+    Set-Details $r @{ $Nom = $Valeur }
+    Save-Agenda
+}
+
+# Rappels par défaut d'une sorte de rendez-vous (codes : « veille » à 20 h, « matin » à 8 h, « m60 » = 60 minutes avant)
+function Get-RappelsDefaut([string]$Type, [bool]$Journee) {
+    if ($Journee -and $Type -eq 'rappel') { return @('matin') }   # une chose à faire dans la journée : le matin même
+    if ($Journee -or $Type -eq 'anniv') { return @('veille', 'matin') }
+    if ($Type -eq 'rappel') { return @('m0') }
+    @('veille', 'matin', 'm60')
+}
+
+function Get-RappelsRV($r) { if ($null -ne $r.Rappels) { @($r.Rappels) } else { Get-RappelsDefaut (Get-TypeRV $r) $r.Journee } }
+
+# Autres rendez-vous au même moment (une heure par défaut quand il n'y a pas d'heure de fin)
+function Get-Conflits([datetime]$Debut, $Fin, [string]$SaufId) {
+    $f = if ($Fin) { [datetime]$Fin } else { $Debut.AddHours(1) }
+    @(Get-AgendaEntre $Debut.Date $Debut.Date.AddDays(1) | Where-Object {
+        $_.RV.Id -ne $SaufId -and -not $_.RV.Journee -and -not $_.RV.Fait -and
+        $_.Prochain -lt $f -and $(if ($_.RV.Fin) { $_.Prochain + ($_.RV.Fin - $_.RV.Quand) } else { $_.Prochain.AddHours(1) }) -gt $Debut
+    })
+}
+
+# Toutes les fois où des rendez-vous tombent entre deux moments (pour le calendrier du mois)
+function Get-AgendaEntre([datetime]$Debut, [datetime]$Fin) {
+    @(foreach ($r in $script:Agenda) {
+        if (-not $r.Repetition) {
+            if ($r.Quand -ge $Debut -and $r.Quand -lt $Fin) { [pscustomobject]@{ RV = $r; Prochain = $r.Quand } }
+            continue
+        }
+        $from = $Debut
+        for ($i = 0; $i -lt 400; $i++) {
+            $q = Get-NextOccurrence $r.Repetition $r.Quand $from
+            if ($q -ge $Fin -or $q -lt $from) { break }
+            [pscustomobject]@{ RV = $r; Prochain = $q }
+            $from = $q.AddMinutes(1)
+        }
+    }) | Sort-Object Prochain
+}
+
+# Rendez-vous à venir, avec la prochaine fois (« Prochain ») pour ceux qui reviennent
 function Get-Upcoming {
     $now = Get-Date
-    @($script:Agenda | Where-Object { $_.Quand -ge $now } | Sort-Object Quand)
-}
-
-# ---------------------------------------------------------------------------
-# Dates et heures en français de tous les jours
-# ---------------------------------------------------------------------------
-function Format-Heure([datetime]$d) {
-    if ($d.Minute) { '{0} h {1:00}' -f $d.Hour, $d.Minute } else { "$($d.Hour) h" }
-}
-
-# « vendredi 27 février », « samedi 1er mars », avec l'année si ce n'est pas celle en cours
-function Format-Jour([datetime]$d) {
-    $t = if ($d.Day -eq 1) { $d.ToString('dddd', $Fr) + ' 1er ' + $d.ToString('MMMM', $Fr) } else { $d.ToString('dddd d MMMM', $Fr) }
-    if ($d.Year -ne (Get-Date).Year) { $t += " $($d.Year)" }
-    $t
-}
-
-function Format-Quand([datetime]$d) { "$(Format-Jour $d) à $(Format-Heure $d)" }
-
-function Format-Relatif([datetime]$d) {
-    $days = ($d.Date - (Get-Date).Date).Days
-    switch ($days) {
-        0 { "aujourd'hui" }
-        1 { 'demain' }
-        2 { 'après-demain' }
-        default { if ($days -lt 0) { 'passé' } elseif ($days -lt 14) { "dans $days jours" } elseif ($days -lt 60) { "dans $([math]::Floor($days / 7)) semaines" } else { "dans $([math]::Round($days / 30.4)) mois" } }
-    }
-}
-
-# Heure écrite comme on la dit : « 15 », « 15h », « 15 h 30 », « 15:30 », « 9h05 », « midi », « minuit »
-function Read-Heure([string]$Text) {
-    $t = $Text.Trim().ToLowerInvariant()
-    if ($t -eq 'midi') { return [timespan]::new(12, 0, 0) }
-    if ($t -eq 'minuit') { return [timespan]::new(0, 0, 0) }
-    if ($t -match '^(\d{1,2})\s*(?:h|:|heures?)?\s*(\d{2})?$') {
-        $h = [int]$Matches[1]; $m = if ($Matches[2]) { [int]$Matches[2] } else { 0 }
-        if ($h -lt 24 -and $m -lt 60) { return [timespan]::new($h, $m, 0) }
-    }
-    $null
+    @(foreach ($r in $script:Agenda) {
+        $depuis = if ($r.Journee) { $now.Date } else { $now }   # un anniversaire reste « à venir » toute sa journée
+        $next = Get-NextOccurrence $r.Repetition $r.Quand $depuis
+        if ($next -ge $depuis -and -not $r.Fait) { [pscustomobject]@{ RV = $r; Prochain = $next } }
+    }) | Sort-Object Prochain
 }
 
 Import-Agenda
