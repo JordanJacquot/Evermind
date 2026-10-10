@@ -1,0 +1,7 @@
+# Fichiers générés par outils/construire.ps1
+/Evermind.zip
+/Evermind/*.exe
+/outils/icones/
+
+# Tests
+/_test/
