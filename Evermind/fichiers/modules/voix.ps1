@@ -32,7 +32,7 @@ $VoixFichiers = @(
     @{ Pack = 'voix'; Nom = 'programme de dictée'; Url = 'https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-bin-x64.zip'
        Sha256 = '49DCC16DE826F20BD53D44F947A1AE49DFA81F86CAD67A64D80820CB192D674A'; Taille = 8194445
        Extraire = '^Release/(whisper-cli\.exe|whisper-server\.exe|whisper\.dll|ggml[^/]*\.dll)$'; Vers = ''; Garder = $WhisperServeur }
-    @{ Pack = 'voix'; Nom = 'modèle de français'; Url = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin'
+    @{ Pack = 'voix'; Nom = 'modèle de français'; Url = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small-q5_1.bin'
        Sha256 = 'AE85E4A935D7A567BD102FE55AFC16BB595BDB618E11B2FC7591BC08120411BB'; Taille = 190085487; Garder = $WhisperModele }
     # La voix : Kokoro (synthèse récente, prononciation française par espeak-ng), lancée par EvermindVoix.exe avec sherpa-onnx
     @{ Pack = 'voix'; Nom = 'moteur de la voix'; Url = 'https://api.nuget.org/v3-flatcontainer/org.k2fsa.sherpa.onnx.runtime.win-x64/1.13.8/org.k2fsa.sherpa.onnx.runtime.win-x64.1.13.8.nupkg'
@@ -47,7 +47,7 @@ $VoixFichiers = @(
     @{ Pack = 'ia'; Nom = 'moteur de l''assistant'; Url = 'https://github.com/ggml-org/llama.cpp/releases/download/b11541/llama-b11541-bin-win-vulkan-x64.zip'
        Sha256 = '37BBA511D120222F13C3D520DD875F739A530CC124E78F7CBCE0026DE0173D8A'; Taille = 33464528
        Extraire = '^(llama-server\.exe|llama-server-impl\.dll|llama\.dll|llama-common\.dll|ggml[^/]*\.dll|mtmd\.dll|libomp\.dll)$'; Vers = 'ia'; Garder = $LlamaExe }
-    @{ Pack = 'ia'; Nom = 'cerveau de l''assistant'; Url = 'https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf'
+    @{ Pack = 'ia'; Nom = 'cerveau de l''assistant'; Url = 'https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/a06e946bb6b655725eafa393f4a9745d460374c9/Qwen3-4B-Instruct-2507-Q4_K_M.gguf'
        Sha256 = '3605803B982CB64AEAD44F6C1B2AE36E3ACDB41D8E46C8A94C6533BC4C67E597'; Taille = 2497281120; Garder = $IaModele }
 )
 
@@ -118,23 +118,49 @@ function Start-VoixInstall([string]$Pack) {
             $deja = 0L
             foreach ($f in $Fichiers) {
                 $Etat.Etape = $f.Nom
+                # Les gros fichiers (2,3 Go) arrivent souvent en plusieurs fois : une connexion qui se coupe ne fait pas
+                # d'erreur, le fichier est juste incomplet. Evermind vérifie la taille, reprend là où ça s'est arrêté
+                # (même après « Réessayer » : le morceau reçu est gardé), puis vérifie l'empreinte du fichier entier.
                 $tmp = Join-Path $Dossier ([IO.Path]::GetFileName($f.Url) + '.telechargement')
-                $req = [Net.WebRequest]::Create($f.Url)
-                $req.UserAgent = 'Evermind'
-                $resp = $req.GetResponse()
-                $in = $resp.GetResponseStream()
-                $out = [IO.File]::Create($tmp)
-                $sha = [Security.Cryptography.SHA256]::Create()
+                $coupures = 0; $refait = $false
                 $buf = New-Object byte[] 65536
-                try {
-                    while (($n = $in.Read($buf, 0, $buf.Length)) -gt 0) {
-                        $out.Write($buf, 0, $n); [void]$sha.TransformBlock($buf, 0, $n, $null, 0)
-                        $Etat.Recu = $deja + $out.Length
+                while ($true) {
+                    $existant = if (Test-Path -LiteralPath $tmp) { (Get-Item -LiteralPath $tmp).Length } else { 0L }
+                    if ($existant -gt $f.Taille) { Remove-Item -LiteralPath $tmp -Force; $existant = 0L }
+                    if ($existant -lt $f.Taille) {
+                        $resp = $null; $in = $null; $out = $null
+                        try {
+                            $req = [Net.HttpWebRequest]::Create($f.Url)
+                            $req.UserAgent = 'Evermind'; $req.Timeout = 30000; $req.ReadWriteTimeout = 60000
+                            if ($existant) { $req.AddRange([long]$existant) }
+                            $resp = $req.GetResponse()
+                            # Un serveur qui ne sait pas reprendre renvoie tout le fichier : on repart de zéro
+                            if ($existant -and [int]$resp.StatusCode -ne 206) { $existant = 0L }
+                            $in = $resp.GetResponseStream()
+                            $out = New-Object IO.FileStream($tmp, $(if ($existant) { [IO.FileMode]::Append } else { [IO.FileMode]::Create }), [IO.FileAccess]::Write)
+                            while (($n = $in.Read($buf, 0, $buf.Length)) -gt 0) {
+                                $out.Write($buf, 0, $n)
+                                $Etat.Recu = $deja + $out.Length
+                            }
+                        } catch {
+                            $coupures++
+                            if ($coupures -ge 6) { throw "le téléchargement de « $($f.Nom) » s'est coupé plusieurs fois (connexion instable ?). Appuie sur Réessayer : il reprendra là où il s'est arrêté" }
+                        } finally { if ($out) { $out.Dispose() }; if ($in) { $in.Dispose() }; if ($resp) { $resp.Dispose() } }
+                        if ((Get-Item -LiteralPath $tmp -ErrorAction SilentlyContinue).Length -lt $f.Taille) {
+                            if ($coupures -ge 6) { throw "le téléchargement de « $($f.Nom) » s'est coupé plusieurs fois (connexion instable ?). Appuie sur Réessayer : il reprendra là où il s'est arrêté" }
+                            $coupures++; $Etat.Etape = "$($f.Nom) (connexion coupée, reprise)"; Start-Sleep -Seconds ([math]::Min(20, 3 * $coupures)); $Etat.Etape = $f.Nom
+                            continue
+                        }
                     }
-                    [void]$sha.TransformFinalBlock($buf, 0, 0)
-                } finally { $out.Dispose(); $in.Dispose(); $resp.Dispose() }
-                $hash = -join ($sha.Hash | ForEach-Object { $_.ToString('X2') })
-                if ($hash -ne $f.Sha256) { Remove-Item -LiteralPath $tmp -Force; throw "le fichier « $($f.Nom) » reçu n'est pas le bon (empreinte différente)" }
+                    # Tout est là : l'empreinte dit si c'est bien le bon fichier, intact
+                    $Etat.Etape = "$($f.Nom) (vérification)"
+                    $hash = (Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash
+                    $Etat.Etape = $f.Nom
+                    if ($hash -eq $f.Sha256) { break }
+                    Remove-Item -LiteralPath $tmp -Force
+                    if ($refait) { throw "le fichier « $($f.Nom) » arrive abîmé (empreinte différente, deux fois de suite). Un antivirus ou un proxy le modifie peut-être pendant le téléchargement" }
+                    $refait = $true   # (un morceau abîmé : on le retélécharge en entier une fois)
+                }
                 $deja += $f.Taille
                 if ($f.Tar) {
                     # Archive .tar.bz2 : tar.exe (fourni avec Windows) sort seulement les fichiers utiles

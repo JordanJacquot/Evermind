@@ -20,7 +20,7 @@ Tout reste sur ton PC : la dictée, la voix et l'assistant tournent en local. Ri
 Il faut Windows 10 ou 11 (64 bits) et au moins 8 Go de mémoire. Avec une carte graphique, Eve répond plus vite.
 Pour mettre à jour : remplace le dossier d'Evermind, tes rendez-vous restent (`%LOCALAPPDATA%\Evermind`).
 
-## Ce qu'il sait faire (0.10.0)
+## Ce qu'il sait faire (0.10.1)
 
 - **Parler à Eve** : dis « OK Eve » (ou Ctrl + Maj + Espace, même en jeu), puis « décale le dentiste à jeudi »,
   « supprime tous les raids de novembre », « pour le foot prends mes crampons », « qu'est-ce que j'ai demain ? »,
