@@ -398,7 +398,8 @@ function Test-PhrasePlusRiche($pu, $p) {
     if ($pu.Repetition -and $p.Repetition -and (($pu.Repetition | ConvertTo-Json -Compress) -ne ($p.Repetition | ConvertTo-Json -Compress))) { return $true }
     if ($pu.Fin -and -not $p.Fin) { return $true }
     if (@($pu.Jours | Where-Object { $_ }).Count -gt @($p.Jours | Where-Object { $_ }).Count) { return $true }
-    if ($pu.Quand -and $p.Quand -and $pu.Quand -ne $p.Quand) { return $true }
+    # (à la minute près : « dans une minute » lu deux fois n'a pas exactement les mêmes secondes)
+    if ($pu.Quand -and $p.Quand -and [math]::Abs(([datetime]$pu.Quand - [datetime]$p.Quand).TotalMinutes) -ge 1) { return $true }
     $false
 }
 
@@ -539,7 +540,16 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
             $seule = @($actions).Count -eq 1 -and (Get-IntentionsTexte $Texte).Creer -and -not (Get-IntentionsTexte $Texte).Supp -and -not (Get-IntentionsTexte $Texte).Modif
             if ($seule) {
                 $pu = Read-Phrase $Texte
-                if (-not $pu.Manque -and $pu.Titre -and ((Test-PhrasePlusRiche $pu $p) -or -not (Test-TitreDit $p.Titre $Texte))) { Write-Log "Création : la phrase dite est mieux comprise que « $($a.phrase) »"; $p = $pu }
+                if (-not $pu.Manque -and $pu.Titre -and ((Test-PhrasePlusRiche $pu $p) -or -not (Test-TitreDit $p.Titre $Texte))) {
+                    Write-Log "Création : la phrase dite est mieux comprise que « $($a.phrase) »"
+                    # Le moment vient de la phrase dite ; mais si son titre a gardé plusieurs phrases ou s'allonge
+                    # beaucoup, celui de l'IA (court et propre) reste, avec ses personnes
+                    if (-not $p.Manque -and $p.Titre -and (Test-TitreDit $p.Titre $Texte) -and ($pu.Titre -match '[.!?;]\s' -or $pu.Titre.Length -gt $p.Titre.Length + 20)) {
+                        Write-Log "Création : titre de l'IA gardé (« $($p.Titre) » plutôt que « $($pu.Titre) »)"
+                        $pu.Titre = $p.Titre; $pu.Avec = @($p.Avec)
+                    }
+                    $p = $pu
+                }
             }
             if ($p.Manque) {
                 $aCorriger = [string]$a.phrase

@@ -1,0 +1,30 @@
+﻿EVERMIND : l'agenda qui se souvient de tout pour toi
+=====================================================
+
+Installer
+---------
+1. Dézippe Evermind.zip où tu veux (par exemple dans tes Documents). Garde le dossier entier.
+2. Lance Evermind.exe.
+   Windows peut afficher « Windows a protégé votre ordinateur » : clique sur « Informations
+   complémentaires », puis « Exécuter quand même ». C'est normal, Evermind n'est pas signé.
+3. Dans Evermind, appuie sur « Installer la voix » (531 Mo : dictée et voix naturelle), puis, au même
+   endroit, sur « Installer l'assistant » (2,3 Go : Eve, qui comprend tout ce que tu dis).
+   Téléchargés une seule fois, ensuite tout marche sans Internet.
+
+Utiliser
+--------
+- Écris ou dis ton rendez-vous : « mardi prochain à 15 h dentiste », « réunion avec Madame Dupont
+  demain à 10 h », « foot tous les lundis à 19 h ».
+- Dis « OK Eve » puis ta demande : « décale le dentiste à jeudi », « supprime le foot »,
+  « qu'est-ce que j'ai demain ? », « ouvre le dossier de Monsieur Richard ».
+- Dictée à tout moment : Ctrl + Maj + Espace (même en jeu).
+- Réglages : casque et micro, voix, thèmes, dossiers où chercher les dossiers des personnes.
+
+Bon à savoir
+------------
+- Tout reste sur ton PC : rien n'est envoyé sur Internet.
+- Tes rendez-vous sont dans %LOCALAPPDATA%\Evermind (ils restent si tu remplaces le dossier
+  d'Evermind par une nouvelle version).
+- Il faut Windows 10 ou 11 (64 bits) et au moins 8 Go de mémoire pour l'assistant.
+  Avec une carte graphique, Eve répond plus vite.
+- La croix rouge peut réduire Evermind près de l'horloge : il continue de te donner tes rappels.

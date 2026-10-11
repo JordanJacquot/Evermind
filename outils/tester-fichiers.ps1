@@ -20,6 +20,7 @@ function Get-TitreAffiche([string]$t) { $t }
 $script:Dits = @(); function Invoke-Parole([string]$t) { $script:Dits += $t }
 function Show-Notify { }
 function Show-Alerte { }
+function Get-HeureAlerte { '' }
 $script:Ouvertures = New-Object System.Collections.ArrayList
 function Open-Fichier([string]$Chemin) { [void]$script:Ouvertures.Add($Chemin); $true }
 

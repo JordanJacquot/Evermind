@@ -14,6 +14,8 @@ $PoliceIcone = 'Segoe UI Emoji'
 
 function Get-TitreAffiche([string]$Titre) {
     if (-not $Titre) { return 'Rendez-vous' }
+    # « avec monsieur Richard » (dictée) : « avec Monsieur Richard »
+    $Titre = [regex]::Replace($Titre, '\b(monsieur|madame|mademoiselle|docteur|ma[iî]tre)(?=\s+\p{Lu})', { param($m) $m.Value.Substring(0, 1).ToUpper() + $m.Value.Substring(1) })
     $Titre.Substring(0, 1).ToUpper() + $Titre.Substring(1)
 }
 

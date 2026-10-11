@@ -284,15 +284,20 @@ function Invoke-RappelsDus([datetime]$Maintenant = (Get-Date)) {
     $faits
 }
 
+# Court : le nom et l'heure, c'est tout (le reste est dans la fiche, « Voir »)
+#   « 15 h » aujourd'hui, « Mercredi 14 octobre, 15 h » un autre jour, « Toute la journée »
+function Get-HeureAlerte($rv, [datetime]$Quand, [datetime]$Maintenant) {
+    $jour = if ($Quand.Date -eq $Maintenant.Date) { '' } else { Get-Majuscule $Quand.ToString('dddd d MMMM', $Fr) }
+    if ($rv.Journee) { return $(if ($jour) { $jour } else { 'Toute la journée' }) }
+    $h = Format-Heure $Quand
+    if ($jour) { "$jour, $h" } else { $h }
+}
+
 function Show-AlerteRappel($rv, [datetime]$Quand, [datetime]$Maintenant) {
     $dans = Get-TexteDans $Quand $Maintenant ([bool]$rv.Journee)
-    $texte = Get-Majuscule (Format-QuandRV $rv $Quand)
-    if ($rv.Lieu) { $texte += "`n📍 $($rv.Lieu)" }
-    $reste = @($rv.APreparer | Where-Object { -not $_.Fait })
-    if ($reste.Count) { $texte += "`nÀ prendre : $(@($reste | ForEach-Object { $_.Texte }) -join ', ')" }
     $nom = Get-TitreAffiche $rv.Titre
     Write-Log "Rappel : $nom ($dans)"
-    Show-Alerte $nom $texte "Rappel  ·  $dans" (Get-TypeRV $rv) $rv $Quand 12 -Plus
+    Show-Alerte $nom (Get-HeureAlerte $rv $Quand $Maintenant) "Rappel  ·  $dans" (Get-TypeRV $rv) $rv $Quand 12 -Plus
 }
 
 function Start-PlanificateurRappels {

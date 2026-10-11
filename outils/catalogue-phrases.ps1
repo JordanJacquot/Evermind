@@ -174,6 +174,14 @@ $repetitions = @(
     , @('toutes les deux semaines le jeudi à 19 h badminton', '2026-10-15 19:00', 'badminton', 'semaine/4/x2')
     , @('tous les deux semaines le jeudi à 19 h badminton', '2026-10-15 19:00', 'badminton', 'semaine/4/x2')
     , @('toutes les trois mois le 28 à 10 h facture', '2026-10-28 10:00', 'facture', 'mois/28/x3')
+    , @('foot tous les lundis à 19 h sauf en novembre', '2026-10-12 19:00', 'foot', 'semaine/1/sauf 2026-11-01+30')
+    , @('foot tous les lundis sauf en novembre à 19 h', '2026-10-12 19:00', 'foot', 'semaine/1/sauf 2026-11-01+30')
+    , @('cours de piano tous les mercredis à 17 h sauf du 21 décembre au 4 janvier', '2026-10-14 17:00', 'cours de piano', 'semaine/3/sauf 2026-12-21+15')
+    , @('raid tous les mardis à 21 h sauf le 3 et le 10 novembre', '2026-10-13 21:00', 'raid', 'semaine/2/sauf 2026-11-03+2')
+    , @('courses tous les samedis à 10 h excepté le 31 octobre', '2026-10-17 10:00', 'courses', 'semaine/6/sauf 2026-10-31+1')
+    , @('footing tous les jours à 8 h sauf le samedi et le dimanche', '2026-10-12 08:00', 'footing', 'semaine/1,2,3,4,5')
+    , @('tous les jours sauf le week-end à 8 h footing', '2026-10-12 08:00', 'footing', 'semaine/1,2,3,4,5')
+    , @('footing tous les jours sauf le mercredi à 8 h', '2026-10-11 08:00', 'footing', 'semaine/1,2,4,5,6,0')
     , @('un lundi sur deux à 18 h guitare', '2026-10-12 18:00', 'guitare', 'semaine/1/x2')
     , @('tous les 15 jours le samedi à 10 h marché', '2026-10-17 10:00', 'marché', 'semaine/6/x2')
     , @('en semaine à 7 h réveil', '2026-10-12 07:00', 'réveil', 'semaine/1,2,3,4,5')
@@ -237,7 +245,11 @@ $details = @(
     , @('crée une réunion mardi à 15 h pour M. Richard. Et tu ouvres directement son dossier.', '2026-10-13 15:00', 'réunion pour M. Richard', '', '')
     , @('mets un café avec Paul mardi à 15 h et ouvre mes fichiers', '2026-10-13 15:00', 'café', '', '')
     , @('réunion mardi à 15 h, puis tu me lis le compte rendu', '2026-10-13 15:00', 'réunion', '', '')
-    , @('dentiste mardi à 15 h pendant 1 h','2026-10-13 15:00', 'dentiste', '', '2026-10-13 16:00')
+    , @("j'ai rendez-vous avec M. Richard mardi à 15 h. Si tu pouvais lier les dossiers de M. Richard pour me les ouvrir.", '2026-10-13 15:00', 'rendez-vous avec M. Richard', '', '')
+    , @('crée-moi un rendez-vous mardi à 15 h avec les dossiers de M. Richard.', '2026-10-13 15:00', 'rendez-vous avec M. Richard', '', '')
+    , @("rendez-vous avec Madame Dupont mardi à 15 h. Je veux juste que les dossiers soient liés, c'est tout.", '2026-10-13 15:00', 'rendez-vous avec Madame Dupont', '', '')
+    , @('réunion avec Madame Dupont mardi à 15 h, merci', '2026-10-13 15:00', 'réunion', '', '')
+    , @('dentiste mardi à 15 h pendant 1 h', '2026-10-13 15:00', 'dentiste', '', '2026-10-13 16:00')
     , @('réunion lundi de 14 h à 16 h', '2026-10-12 14:00', 'réunion', '', '2026-10-12 16:00')
     , @('réunion lundi de 14h à 15h30', '2026-10-12 14:00', 'réunion', '', '2026-10-12 15:30')
     , @("soirée samedi prochain à 21 h jusqu'à 2 h", '2026-10-17 21:00', 'soirée', '', '2026-10-18 02:00')
@@ -267,6 +279,9 @@ function Get-RepTexte($Rep) {
     if ($Rep.Mois) { $parts += [string]$Rep.Mois }
     if ($Rep.Intervalle -and [int]$Rep.Intervalle -gt 1) { $parts += "x$($Rep.Intervalle)" }
     if ($Rep.Jusqua) { $parts += [string]$Rep.Jusqua }
+    # Fois sautées : le premier jour sauté et combien (« sauf en novembre » : sauf 2026-11-01+30)
+    $sf = @($Rep.Sauf | Where-Object { $_ } | Sort-Object)
+    if ($sf.Count) { $parts += "sauf $($sf[0])+$($sf.Count)" }
     $parts -join '/'
 }
 $sansAccents = { param($s) ([string]$s).ToLower().Normalize([Text.NormalizationForm]::FormD) -replace '\p{Mn}', '' -replace '[^a-z0-9 ]', ' ' -replace '\s+', ' ' }

@@ -233,6 +233,20 @@ function Read-Phrase([string]$Text, $Now) {
     # ordre de création : « ... et que tu mettes un anniversaire Jordan »)
     $st.S = $st.S -replace "(?i)(?:\s*[.;!]\s*(?:et\s+|puis\s+|ensuite\s+)?|\s*,?\s*\b(?:et|puis|ensuite)\s+)(?:(?:je veux|j'aimerais|je voudrais|il faut)\s+)?(?:que\s+|qu')?tu\s+(?>(?:m'|me\s+|lui\s+|les?\s+|l'|nous\s+)?)(?!(?:$RxOrdre|me|m|lui|les?|nous)\b)\p{L}+\b.*$", ' '
     $st.S = $st.S -replace "(?i)(?:\s*[.,;!]\s*|\s+)(?:et|puis|ensuite)\s+(?:m'|me\s+)?ouvr\w*(?:[- ]moi)?\s+(?:son|ses|sa|le|les|mon|mes|leur|leurs)\s.*$", ' '
+    # Une phrase de plus qui s'adresse à Eve : « ... . Si tu pouvais lier ses dossiers », « ... . Je veux juste que les
+    # dossiers soient liés, c'est tout », « ... . Merci »
+    $st.S = $st.S -replace "(?i)\s*[.!?;]\s+(?:et\s+|alors\s+|mais\s+)?(?:si tu (?:pouvais|peux|pourrais)|tu (?:peux|pourrais)|peux-tu|pourrais-tu|je (?:veux|voudrais|souhaite) (?:juste |aussi |seulement )?que|j'aimerais (?:juste |aussi |bien )?que|il faut (?:juste |aussi )?que|n'oublie pas de|pense à|merci|c'est tout)\b.*$", ' '
+    $st.S = $st.S -replace "(?i)[\s,]+c'est tout\s*[.!]?\s*$", ' '
+    # « avec les dossiers de M. Richard » : c'est son dossier à relier, le rendez-vous est avec lui
+    $st.S = $st.S -replace "(?i)\bavec\s+(?:le|les|ses|son|leurs?)\s+(?:dossiers?|fichiers?|documents?)\s+(?:de\s+|du\s+|d')", 'avec '
+    # « tous les jours sauf le week-end » : du lundi au vendredi ; « tous les jours sauf le mercredi » : les autres jours
+    $st.S = $st.S -replace "(?i)\b(?:tous les jours|chaque jour)(?<h>\s+(?:à|a|vers|de)\s+\d[^,]*?)?\s+(?:sauf|except[ée]|hors|à part)\s+(?:le |les )?(?:week-?ends?|samedis? et (?:les |le )?dimanches?)\b", 'du lundi au vendredi${h}'
+    $st.S = [regex]::Replace($st.S, "(?i)\b(?:tous les jours|chaque jour)(?<h>\s+(?:à|a|vers|de)\s+\d[^,]*?)?\s+(?:sauf|except[ée]|hors|à part)\s+(?:le |les )?(?<j>$RxJour)s?(?:\s+et\s+(?:le |les )?(?<j>$RxJour)s?)?\b", {
+        param($m)
+        $sans = @($m.Groups['j'].Captures | ForEach-Object { $JoursNoms[$_.Value.ToLower()] })
+        $noms = @('lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche') | Where-Object { $sans -notcontains $JoursNoms[$_] }
+        'les ' + (($noms | Select-Object -SkipLast 1) -join ', ') + ' et ' + $noms[-1] + $m.Groups['h'].Value
+    })
     # « pour dans une minute », « pour demain » : le « pour » du moment
     $st.S = $st.S -replace "(?i)\bpour\s+(?=dans\s+\S+\s+(?:minutes?|heures?|jours?|semaines?|mois|ans?)\b)", ''
     # « à 17 h pile », « à 9 h précises » : l'heure suffit
@@ -340,6 +354,25 @@ function Read-Phrase([string]$Text, $Now) {
     #        « jusqu'au 31 octobre », « jusqu'à fin novembre », « jusqu'à la fin du mois », « jusqu'en décembre »
     $limDebut = $null; $limFin = $null
     [void](Get-Morceau $st "\b(?:à|a)\s+partir\s+(?=(?:du|de|d')\b)")   # « à partir du 2 novembre » : la date suit
+    # Les fois sautées : « sauf en novembre », « excepté le 24 décembre », « hors vacances du 20 au 31 décembre »,
+    # « sauf les 3 et 10 novembre ». La plus longue suite de mots qui fait une période après « sauf » ; ses jours
+    # seront enlevés de la série (et ne deviennent ni une fin, ni un titre)
+    $saufPer = $null
+    if ($rep -and ($ms = [regex]::Match($st.S, "(?i)[\s,]*\b(?:sauf|except[ée]|hors|à part)\s+(?<r>.+)$")).Success) {
+        # (l'heure qui suit n'en fait pas partie : « sauf en novembre à 19 h »)
+        $r = $ms.Groups['r'].Value -replace "(?i)\s+(?:à|a|vers|de|dès)\s+\d.*$|\s+\d{1,2}\s*h.*$", ''
+        $apres = $ms.Groups['r'].Value.Substring($r.Length)
+        $mots = @($r -split '\s+' | Where-Object { $_ })
+        for ($n = [math]::Min($mots.Count, 8); $n -ge 1 -and -not $saufPer; $n--) {
+            $essai = ($mots[0..($n - 1)] -join ' ').Trim(' ,.')
+            if ($essai -match '^(?:à|a|de|vers)\s+\d') { continue }   # (« sauf à 19 h » n'est pas une période)
+            $per = Read-Periode $essai $Now
+            if ($per -and $per.Debut -and $per.Fin) {
+                $saufPer = $per
+                $st.S = $st.S.Substring(0, $ms.Index) + ' ' + (@($mots | Select-Object -Skip $n) -join ' ') + ' ' + $apres + ' '
+            }
+        }
+    }
     if ($rep) {
         $anDe = { param($mo, $y) if ($y) { [int]$y } elseif ($mo -lt $today.Month) { $today.Year + 1 } else { $today.Year } }
         $finMois = { param($mo, $y) [datetime]::new($y, $mo, [datetime]::DaysInMonth($y, $mo)) }
@@ -380,6 +413,10 @@ function Read-Phrase([string]$Text, $Now) {
             $limDebut = [datetime]::new($y, $mo, 1); $limFin = & $finMois $mo $y
         }
         if ($limFin) { $rep.Jusqua = $limFin.ToString('yyyy-MM-dd') }
+        if ($saufPer) {
+            $jours = if (@($saufPer.Jours | Where-Object { $_ }).Count) { @($saufPer.Jours) } else { @(for ($p = ([datetime]$saufPer.Debut).Date; $p -le ([datetime]$saufPer.Fin).Date -and $p -lt ([datetime]$saufPer.Debut).AddDays(370); $p = $p.AddDays(1)) { $p }) }
+            $rep.Sauf = @(@($rep.Sauf) + @($jours | ForEach-Object { ([datetime]$_).ToString('yyyy-MM-dd') }) | Where-Object { $_ } | Select-Object -Unique)
+        }
     }
 
     # 2. « dans 2 heures », « dans 30 minutes », « dans une demi-heure » : le moment exact

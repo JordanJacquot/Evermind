@@ -1,34 +1,53 @@
-# Evermind
+﻿# Evermind
 
 L'agenda qui se souvient de tout pour toi, petite sœur de [Nevermind](https://github.com/JordanJacquot/Nevermind).
-Tu lui parles comme à quelqu'un, il note, décale, supprime, répond à tes questions, et te rappelle tes rendez-vous à voix haute.
+Tu lui parles comme à quelqu'un : il note, décale, supprime, répond à tes questions, ouvre les bons dossiers à
+l'heure de tes réunions et te rappelle tes rendez-vous.
 
 Tout reste sur ton PC : la dictée, la voix et l'assistant tournent en local. Rien n'est envoyé sur Internet.
 
-## État actuel (0.6.0)
+## Télécharger
 
-- **Assistant** : une petite IA locale (Qwen3 4B avec llama.cpp) comprend ce qu'on dit librement et agit :
-  « décale le dentiste à jeudi », « ajoute Paul à la soirée », « pour le foot prends mes crampons », « supprime le foot »,
-  « c'est bon j'ai appelé maman », « qu'est-ce que j'ai demain ? », « annule ». Evermind vérifie tout avant d'agir
-  (les dates passent par ses propres règles) et garde de quoi revenir en arrière.
-- **Voix** : Ctrl + Maj + Espace (même en jeu) ou le bouton micro. Dictée Whisper, réponse avec une voix naturelle
-  (Piper : Siwis, Jessica ou Pierre, au choix dans les réglages).
-- **Agenda** : calendrier du mois, liste « À venir » ou du jour choisi, formulaire pour ajouter ou modifier à la main.
-- **Sortes de rendez-vous** : anniversaire (revient chaque année, sans heure, avec l'âge), santé, voyage, travail,
-  sport, jeu, sortie, à faire (à cocher), rendez-vous ; chacune avec son icône et sa couleur.
-- **Détails** : heure de fin, lieu (itinéraire), avec qui, lien (visio, Discord), rappels voulus, choses à préparer
-  (cases à cocher, idées selon la sorte), notes, important ; avertissement si deux rendez-vous tombent en même temps.
-- Démarrage avec Windows, caché près de l'horloge ; Evermind.exe est une vraie application (son nom et son icône).
-- Rendez-vous gardés dans `%LOCALAPPDATA%\Evermind\rendez-vous.json`, modules de voix et d'IA dans `voix\`.
+**[⬇ Télécharger Evermind.zip](https://github.com/JordanJacquot/Evermind/raw/main/release/Evermind.zip)**
+(aussi dans le dossier [`release`](release) et dans les [Releases](https://github.com/JordanJacquot/Evermind/releases))
 
-À venir : rappels à voix haute dans le casque (avec baisse du son des autres applis), notification Windows,
-rattrapage au démarrage.
+1. Dézippe `Evermind.zip` où tu veux et garde le dossier entier.
+2. Lance `Evermind.exe`. Si Windows affiche « Windows a protégé votre ordinateur », clique sur
+   « Informations complémentaires » puis « Exécuter quand même » (Evermind n'est pas signé).
+3. Appuie sur « Installer la voix » (531 Mo : dictée et voix naturelle), puis au même endroit sur
+   « Installer l'assistant » (2,3 Go : Eve). Téléchargés une seule fois, ensuite tout marche sans Internet.
+
+Il faut Windows 10 ou 11 (64 bits) et au moins 8 Go de mémoire. Avec une carte graphique, Eve répond plus vite.
+Pour mettre à jour : remplace le dossier d'Evermind, tes rendez-vous restent (`%LOCALAPPDATA%\Evermind`).
+
+## Ce qu'il sait faire (0.10.0)
+
+- **Parler à Eve** : dis « OK Eve » (ou Ctrl + Maj + Espace, même en jeu), puis « décale le dentiste à jeudi »,
+  « supprime tous les raids de novembre », « pour le foot prends mes crampons », « qu'est-ce que j'ai demain ? »,
+  « annule ». Une IA locale (Qwen3 4B avec llama.cpp) comprend, Evermind vérifie tout avant d'agir et garde de quoi
+  revenir en arrière. Elle répond avec une voix naturelle (Kokoro, 5 voix françaises).
+- **Écrire ou dicter un rendez-vous** : « mardi prochain à 15 h dentiste », « foot tous les lundis à 19 h sauf en
+  novembre », « séminaire la première semaine des trois prochains mois », « ElleFest du 27 au 29 octobre ».
+- **Agenda** : calendrier du mois, liste « À venir » ou du jour choisi, fiche détaillée, formulaire.
+  Les rendez-vous passés sont validés tout seuls (✓) et peuvent toujours être décalés.
+- **Sortes de rendez-vous** : anniversaire (avec l'âge), santé, voyage, travail, sport, jeu, sortie, à faire,
+  rendez-vous ; chacune avec son icône et sa couleur.
+- **Détails** : heure de fin, lieu (itinéraire), avec qui, lien, notes, choses à préparer, important ;
+  avertissement si deux rendez-vous tombent en même temps.
+- **Dossiers et fichiers** : « réunion avec Monsieur Richard » relie tout seul son dossier (trouvé sur le Bureau,
+  dans les Documents ou les dossiers choisis) ; Eve peut l'ouvrir tout de suite ou à l'heure de la réunion.
+- **Rappels** : la veille, le matin même, 1 h avant... dans une alerte aux couleurs d'Evermind
+  (« Voir », « Dans 10 min »).
+- **Réglages** : casque et micro par défaut, voix, assistant, thèmes de couleur et thèmes personnalisés à importer,
+  dossiers où chercher, ce que fait la croix (réduire près de l'horloge ou quitter), démarrage avec Windows.
 
 ## Pour les développeurs
 
-- `outils\construire.ps1` : crée l'icône, `Evermind\Evermind.exe` et `Evermind.zip`.
-- `outils\tester-phrases.ps1` : vérifie que les phrases en français sont bien comprises (lancé aussi par `tester.ps1`).
-- `outils\tester.ps1 [-Voix <dossier>]` : lance l'app hors de l'écran dans plusieurs situations (captures dans `_test`),
-  avec la dictée et l'assistant si leurs fichiers sont dans le dossier donné.
-- Les fichiers téléchargés (Whisper, Piper, llama.cpp, modèles) ont des versions et des empreintes SHA-256 fixées.
+- `outils\construire.ps1` : crée l'icône, `Evermind\Evermind.exe` et `release\Evermind.zip` (Evermind fermé).
+- `outils\tester.ps1 [-Voix <dossier>]` : tous les tests. Les phrases (`catalogue-phrases.ps1`, près de 3 000),
+  les demandes à l'assistant (`catalogue-assistant.ps1`), les dossiers et les rappels, puis l'app lancée hors de
+  l'écran dans une cinquantaine de situations (captures dans `_test`).
+- Les erreurs de compréhension se corrigent par familles de phrases, avec un exemple ajouté aux catalogues.
+- Les fichiers téléchargés (Whisper, Kokoro, llama.cpp, Vosk, modèles) ont des versions et des empreintes fixées.
 - Les scripts sont en UTF-8 avec BOM (sinon PowerShell 5.1 abîme les accents).
+- Les thèmes personnalisés (images de personnages) ne sont pas dans le dépôt.

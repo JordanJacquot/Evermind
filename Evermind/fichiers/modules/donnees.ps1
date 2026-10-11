@@ -219,7 +219,7 @@ function Get-Conflits([datetime]$Debut, $Fin, [string]$SaufId) {
     })
 }
 
-# Un rendez-vous passé est validé tout seul (✓) : fini (son heure de fin, ou une heure après le début), ou la journée
+# Un rendez-vous passé est validé tout seul (✓) : fini (son heure de fin, ou son heure s'il n'a pas de fin), ou la journée
 # terminée. Les choses « à faire » restent à cocher à la main (Fait). Validé ne bloque rien : il peut toujours être décalé.
 function Test-Valide($r, [datetime]$Quand) {
     if ((Get-TypeRV $r) -eq 'rappel') { return [bool]$r.Fait }
@@ -228,7 +228,8 @@ function Test-Valide($r, [datetime]$Quand) {
         $fin = if ($r.Fin -and -not $r.Repetition) { ([datetime]$r.Fin).Date } else { $Quand.Date }
         return $fin -lt $now.Date
     }
-    $fin = if ($r.Fin) { $Quand + ([datetime]$r.Fin - $r.Quand) } else { $Quand.AddHours(1) }
+    # Avec une heure de fin : validé une fois fini ; sans : dès que son heure est passée
+    $fin = if ($r.Fin) { $Quand + ([datetime]$r.Fin - $r.Quand) } else { $Quand }
     $fin -le $now
 }
 

@@ -37,7 +37,8 @@ Test-Cas 'la veille à 20 h : le dentiste' ((Get-Vus 'Dentiste').Count -eq 1 -an
 Test-Cas 'la veille à 20 h : l''anniversaire' ((Get-Vus 'Anniversaire de Léa').Count -eq 1)
 Test-Cas 'pas de rappel « la veille » pour le footing (pas demandé)' (-not (Get-Vus 'Footing').Count)
 Test-Cas 'rien pour une chose déjà faite' (-not (Get-Vus 'Appeler maman').Count)
-Test-Cas 'le texte dit où et quoi prendre' ((Get-Vus 'Dentiste')[0].Texte -match 'Lilas' -and (Get-Vus 'Dentiste')[0].Texte -match 'Carte Vitale') "($((Get-Vus 'Dentiste')[0].Texte))"
+$attendu = (Get-Majuscule $j.ToString('dddd d MMMM', $Fr)) + ', 15 h'
+Test-Cas 'court : juste le jour et l''heure' ((Get-Vus 'Dentiste')[0].Texte -eq $attendu) "($((Get-Vus 'Dentiste')[0].Texte) au lieu de $attendu)"
 # 20 secondes plus tard : pas une deuxième fois
 [void](Invoke-RappelsDus $j.AddDays(-1).AddHours(20).AddSeconds(25))
 Test-Cas 'pas deux fois' ((Get-Vus 'Dentiste').Count -eq 1)
