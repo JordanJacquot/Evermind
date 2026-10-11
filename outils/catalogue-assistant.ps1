@@ -22,11 +22,19 @@ New-Item -ItemType Directory -Force $env:EVERMIND_DONNEES | Out-Null
 $exemple = Join-Path $racine '_test\donnees-agenda\rendez-vous.json'
 if (-not (Test-Path $exemple)) { throw 'Lance d''abord outils\tester.ps1 (il crée l''agenda d''exemple).' }
 $Fr = [Globalization.CultureInfo]'fr-FR'
-foreach ($m in 'donnees', 'comprendre', 'agenda', 'details', 'voix', 'cerveau') { . (Join-Path $modules "$m.ps1") }
+$EnTest = $true   # rien n'est ouvert ni modifié sur le PC (les ouvertures de fichiers sont seulement notées)
+# Dossiers des clients (copie de test) : « Monsieur Richard », « Madame Dupont »
+$compta = Join-Path $racine '_test\comptabilite'
+foreach ($d in 'Monsieur Richard', 'Madame Dupont') { New-Item -ItemType Directory -Force -Path (Join-Path $compta $d) | Out-Null; Set-Content -LiteralPath (Join-Path $compta "$d\Bilan 2025.xlsx") -Value 'test' }
+$env:EVERMIND_DOSSIERS = $compta
+foreach ($m in 'donnees', 'fichiers', 'comprendre', 'agenda', 'details', 'voix', 'cerveau') { . (Join-Path $modules "$m.ps1") }
 
 # Sans fenêtre : ce qu'Evermind dirait ou montrerait est seulement retenu
 $script:Dit = ''
 function Invoke-Parole([string]$Texte) { $script:Dit = $Texte }
+function Show-Notify { }
+$script:Ouvertures = New-Object System.Collections.ArrayList
+function Open-Fichier([string]$Chemin) { [void]$script:Ouvertures.Add($Chemin); $true }
 function Show-FormMessage { }
 function Show-Bulle { }
 function Set-VoixEtat { }
@@ -119,11 +127,21 @@ $cas = @(
     , @('plusieurs jours', @('Mets vacances du 20 décembre au 3 janvier.'), { $r = @(Get-RV '*acances*'); $r.Count -eq 1 -and ([datetime]$r[0].Fin).Month -eq 1 })
     , @('plusieurs jours', @('Crée un salon pendant 3 jours à partir du 5 novembre.'), { $r = @(Get-RV '*alon*'); $r.Count -eq 1 -and ((([datetime]$r[0].Fin).Date - ([datetime]$r[0].Quand).Date).Days -eq 2) })
     , @('plusieurs jours', @('Ajoute cours de guitare les 3 et 10 novembre à 18 h.'), { @(Get-RV '*uitare*').Count -eq 2 })
+    , @('plusieurs jours', @('Je veux que tu me mettes un événement la première semaine des trois prochains mois Séminaire.'), { $r = @(Get-RV 'S*minaire*'); $r.Count -eq 3 -and @($r | Where-Object { ((([datetime]$_.Fin).Date - ([datetime]$_.Quand).Date).Days -eq 6) -and ([datetime]$_.Quand).DayOfWeek -eq 'Monday' }).Count -eq 3 })
+    , @('plusieurs jours', @('J''aimerais que tu mettes un événement Séminaire durant la première semaine des trois prochains mois.'), { @(Get-RV 'S*minaire*').Count -eq 3 })
+    , @('plusieurs jours', @('Mets-moi une formation la semaine du 9 novembre.'), { $r = @(Get-RV 'Formation*'); $r.Count -eq 1 -and ([datetime]$r[0].Quand).Day -eq 9 -and ([datetime]$r[0].Fin).Day -eq 15 })
+    , @('plusieurs jours', @('Mets séminaire le dernier week-end octobre.'), { $r = @(Get-RV 'S*minaire*'); $r.Count -eq 1 -and ([datetime]$r[0].Quand).DayOfWeek -eq 'Saturday' -and ([datetime]$r[0].Quand).Month -eq 10 -and $r[0].Fin })
+    , @('plusieurs jours', @('Ajoute camping le premier week-end de novembre.'), { $r = @(Get-RV 'Camping*'); $r.Count -eq 1 -and ([datetime]$r[0].Quand).Day -eq 7 -and ([datetime]$r[0].Fin).Day -eq 8 })
+    , @('plusieurs jours', @('Ajoute vacances toute la semaine prochaine.'), { $r = @(Get-RV 'Vacances*'); $r.Count -eq 1 -and $r[0].Fin })
     # --- Supprimer
     , @('supprimer', @('Supprime le foot.'), { -not (Get-RV 'Foot') -and (Get-RV 'Dentiste') })
     , @('supprimer', @('Efface le rendez-vous chez le dentiste.'), { -not (Get-RV 'Dentiste') -and (Get-RV 'Foot') })
     , @('supprimer', @("Enlève l'événement du $($soiree.Day) $(& $nomMois $soiree)."), { -not (Get-RV 'Soirée chez Max') -and (Get-RV 'Foot') })
     , @('supprimer', @('Je veux que tu supprimes l''événement.', 'Le foot.'), { -not (Get-RV 'Foot') -and (Get-RV 'Dentiste') })
+    , @('supprimer', @('Je veux que tu supprimes l''événement.'), { @($script:Agenda).Count -eq 8 -and $script:Dit -match '^Lequel' })
+    , @('supprimer', @('Efface le rendez-vous.'), { @($script:Agenda).Count -eq 8 -and $script:Dit -match '^Lequel' })
+    , @('supprimer', @('Je veux que tu supprimes l''événement.', 'L''anniversaire de Léa.'), { -not (Get-RV 'Anniversaire de Léa') -and (Get-RV 'Foot') })
+    , @('modifier', @('Décale le rendez-vous.'), { @($script:Agenda).Count -eq 8 -and $script:Dit -match '^Lequel' })
     , @('supprimer', @('Supprime tout ce que j''ai demain.'), { $demain = @(Get-AgendaEntre $lea $lea.AddDays(1)); -not $demain.Count -and (Get-RV 'Foot') })   # plus rien demain (les séries peuvent juste sauter ce jour-là)
     , @('supprimer', @('Supprime les raids de novembre.'), { $r = Get-RV 'Raid avec les potes'; $r -and @($r[0].Repetition.Sauf | Where-Object { $_ -like "*-11-*" }).Count -ge 4 })
     , @('supprimer', @('Arrête le raid à partir de décembre.'), { $r = Get-RV 'Raid avec les potes'; $r -and ([string]$r[0].Repetition.Jusqua) -like '*-11-30' })
@@ -189,7 +207,22 @@ $cas = @(
     , @('piège', @('Mets le foot à 20 h.'), { $r = Get-RV 'Foot'; @($r).Count -eq 1 -and (Test-Jour $r[0] $foot '20:00') })
     , @('piège', @('Mets un rendez-vous foot samedi à 10 h.'), { @(Get-RV 'Foot').Count -eq 2 })
     , @('piège', @('Le loyer, c''est le 3 maintenant.'), { $r = Get-RV 'Payer le loyer'; [int]$r[0].Repetition.Jour -eq 3 })
+    # --- Dossiers et fichiers des rendez-vous
+    , @('dossiers', @('Ajoute une réunion avec Monsieur Richard demain à 10 h.'), { $r = @(Get-RV 'R*union*'); $r.Count -eq 1 -and @($r[0].Fichiers | Where-Object { $_ -like '*\Monsieur Richard' }).Count -eq 1 -and $script:Dit -match 'dossier Monsieur Richard' })
+    , @('dossiers', @('Mets un rendez-vous avec Madame Dupont jeudi à 14 h et ouvre son dossier au début.'), { $r = @(Get-RV '*'); $x = @($r | Where-Object { @($_.Fichiers | Where-Object { $_ -like '*\Madame Dupont' }).Count }); $x.Count -eq 1 -and $x[0].OuvrirAuDebut -and -not $script:Ouvertures.Count })
+    , @('dossiers', @('Ouvre le dossier de Monsieur Richard.'), { @($script:Ouvertures | Where-Object { $_ -like '*\Monsieur Richard' }).Count -eq 1 -and @($script:Agenda).Count -eq 8 })
+    , @('dossiers', @('Tu peux m''ouvrir le dossier de Madame Dupont ?'), { @($script:Ouvertures | Where-Object { $_ -like '*\Madame Dupont' }).Count -eq 1 })
+    , @('dossiers', @('Ajoute une réunion avec Monsieur Richard demain à 10 h.', 'Ouvre son dossier au début de la réunion.'), { $r = @(Get-RV 'R*union*'); $r.Count -eq 1 -and $r[0].OuvrirAuDebut -and -not $script:Ouvertures.Count })
+    , @('dossiers', @('Relie le dossier de Madame Dupont au dentiste.'), { $r = Get-RV 'Dentiste'; @($r[0].Fichiers | Where-Object { $_ -like '*\Madame Dupont' }).Count -eq 1 })
+    , @('dossiers', @('Crée une réunion bilan jeudi à 9 h.', 'Rattache le dossier de Monsieur Richard à la réunion.'), { $r = @(Get-RV 'R*union*'); $r.Count -eq 1 -and @($r[0].Fichiers | Where-Object { $_ -like '*\Monsieur Richard' }).Count -eq 1 -and -not $script:Ouvertures.Count })
+    , @('dossiers', @('Joins les fichiers de Madame Dupont au rendez-vous du dentiste.'), { $r = Get-RV 'Dentiste'; @($r[0].Fichiers | Where-Object { $_ -like '*\Madame Dupont' }).Count -eq 1 -and -not $script:Ouvertures.Count })
+    , @('dossiers', @('Ouvre-moi le dossier Dupont.'), { @($script:Ouvertures | Where-Object { $_ -like '*\Madame Dupont' }).Count -eq 1 })
+    , @('dossiers', @('Ouvre les documents de Monsieur Richard.'), { @($script:Ouvertures | Where-Object { $_ -like '*\Monsieur Richard' }).Count -eq 1 })
+    , @('dossiers', @('Ajoute une réunion avec Monsieur Richard demain à 10 h.', 'Ouvre le dossier de la réunion.'), { @($script:Ouvertures | Where-Object { $_ -like '*\Monsieur Richard' }).Count -eq 1 })
+    , @('dossiers', @('Ouvre le dossier de Monsieur Martin.'), { -not $script:Ouvertures.Count -and $script:Dit -match "pas trouvé" })
     , @('piège', @('Le raid passe au mardi.'), { $r = Get-RV 'Raid avec les potes'; [int]$r[0].Repetition.Jour -eq 2 })
+    , @('piège', @('Le foot, c''est plutôt vendredi.'), { $r = Get-RV 'Foot'; Test-Jour $r[0] (Get-Prochain 5) '19:00' })
+    , @('piège', @('Déplace le dentiste à lundi à 10 h.'), { $r = Get-RV 'Dentiste'; Test-Jour $r[0] (Get-Prochain 1) '10:00' })
     , @('piège', @('Mets le raid toutes les deux semaines.'), { $r = Get-RV 'Raid avec les potes'; @($r).Count -eq 1 -and [int]$r[0].Repetition.Intervalle -eq 2 })
     , @('piège', @('Supprime le raid du 26 octobre.'), { $r = Get-RV 'Raid avec les potes'; $r -and @($r[0].Repetition.Sauf) -contains "$($auj.Year)-10-26" })
     , @('piège', @('Efface tout le raid.'), { -not (Get-RV 'Raid avec les potes') })
@@ -206,7 +239,7 @@ try {
         # Agenda d'exemple tout neuf, conversation oubliée
         Copy-Item $exemple (Join-Path $env:EVERMIND_DONNEES 'rendez-vous.json') -Force
         Import-Agenda
-        $script:Conversation = New-Object System.Collections.ArrayList; $script:Annulation = $null; $script:Dit = ''
+        $script:Conversation = New-Object System.Collections.ArrayList; $script:Annulation = $null; $script:Dit = ''; $script:Ouvertures.Clear(); $script:ListeDossiers = $null
         $traces = @()
         foreach ($ph in $phrases) { $traces += "« $ph » -> $(Invoke-Demande $ph)" }
         $bon = $false

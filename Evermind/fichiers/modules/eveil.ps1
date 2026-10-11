@@ -40,7 +40,7 @@ function Start-Eveil {
         $script:EveilTimer.Add_Tick({ Step-Eveil })
     }
     $script:EveilTimer.Start()
-    Write-Log 'Écoute « OK Eve » active'
+    Write-Log "Écoute « OK Eve » active (micro : $(if ([EMMicros]::Choisi -ne [uint32]::MaxValue) { @([EMMicros]::Noms())[[EMMicros]::Choisi] } else { 'celui de Windows' }))"
     try { [void](Start-WhisperServeur) } catch {}   # Whisper prêt d'avance : la réponse arrive plus vite
     Update-RaccourciTexte
     if ($test) {
@@ -63,8 +63,9 @@ function Step-Eveil {
     if (-not $e) { $script:EveilTimer.Stop(); return }
     try {
         # Sécurité : une phrase d'Evermind qui ne finit jamais ne doit pas laisser « OK Eve » sourd pour toujours
-        if ($script:Piper -and $script:Piper.Debut -and $script:Piper.Debut.Elapsed.TotalSeconds -gt 40) { Write-Log 'Voix bloquée : « OK Eve » reprend'; $script:Piper = $null }
-        $occupe = [bool]($script:Ecoute -or $script:Transcription -or $script:Demande -or $script:Piper)
+        if ($script:Parle -and $script:Parle.Debut -and $script:Parle.Debut.Elapsed.TotalSeconds -gt 40) { Write-Log 'Voix bloquée : « OK Eve » reprend'; $script:Parle = $null }
+        Test-MicroRevenu
+        $occupe = [bool]($script:Ecoute -or $script:Transcription -or $script:Demande -or $script:Parle)
         $parle = ((Get-Date) -lt $script:EveilReprise) -or ($script:Synth -and [string]$script:Synth.State -eq 'Speaking')
         $e.Pause = $occupe -or $parle
         # Diagnostic : ce que l'écoute a cru entendre, et (les 3 premières minutes) si le micro envoie bien du son

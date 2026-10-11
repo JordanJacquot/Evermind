@@ -27,6 +27,89 @@ public static class EMMicros
     }
 }
 
+// Le casque (ou les haut-parleurs) où Evermind parle : celui choisi dans les réglages, sinon celui de Windows.
+// Joue un fichier .wav (la voix, les bips) ; une nouvelle lecture coupe la précédente.
+public static class EMSortie
+{
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct CAPS { public ushort mid, pid; public uint ver; [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string name; public uint fmts; public ushort ch, res; public uint support; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct WAVEFORMATEX { public ushort wFormatTag, nChannels; public uint nSamplesPerSec, nAvgBytesPerSec; public ushort nBlockAlign, wBitsPerSample, cbSize; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct WAVEHDR { public IntPtr lpData; public uint dwBufferLength, dwBytesRecorded; public IntPtr dwUser; public uint dwFlags, dwLoops; public IntPtr lpNext, reserved; }
+    [DllImport("winmm.dll")] static extern uint waveOutGetNumDevs();
+    [DllImport("winmm.dll", CharSet = CharSet.Unicode)] static extern int waveOutGetDevCapsW(IntPtr id, ref CAPS c, int sz);
+    [DllImport("winmm.dll")] static extern int waveOutOpen(out IntPtr h, uint dev, ref WAVEFORMATEX f, IntPtr cb, IntPtr inst, uint flags);
+    [DllImport("winmm.dll")] static extern int waveOutPrepareHeader(IntPtr h, IntPtr hdr, uint size);
+    [DllImport("winmm.dll")] static extern int waveOutUnprepareHeader(IntPtr h, IntPtr hdr, uint size);
+    [DllImport("winmm.dll")] static extern int waveOutWrite(IntPtr h, IntPtr hdr, uint size);
+    [DllImport("winmm.dll")] static extern int waveOutReset(IntPtr h);
+    [DllImport("winmm.dll")] static extern int waveOutClose(IntPtr h);
+
+    public static uint Choisi = 0xFFFFFFFF;   // 0xFFFFFFFF : la sortie par défaut de Windows
+    static readonly object verrou = new object();
+    static IntPtr h = IntPtr.Zero, hdr = IntPtr.Zero, buf = IntPtr.Zero;
+    static Timer fin;
+    static int numero;
+
+    public static string[] Noms()
+    {
+        uint n = waveOutGetNumDevs();
+        string[] r = new string[n];
+        for (uint d = 0; d < n; d++) { CAPS c = new CAPS(); waveOutGetDevCapsW((IntPtr)d, ref c, Marshal.SizeOf(c)); r[d] = c.name ?? ""; }
+        return r;
+    }
+
+    public static double JouerFichier(string chemin) { return Jouer(File.ReadAllBytes(chemin)); }
+
+    // Joue un .wav en mémoire ; retourne sa durée en secondes (0 si impossible)
+    public static double Jouer(byte[] wav)
+    {
+        WAVEFORMATEX f = new WAVEFORMATEX(); int debut = -1, taille = 0;
+        for (int i = 12; i + 8 <= wav.Length; )
+        {
+            string id = Encoding.ASCII.GetString(wav, i, 4); int t = BitConverter.ToInt32(wav, i + 4);
+            if (id == "fmt ")
+            {
+                f.wFormatTag = BitConverter.ToUInt16(wav, i + 8); f.nChannels = BitConverter.ToUInt16(wav, i + 10);
+                f.nSamplesPerSec = BitConverter.ToUInt32(wav, i + 12); f.nAvgBytesPerSec = BitConverter.ToUInt32(wav, i + 16);
+                f.nBlockAlign = BitConverter.ToUInt16(wav, i + 20); f.wBitsPerSample = BitConverter.ToUInt16(wav, i + 22);
+            }
+            else if (id == "data") { debut = i + 8; taille = Math.Min(t, wav.Length - debut); break; }
+            i += 8 + t + (t & 1);
+        }
+        if (debut < 0 || f.nAvgBytesPerSec == 0) return 0;
+        lock (verrou)
+        {
+            ArreterSansVerrou();
+            int r = waveOutOpen(out h, Choisi, ref f, IntPtr.Zero, IntPtr.Zero, 0);
+            if (r != 0 && Choisi != 0xFFFFFFFF) r = waveOutOpen(out h, 0xFFFFFFFF, ref f, IntPtr.Zero, IntPtr.Zero, 0);   // casque débranché
+            if (r != 0) { h = IntPtr.Zero; return 0; }
+            buf = Marshal.AllocHGlobal(taille); Marshal.Copy(wav, debut, buf, taille);
+            WAVEHDR w = new WAVEHDR { lpData = buf, dwBufferLength = (uint)taille };
+            hdr = Marshal.AllocHGlobal(Marshal.SizeOf(w)); Marshal.StructureToPtr(w, hdr, false);
+            waveOutPrepareHeader(h, hdr, (uint)Marshal.SizeOf(w));
+            waveOutWrite(h, hdr, (uint)Marshal.SizeOf(w));
+            double duree = (double)taille / f.nAvgBytesPerSec;
+            // La sortie est rendue une fois le son fini
+            int ce = ++numero;
+            fin = new Timer(_ => { lock (verrou) { if (ce == numero) ArreterSansVerrou(); } }, null, (int)(duree * 1000) + 600, Timeout.Infinite);
+            return duree;
+        }
+    }
+
+    public static void Arreter() { lock (verrou) { numero++; ArreterSansVerrou(); } }
+
+    static void ArreterSansVerrou()
+    {
+        if (h == IntPtr.Zero) return;
+        waveOutReset(h);
+        if (hdr != IntPtr.Zero) { waveOutUnprepareHeader(h, hdr, (uint)Marshal.SizeOf(typeof(WAVEHDR))); Marshal.FreeHGlobal(hdr); hdr = IntPtr.Zero; }
+        if (buf != IntPtr.Zero) { Marshal.FreeHGlobal(buf); buf = IntPtr.Zero; }
+        waveOutClose(h); h = IntPtr.Zero;
+    }
+}
+
 // Écoute tous les micros en même temps, juste pour montrer leur niveau (rien n'est gardé)
 public class EMVumetre
 {

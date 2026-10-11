@@ -27,6 +27,7 @@ Update-VoixInstall
 
 # Réglages (choix de la voix)
 $ui.BtnReglages.Add_Click({ Open-Reglages })
+foreach ($o in 'Son', 'Voix', 'Assistant', 'Theme', 'General') { $ui["Onglet$o"].Tag = $null; $ui["Onglet$o"].Add_Click({ param($s) Set-OngletReglages ($s.Name -replace '^Onglet', '') }) }
 $ui.BtnReglagesFermer.Add_Click({ Close-Reglages })
 $ui.ReglagesFond.Add_MouseLeftButtonDown({ Close-Reglages })
 
@@ -58,7 +59,8 @@ $ui.BtnFAnnuler.Add_Click({ Close-Formulaire })
 $ui.FormFond.Add_MouseLeftButtonDown({ Close-Formulaire })
 $ui.BtnFEnregistrer.Add_Click({ Save-Formulaire })
 $Window.Add_PreviewKeyDown({ param($s, $e) if ($e.Key -ne 'Escape') { return }
-    if ($ui.Confirmation.Visibility -eq 'Visible') { Close-Confirmation; $e.Handled = $true }
+    if ($ui.Fermer.Visibility -eq 'Visible') { Close-Fermer; $e.Handled = $true }
+    elseif ($ui.Confirmation.Visibility -eq 'Visible') { Close-Confirmation; $e.Handled = $true }
     elseif ($ui.Formulaire.Visibility -eq 'Visible') { Close-Formulaire; $e.Handled = $true }
     elseif ($ui.Reglages.Visibility -eq 'Visible') { Close-Reglages; $e.Handled = $true }
     elseif ($ui.Fiche.Visibility -eq 'Visible') { Close-Fiche; $e.Handled = $true } })
@@ -71,7 +73,20 @@ $ui.ChkDemarrage.Add_Click({
 })
 
 # La croix cache Evermind près de l'horloge, « Quitter » (clic droit sur l'icône) le ferme vraiment
-$Window.Add_Closing({ param($s, $e) if (-not $script:Quitting) { $e.Cancel = $true; Hide-ToTray } })
+$Window.Add_Closing({ param($s, $e) if (-not $script:Quitting) { $e.Cancel = $true; Invoke-Croix } })
+$ui.BtnFermerReduire.Add_Click({ Invoke-FermerChoix 'reduire' })
+$ui.BtnFermerQuitter.Add_Click({ Invoke-FermerChoix 'quitter' })
+$ui.BtnFermerAnnuler.Add_Click({ Close-Fermer })
+$ui.FermerFond.Add_MouseLeftButtonDown({ Close-Fermer })
+$ui.BtnThemeAppliquer.Add_Click({ Set-AppTheme $script:ThemeChoisi })
+$ui.BtnThemeImporter.Add_Click({ Invoke-ImportTheme })
+$ui.BtnDossierRechercheAjouter.Add_Click({ Add-DossierRecherche })
+$ui.BtnThemeDossier.Add_Click({ New-Item -ItemType Directory -Force -Path $PacksDir | Out-Null; Start-Process explorer.exe $PacksDir })
+Add-ThemeDecor
+if (-not $EnTest) { Start-PlanificateurFichiers }   # dossiers ouverts tout seuls à l'heure des rendez-vous
+$ui.CroixDemander.Add_Click({ Set-Setting 'Croix' ''; Update-CroixReglage })
+$ui.CroixReduire.Add_Click({ Set-Setting 'Croix' 'reduire'; Update-CroixReglage })
+$ui.CroixQuitter.Add_Click({ Set-Setting 'Croix' 'quitter'; Update-CroixReglage })
 $Window.Add_Activated({ Update-Greeting; Update-Agenda; Update-Apercu })   # « demain » devient « aujourd'hui »
 $Window.Add_Loaded({ [void]$ui.InPhrase.Focus() })
 
@@ -86,7 +101,7 @@ if ($script:ShowSignal) {
 # Tests automatiques : phrase tapée d'avance, ajout, formulaire ouvert, dictée d'un fichier son
 if ($env:EVERMIND_PHRASE) { $ui.InPhrase.Text = $env:EVERMIND_PHRASE; if ($env:EVERMIND_AJOUTER) { Invoke-Ajouter } }
 if ($env:EVERMIND_FORMULAIRE) { Open-Formulaire }
-if ($env:EVERMIND_REGLAGES) { Open-Reglages }
+if ($env:EVERMIND_REGLAGES) { Open-Reglages $(if ($env:EVERMIND_REGLAGES -ne '1') { $env:EVERMIND_REGLAGES }) }
 if ($env:EVERMIND_CONFIRMATION) { Confirm-Suppression (@($script:Agenda | Where-Object { $_.Titre -like $env:EVERMIND_CONFIRMATION })[0]).Id; if ($env:EVERMIND_CONFIRMATION_OUI) { $ui.BtnConfirmationOui.RaiseEvent((New-Object System.Windows.RoutedEventArgs ([System.Windows.Controls.Button]::ClickEvent))) } }
 if ($env:EVERMIND_FICHE) { $it = @(Get-Upcoming | Where-Object { $_.RV.Titre -like $env:EVERMIND_FICHE })[0]; if ($it) { Show-Fiche $it.RV $it.Prochain } }
 if ($env:EVERMIND_FORMULAIRE_RV) { Open-Formulaire -RV (@($script:Agenda | Where-Object { $_.Titre -like $env:EVERMIND_FORMULAIRE_RV })[0]) }
@@ -106,3 +121,4 @@ if ($env:EVERMIND_COMMANDE) {
     $script:TestTimer.Start()
 }
 if ($env:EVERMIND_INSTALLER) { Start-VoixInstall }
+if ($env:EVERMIND_FERMER) { Invoke-Croix }

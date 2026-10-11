@@ -81,7 +81,8 @@ $DateFormat = 'yyyy-MM-ddTHH:mm'
 #   Fin        : heure de fin ("2027-02-27T16:00") ou null
 #   Lieu, Lien, Notes : texte ; Avec : liste de noms ; APreparer : liste de { Texte, Fait }
 #   Important, Fait (« À faire » terminé) : oui ou non ; Naissance : année de naissance (anniversaire)
-$Details = 'Fin', 'Lieu', 'Avec', 'Lien', 'Notes', 'APreparer', 'Rappels', 'Important', 'Fait', 'Naissance'
+#   Fichiers : dossiers et fichiers reliés (chemins complets) ; OuvrirAuDebut : les ouvrir quand le rendez-vous commence
+$Details = 'Fin', 'Lieu', 'Avec', 'Lien', 'Notes', 'APreparer', 'Rappels', 'Important', 'Fait', 'Naissance', 'Fichiers', 'OuvrirAuDebut'
 
 # Une date de détail abîmée ne doit jamais faire perdre le rendez-vous : elle est simplement ignorée
 function Read-DateSouple($Valeur) {
@@ -109,6 +110,8 @@ function ConvertTo-RendezVous($Raw) {
         Important  = [bool]$Raw.Important
         Fait       = [bool]$Raw.Fait
         Naissance  = if ($Raw.Naissance -is [int] -or $Raw.Naissance -is [long] -or "$($Raw.Naissance)" -match '^\d{4}$') { [int]"$($Raw.Naissance)" } else { $null }
+        Fichiers   = @($Raw.Fichiers | Where-Object { $_ -is [string] -and $_ })
+        OuvrirAuDebut = [bool]$Raw.OuvrirAuDebut
         Cree       = [string]$Raw.Cree
     }
 }
@@ -133,7 +136,8 @@ function Get-AgendaDonnees {
                     Repetition = $r.Repetition; Lieu = $r.Lieu; Avec = @($r.Avec); Lien = $r.Lien; Notes = $r.Notes
                     APreparer = @($r.APreparer | ForEach-Object { [ordered]@{ Texte = $_.Texte; Fait = [bool]$_.Fait } })
                     Rappels = $(if ($null -ne $r.Rappels) { @($r.Rappels) } else { $null })
-                    Important = [bool]$r.Important; Fait = [bool]$r.Fait; Naissance = $r.Naissance; Cree = $r.Cree }
+                    Important = [bool]$r.Important; Fait = [bool]$r.Fait; Naissance = $r.Naissance
+                    Fichiers = @($r.Fichiers); OuvrirAuDebut = [bool]$r.OuvrirAuDebut; Cree = $r.Cree }
     })
 }
 
@@ -149,6 +153,7 @@ function Set-Details($r, $Detail) {
         $v = $Detail[$k]
         switch ($k) {
             'Avec'      { $r.Avec = @($v | Where-Object { $_ }) }
+            'Fichiers'  { $r.Fichiers = @($v | Where-Object { $_ } | Select-Object -Unique) }
             'APreparer' { $r.APreparer = @($v | Where-Object { $_ } | ForEach-Object { if ($_ -is [string]) { [pscustomobject]@{ Texte = $_; Fait = $false } } else { [pscustomobject]@{ Texte = [string]$_.Texte; Fait = [bool]$_.Fait } } }) }
             'Rappels'   { $r.Rappels = if ($null -ne $v) { @($v) } else { $null } }
             default     { $r.$k = $v }
@@ -159,7 +164,7 @@ function Set-Details($r, $Detail) {
 function Add-RendezVous([string]$Titre, [datetime]$Quand, $Repetition, [string]$Type = 'rdv', [bool]$Journee = $false, $Detail) {
     $r = [pscustomobject]@{ Id = [guid]::NewGuid().ToString('N'); Titre = $Titre.Trim(); Type = $Type; Journee = $Journee; Quand = $Quand; Fin = $null
                             Repetition = $Repetition; Lieu = ''; Avec = @(); Lien = ''; Notes = ''; APreparer = @(); Rappels = $null
-                            Important = $false; Fait = $false; Naissance = $null; Cree = (Get-Date -Format s) }
+                            Important = $false; Fait = $false; Naissance = $null; Fichiers = @(); OuvrirAuDebut = $false; Cree = (Get-Date -Format s) }
     Set-Details $r $Detail
     [void]$script:Agenda.Add($r)
     Save-Agenda

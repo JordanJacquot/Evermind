@@ -87,6 +87,41 @@ function Hide-ToTray {
     }
 }
 
+# La croix : demander (par défaut), ou ce qui a été retenu (« reduire », « quitter »)
+function Invoke-Croix {
+    switch ([string](Get-Setting 'Croix' '')) {
+        'reduire' { Hide-ToTray }
+        'quitter' { [void]$Window.Dispatcher.BeginInvoke([action]{ Exit-App }) }   # pas pendant la fermeture en cours
+        default {
+            $ui.ChkFermerRetenir.IsChecked = $false
+            $ui.Fermer.Visibility = 'Visible'
+            [void]$ui.BtnFermerReduire.Focus()
+        }
+    }
+}
+
+function Close-Fermer { $ui.Fermer.Visibility = 'Collapsed' }
+
+function Invoke-FermerChoix([string]$Choix) {
+    if ($ui.ChkFermerRetenir.IsChecked) { Set-Setting 'Croix' $Choix; Write-Log "Croix : $Choix (retenu)" }
+    Close-Fermer
+    if ($Choix -eq 'quitter') { Exit-App } else { Hide-ToTray }
+}
+
+# Réglages : ce que fait la croix
+function Update-CroixReglage {
+    $c = [string](Get-Setting 'Croix' '')
+    $ui.CroixDemander.Tag = if (-not $c) { 'on' } else { $null }
+    $ui.CroixReduire.Tag = if ($c -eq 'reduire') { 'on' } else { $null }
+    $ui.CroixQuitter.Tag = if ($c -eq 'quitter') { 'on' } else { $null }
+}
+
+# Relance Evermind (nouveau thème) : il se ferme, puis Evermind.ps1 le relance une fois tout arrêté
+function Restart-App {
+    $script:Relancer = $true
+    Exit-App
+}
+
 function Exit-App {
     if ($script:Quitting) { return }
     $script:Quitting = $true

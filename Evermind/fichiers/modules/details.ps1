@@ -19,7 +19,8 @@ $RappelsChoix = 'm0', 'm10', 'm30', 'm60', 'matin', 'veille', 'm2880', 'm10080'
 
 # Détails venant d'une phrase (barre rapide ou voix)
 function Get-DetailsPhrase($p) {
-    @{ Fin = $p.Fin; Lieu = [string]$p.Lieu; Avec = @($p.Avec); Lien = [string]$p.Lien; Rappels = $p.Rappels; Important = [bool]$p.Important; Naissance = $p.Naissance; APreparer = @($p.APreparer | Where-Object { $_ }) }
+    @{ Fin = $p.Fin; Lieu = [string]$p.Lieu; Avec = @($p.Avec); Lien = [string]$p.Lien; Rappels = $p.Rappels; Important = [bool]$p.Important; Naissance = $p.Naissance; APreparer = @($p.APreparer | Where-Object { $_ })
+       Fichiers = @(Get-DossiersAuto $p.Titre $p.Avec) }   # « réunion avec Monsieur Richard » : son dossier, s'il est trouvé
 }
 
 # Lien ouvrable sans risque (seulement http et https), sinon $null
@@ -58,7 +59,50 @@ function Get-ResumeDetails($RV) {
 # ---------------------------------------------------------------------------
 # Formulaire : les détails
 # ---------------------------------------------------------------------------
+# Formulaire : la liste des dossiers et fichiers (chacun avec une croix pour le retirer)
+function Update-FFichiers {
+    $ui.FFichiers.Children.Clear()
+    foreach ($chemin in @($script:FFichiers)) {
+        $ligne = New-Object System.Windows.Controls.Border
+        $ligne.Padding = '10,5'; $ligne.Margin = '0,0,0,4'; $ligne.CornerRadius = 10; $ligne.Background = Get-Brush '#0FFFFFFF'
+        $dp = New-Object System.Windows.Controls.DockPanel
+        $x = New-Button '✕'; $x.Tag = $chemin; $x.Padding = '10,3'; $x.Margin = '8,0,0,0'; $x.ToolTip = 'Retirer (le fichier n''est pas supprimé)'
+        $x.Add_Click({ param($s) $script:FFichiers = @($script:FFichiers | Where-Object { $_ -ne [string]$s.Tag }); Update-FFichiers })
+        [System.Windows.Controls.DockPanel]::SetDock($x, 'Right'); [void]$dp.Children.Add($x)
+        $t = New-Object System.Windows.Controls.TextBlock
+        $t.Text = "$(if (Test-Path -LiteralPath $chemin -PathType Container) { '📁' } else { '📄' })  $(Split-Path $chemin -Leaf)"
+        $t.ToolTip = $chemin; $t.FontSize = 14; $t.Foreground = Get-Brush '#F2EFFA'; $t.VerticalAlignment = 'Center'; $t.TextTrimming = 'CharacterEllipsis'
+        [void]$dp.Children.Add($t)
+        $ligne.Child = $dp
+        [void]$ui.FFichiers.Children.Add($ligne)
+    }
+    $ui.FOuvrirDebut.Visibility = if (@($script:FFichiers).Count) { 'Visible' } else { 'Collapsed' }
+}
+
+function Add-FFichiers([string[]]$Chemins) {
+    $script:FFichiers = @(@($script:FFichiers) + @($Chemins | Where-Object { $_ }) | Select-Object -Unique)
+    Update-FFichiers
+}
+
 function Initialize-FDetails {
+    $ui.FAjouterDossier.Add_Click({
+        $d = New-Object System.Windows.Forms.FolderBrowserDialog
+        $d.Description = 'Choisis le dossier à relier à ce rendez-vous'
+        $r = @(Get-DossiersRecherche)[0]; if ($r -and (Test-Path -LiteralPath $r)) { $d.SelectedPath = $r }
+        if ($d.ShowDialog() -eq 'OK') { Add-FFichiers @($d.SelectedPath) }
+    })
+    $ui.FAjouterFichier.Add_Click({
+        $d = New-Object Microsoft.Win32.OpenFileDialog
+        $d.Title = 'Choisis les fichiers à relier à ce rendez-vous'; $d.Multiselect = $true
+        if ($d.ShowDialog($Window)) { Add-FFichiers $d.FileNames }
+    })
+    $ui.FTrouverDossier.Add_Click({
+        $avec = @($ui.FAvec.Text -split '\s*(?:,|;|\bet\b)\s*' | Where-Object { $_.Trim() })
+        $trouves = @(Get-DossiersAuto $ui.FTitre.Text $avec)
+        $ui.FFichiersInfo.Visibility = 'Visible'
+        if ($trouves.Count) { Add-FFichiers $trouves; $ui.FFichiersInfo.Text = "Trouvé : $(@($trouves | ForEach-Object { Split-Path $_ -Leaf }) -join ', ')." }
+        else { $ui.FFichiersInfo.Text = "Je n'ai pas trouvé de dossier à ce nom (j'ai regardé dans : $(@(Get-DossiersRecherche) -join ', ')). Écris le nom de la personne dans « Avec qui ? », ou ajoute le dossier à la main." }
+    })
     $style = $Window.FindResource('Chip')
     foreach ($c in $RappelsChoix) {
         $b = New-Object System.Windows.Controls.Button
@@ -182,6 +226,10 @@ function Set-FDetails($Source) {
     $ui.FImportant.Tag = if ($Source -and $Source.Important) { 'on' } else { $null }
     $script:FRappels = if ($Source -and $null -ne $Source.Rappels) { @($Source.Rappels) } else { $null }
     $script:FAvant = if ($Source -and $Source.APreparer) { @($Source.APreparer) } else { @() }   # pour garder les cases déjà cochées
+    $script:FFichiers = if ($Source -and $Source.Fichiers) { @($Source.Fichiers) } else { @() }
+    $ui.FOuvrirDebut.IsChecked = [bool]($Source -and $Source.OuvrirAuDebut)
+    $ui.FFichiersInfo.Visibility = 'Collapsed'
+    Update-FFichiers
 }
 
 # Met à jour ce qui dépend de la sorte et de « toute la journée »
@@ -223,6 +271,7 @@ function Read-FDetails([datetime]$Quand, [bool]$Journee) {
         Fin = $fin; Lieu = $ui.FLieu.Text.Trim(); Lien = $lien; Notes = $ui.FNotes.Text.Trim()
         Avec = @($ui.FAvec.Text -split '\s*(?:,|;|\bet\b)\s*' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
         APreparer = $prep; Important = ($ui.FImportant.Tag -eq 'on'); Naissance = $naissance
+        Fichiers = @($script:FFichiers); OuvrirAuDebut = ([bool]$ui.FOuvrirDebut.IsChecked -and @($script:FFichiers).Count -gt 0)
         Rappels = $(if ($null -ne $script:FRappels) { @($script:FRappels) } else { $null })
     } }
 }
@@ -300,6 +349,67 @@ function New-ListeAPreparer($RV) {
     $sp
 }
 
+# Dossiers et fichiers reliés : chacun avec « Ouvrir » ; « Tout ouvrir » ; « Ouvrir au début » (à l'heure, tout s'ouvre)
+function New-ListeFichiers($RV) {
+    $sp = New-Object System.Windows.Controls.StackPanel
+    foreach ($chemin in @($RV.Fichiers)) {
+        $existe = Test-Path -LiteralPath $chemin
+        $dossier = $existe -and (Test-Path -LiteralPath $chemin -PathType Container)
+        $ligne = New-Object System.Windows.Controls.Border
+        $ligne.Padding = '10,6'; $ligne.Margin = '0,0,0,4'; $ligne.CornerRadius = 10; $ligne.Background = Get-Brush '#0FFFFFFF'
+        $dp = New-Object System.Windows.Controls.DockPanel
+        $b = New-Button 'Ouvrir'; $b.Tag = $chemin; $b.Margin = '10,0,0,0'; $b.IsEnabled = $existe
+        $b.Add_Click({ param($s) [void](Open-Fichier ([string]$s.Tag)) })
+        [System.Windows.Controls.DockPanel]::SetDock($b, 'Right'); [void]$dp.Children.Add($b)
+        $ic = New-Object System.Windows.Controls.TextBlock
+        $ic.Text = if ($dossier) { '📁' } else { '📄' }; $ic.FontFamily = $PoliceIcone; $ic.FontSize = 18; $ic.Margin = '0,0,10,0'; $ic.VerticalAlignment = 'Center'
+        [System.Windows.Controls.DockPanel]::SetDock($ic, 'Left'); [void]$dp.Children.Add($ic)
+        $txt = New-Object System.Windows.Controls.StackPanel; $txt.VerticalAlignment = 'Center'
+        $n = New-Object System.Windows.Controls.TextBlock; $n.Text = (Split-Path $chemin -Leaf); $n.FontSize = 15; $n.Foreground = Get-Brush '#F2EFFA'; $n.TextTrimming = 'CharacterEllipsis'
+        $c = New-Object System.Windows.Controls.TextBlock; $c.FontSize = 12; $c.TextTrimming = 'CharacterEllipsis'
+        $c.Text = if ($existe) { Split-Path $chemin -Parent } else { "Introuvable : $chemin" }
+        $c.Foreground = Get-Brush $(if ($existe) { $Colors.dim } else { '#FFB547' })
+        [void]$txt.Children.Add($n); [void]$txt.Children.Add($c)
+        [void]$dp.Children.Add($txt)
+        $ligne.Child = $dp
+        [void]$sp.Children.Add($ligne)
+    }
+    $bas = New-Object System.Windows.Controls.WrapPanel; $bas.Margin = '0,4,0,0'
+    if (@($RV.Fichiers).Count -gt 1) {
+        $tout = New-Button 'Tout ouvrir' 'BtnPrimary'; $tout.Margin = '0,0,10,0'
+        $tout.Add_Click({ [void](Open-FichiersRV $script:FicheRV) })
+        [void]$bas.Children.Add($tout)
+    }
+    # « Ouvrir au début » : un interrupteur, enregistré tout de suite
+    $ch = New-Object System.Windows.Controls.CheckBox
+    $ch.Style = $Window.FindResource('Switch'); $ch.IsChecked = [bool]$RV.OuvrirAuDebut; $ch.VerticalAlignment = 'Center'
+    $ch.Add_Click({ param($s) Set-RendezVousDetail $script:FicheRV.Id 'OuvrirAuDebut' ([bool]$s.IsChecked); Write-Log "Ouvrir au début : $([bool]$s.IsChecked) ($($script:FicheRV.Titre))" })
+    $lt = New-Object System.Windows.Controls.TextBlock
+    $lt.Text = if ($RV.Journee) { 'Les ouvrir le matin même (rendez-vous sans heure)' } else { 'Les ouvrir tout seul à l''heure du rendez-vous' }
+    $lt.FontSize = 14; $lt.Foreground = Get-Brush '#C9C3DD'; $lt.Margin = '10,0,0,0'; $lt.VerticalAlignment = 'Center'
+    $sw = New-Object System.Windows.Controls.StackPanel; $sw.Orientation = 'Horizontal'; $sw.VerticalAlignment = 'Center'
+    [void]$sw.Children.Add($ch); [void]$sw.Children.Add($lt)
+    [void]$bas.Children.Add($sw)
+    [void]$sp.Children.Add($bas)
+    $sp
+}
+
+# Pas encore de fichiers, mais Evermind a trouvé le dossier des personnes : « Relier »
+function New-SuggestionFichiers($RV, [string[]]$Trouves) {
+    $sp = New-Object System.Windows.Controls.StackPanel
+    foreach ($chemin in $Trouves) {
+        $dp = New-Object System.Windows.Controls.DockPanel; $dp.Margin = '0,0,0,4'
+        $b = New-Button 'Relier' 'BtnPrimary'; $b.Tag = $chemin; $b.Margin = '12,0,0,0'; $b.VerticalAlignment = 'Center'
+        $b.Add_Click({ param($s) $rv = $script:FicheRV; Set-RendezVousDetail $rv.Id 'Fichiers' (@($rv.Fichiers) + [string]$s.Tag); Write-Log "Dossier relié : $($s.Tag)"; Show-Fiche $rv $script:FicheQuand })
+        [System.Windows.Controls.DockPanel]::SetDock($b, 'Right'); [void]$dp.Children.Add($b)
+        $t = New-Object System.Windows.Controls.TextBlock
+        $t.Text = "J'ai trouvé $(Get-NomFichier $chemin), dans $(Split-Path $chemin -Parent). Le relier à ce rendez-vous ?"
+        $t.FontSize = 15; $t.Foreground = Get-Brush '#F2EFFA'; $t.TextWrapping = 'Wrap'; $t.VerticalAlignment = 'Center'
+        [void]$dp.Children.Add($t)
+        [void]$sp.Children.Add($dp)
+    }
+    $sp
+}
 function Show-Fiche($RV, [datetime]$Quand) {
     if (-not $RV) { return }
     $script:FicheRV = $RV; $script:FicheQuand = $Quand
@@ -308,12 +418,12 @@ function Show-Fiche($RV, [datetime]$Quand) {
     # En-tête aux couleurs de la sorte
     $bg = New-Object System.Windows.Media.LinearGradientBrush
     $bg.StartPoint = '0,0'; $bg.EndPoint = '1,1'
-    $bg.GradientStops.Add((New-Object System.Windows.Media.GradientStop ([System.Windows.Media.ColorConverter]::ConvertFromString(('#55' + $t.Couleur.TrimStart('#')))), 0))
-    $bg.GradientStops.Add((New-Object System.Windows.Media.GradientStop ([System.Windows.Media.ColorConverter]::ConvertFromString('#10FFFFFF')), 1))
+    $bg.GradientStops.Add((New-Object System.Windows.Media.GradientStop ((Get-Couleur ('#55' + $t.Couleur.TrimStart('#')))), 0))
+    $bg.GradientStops.Add((New-Object System.Windows.Media.GradientStop ((Get-Couleur '#10FFFFFF')), 1))
     $ui.FicheTete.Background = $bg
     $ui.FicheRond.Background = Get-Teinte $t.Couleur 0x30; $ui.FicheRond.BorderBrush = Get-Brush $t.Couleur
     $ui.FicheIcone.Text = $t.Icone; $ui.FicheIcone.Foreground = Get-Brush $t.Couleur
-    try { $ui.FicheLueur.Color = [System.Windows.Media.ColorConverter]::ConvertFromString($t.Couleur) } catch {}
+    try { $ui.FicheLueur.Color = (Get-Couleur $t.Couleur) } catch {}
     $ui.FicheSorte.Text = $t.Nom.ToUpper() + $(if ($RV.Important) { '   ★ IMPORTANT' } else { '' }) + $(if ($RV.Fait) { '   ✓ FAIT' } else { '' })
     $ui.FicheSorte.Foreground = Get-Brush $(if ($RV.Important) { '#FFD84D' } else { $t.Couleur })
     $ui.FicheTitre.Text = Get-TitreAffiche $RV.Titre
@@ -327,6 +437,11 @@ function Show-Fiche($RV, [datetime]$Quand) {
     if ($age) { [void]$c.Add((New-FicheSection '🎂' 'Âge' $age)) }
     if ($RV.Lieu) { [void]$c.Add((New-FicheSection '📍' 'Où' (New-TexteBouton $RV.Lieu 'Itinéraire' ('https://www.google.com/maps/search/?api=1&query=' + [uri]::EscapeDataString($RV.Lieu))))) }
     if (@($RV.Avec).Count) { [void]$c.Add((New-FicheSection '👥' 'Avec' (@($RV.Avec) -join ', '))) }
+    if (@($RV.Fichiers).Count) { [void]$c.Add((New-FicheSection '📁' 'Dossiers et fichiers' (New-ListeFichiers $RV))) }
+    else {
+        $trouves = @(Get-DossiersAuto $RV.Titre $RV.Avec)
+        if ($trouves.Count) { [void]$c.Add((New-FicheSection '📁' 'Dossier trouvé' (New-SuggestionFichiers $RV $trouves))) }
+    }
     $lien = Get-LienSur ([string]$RV.Lien)
     if ($lien) { [void]$c.Add((New-FicheSection '🔗' 'Lien' (New-TexteBouton $RV.Lien 'Ouvrir' $lien))) }
     $rap = @(Get-RappelsRV $RV)
@@ -346,7 +461,7 @@ function Show-Fiche($RV, [datetime]$Quand) {
             $c[$c.Count - 1].Children[1].Children[1].Foreground = Get-Brush '#FFB547'
         }
     }
-    if (-not $RV.Lieu -and -not @($RV.Avec).Count -and -not $RV.Lien -and -not @($RV.APreparer).Count -and -not $RV.Notes -and -not $age) {
+    if (-not $RV.Lieu -and -not @($RV.Avec).Count -and -not $RV.Lien -and -not @($RV.APreparer).Count -and -not $RV.Notes -and -not $age -and -not @($RV.Fichiers).Count) {
         $vide = New-Object System.Windows.Controls.TextBlock
         $vide.Text = 'Pas encore de détails. Appuie sur « Modifier » pour ajouter un lieu, des personnes, une liste de choses à préparer ou des notes.'
         $vide.FontSize = 14; $vide.Foreground = Get-Brush $Colors.dim; $vide.TextWrapping = 'Wrap'; $vide.Margin = '34,0,0,12'

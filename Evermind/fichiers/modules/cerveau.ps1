@@ -75,6 +75,7 @@ function Get-ContexteIA {
         if (@($r.APreparer).Count) { $l += ". À prendre : $(@($r.APreparer | ForEach-Object { $_.Texte }) -join ', ')" }
         if ($r.Notes) { $l += ". Notes : $($r.Notes -replace '\s+', ' ')" }
         if ($r.Important) { $l += '. Important' }
+        if (@($r.Fichiers).Count) { $l += ". Dossiers : $(@($r.Fichiers | ForEach-Object { Split-Path $_ -Leaf }) -join ', ')$(if ($r.OuvrirAuDebut) { ' (ouverts à l''heure)' })" }
         if ($r.Fait) { $l += '. Déjà fait' }
         $lignes += $l
     }
@@ -93,6 +94,8 @@ Actions possibles :
 - "modifier" : changer un rendez-vous existant, désigné par "id". Pour changer le jour ou l'heure, mets dans "phrase" le nouveau moment avec les mots de l'utilisateur (ex : « jeudi à 15 h ») : jamais de numéro de jour que tu aurais calculé. Sinon : "titre", "lieu", "personnes" (gens à ajouter), "retirer_personnes" (gens à enlever), "notes", "choses_a_prendre" (objets à emporter ou choses à préparer), "important" (true ou false), "rappels" (quand le prévenir : « la veille », « 2 heures avant », « le matin même »).
 - Un rendez-vous qui revient a lieu à TOUTES ses dates à venir (jusqu'à sa date de fin s'il en a une), pas seulement la prochaine montrée dans la liste : « les raids de novembre » existent si le raid revient tous les lundis sans fin.
 - Un rendez-vous qui revient peut s'arrêter à une date : garde les mots de l'utilisateur dans "phrase" (« tous les lundis d'octobre », « tous les mardis jusqu'au 15 décembre »).
+- Dossiers et fichiers : avec "creer" ou "modifier", "dossiers" relie des dossiers à un rendez-vous (le nom de la personne ou du dossier, par exemple ["Monsieur Richard"]) ; "ouvrir_au_debut": true si l'utilisateur veut qu'ils s'ouvrent tout seuls à l'heure du rendez-vous (« ouvre son dossier au début de la réunion »).
+- "ouvrir" : ouvrir tout de suite les dossiers et fichiers d'un rendez-vous ("id"), ou un dossier par son nom ("dossiers": ["Monsieur Richard"]). « Relie », « rattache », « associe », « joins » un dossier à un rendez-vous = "modifier" avec "dossiers", jamais "ouvrir".
 - "supprimer" : enlever un rendez-vous ("id"). Pour un rendez-vous qui revient, si l'utilisateur n'enlève qu'une partie des fois, recopie ses mots dans "periode" (« le 19 octobre », « en octobre 2026 », « à partir de novembre », « jusqu'au 15 mars », « cette semaine ») : Evermind enlève seulement ces fois-là. Sans "periode", toutes les fois sont supprimées. « Supprime », « efface », « enlève », « retire » veulent toujours dire "supprimer", jamais "modifier".
 - "fait" : une chose à faire est terminée ("id").
 - "annuler" : défaire la dernière chose qu'Evermind a faite.
@@ -145,11 +148,12 @@ $SchemaIA = @{
     properties = @{
         actions = @{ type = 'array'; items = @{ type = 'object'; required = @('action')
             properties = @{
-                action = @{ type = 'string'; enum = @('creer', 'modifier', 'supprimer', 'fait', 'annuler') }
+                action = @{ type = 'string'; enum = @('creer', 'modifier', 'supprimer', 'fait', 'annuler', 'ouvrir') }
                 id = @{ type = 'string' }; phrase = @{ type = 'string' }; titre = @{ type = 'string' }; lieu = @{ type = 'string' }
                 personnes = @{ type = 'array'; items = @{ type = 'string' } }; notes = @{ type = 'string' }
                 choses_a_prendre = @{ type = 'array'; items = @{ type = 'string' } }; important = @{ type = 'boolean' }; periode = @{ type = 'string' }
                 rappels = @{ type = 'array'; items = @{ type = 'string' } }; retirer_personnes = @{ type = 'array'; items = @{ type = 'string' } }
+                dossiers = @{ type = 'array'; items = @{ type = 'string' } }; ouvrir_au_debut = @{ type = 'boolean' }
             } } }
         reponse = @{ type = 'string' }
     }
@@ -250,6 +254,16 @@ function Step-Demande {
 # en lui signalant son erreur, ou @{ Reponse = ... } à appliquer. Utilisé aussi par les catalogues de test.
 function Get-DecisionIA($d, $reponse) {
     $relance = { param($correction) @{ Relance = @{ Messages = $d.Messages; Codes = $d.Codes; Reponse = ($reponse | ConvertTo-Json -Depth 6 -Compress); Correction = $correction } } }
+    # « Ouvre le dossier de Monsieur Richard » : pas besoin de l'IA
+    $ouv = Get-OuvertureTexte $d.Texte
+    if ($ouv) {
+        $id = @(@($reponse.actions) | Where-Object { $_.action -eq 'ouvrir' -and $_.id })
+        if ($id.Count) { $ouv | Add-Member -NotePropertyName id -NotePropertyValue $id[0].id }
+        return @{ Reponse = [pscustomobject]@{ actions = @($ouv); reponse = '' } }
+    }
+    # « Supprime l'événement » sans dire lequel (ni nom, ni date), et rien dans la conversation qui le dise : on demande
+    $q = Get-QuestionVague $d.Texte $d.Codes
+    if ($q) { Write-Log 'Assistant : demande trop vague, on demande lequel'; return @{ Reponse = [pscustomobject]@{ actions = @(); reponse = $q } } }
     # L'action ne correspond pas au verbe (« supprime » mais l'IA modifie...) : on lui redemande une fois en le lui
     # signalant ; si elle se trompe encore, rien n'est touché et Evermind demande de redire autrement.
     $ecart = Get-EcartAction $d.Texte @($reponse.actions | Where-Object { $_ -and $_.action }) $d.Codes
@@ -324,7 +338,7 @@ function Get-IntentionsTexte([string]$Texte) {
     @{
         Supp = $t -match "$pas\b(supprim|suprim|sucrim|effac|enl[èe]v|retir|vir[ée]|d[ée]gag)\w*" -or $t -match "\bannul\w*\s+(?:le|la|les|l'|mon|ma|mes|ce|cette|tous|toutes)\s*(?!derni|ce que|ça|cela)\w" -or $t -match "\best\s+annul[ée]"
         Modif = $t -match "$pas\b(d[ée]cal|d[ée]cad|d[ée]plac|repouss|recul|retard|avance|report|chang|modifi|renomm)\w*"
-        Creer = $t -match "\b(cr[ée]{1,2}[rsz]?\b|cr[ée]e-|ajout|rajout|mets|met\b|mettre|note[rsz]?\b|programm|planifi|rappel|oubli|pense)"
+        Creer = $t -match "\b(cr[ée]{1,2}[rsz]?\b|cr[ée]e-|ajout|rajout|mets|met\b|mettre|mett(?:e|es|ez|ions)\b|note[rsz]?\b|programm|planifi|rappel|oubli|pense|fai[st][- ]moi|fai[st]\s+(?:un|une)\s+(?:nouvel(?:le)?\s+)?(?:[ée]v[èée]nement|rendez-vous|rdv|rappel))"
         Question = $question
     }
 }
@@ -335,6 +349,25 @@ function Test-TitreDit([string]$Titre, [string]$Texte) {
     $t = & $sans $Texte
     $mots = @([regex]::Matches((& $sans $Titre), '[a-z]{3,}') | ForEach-Object { $_.Value } | Where-Object { $_ -notin 'anniversaire', 'rendez', 'vous', 'avec', 'chez', 'des', 'les', 'une', 'pour' })
     -not $mots.Count -or @($mots | Where-Object { $t -match "\b$_" }).Count -eq $mots.Count
+}
+
+# Supprimer ou changer « l'événement », « le rendez-vous », sans nom ni date, au début d'une conversation : la question
+# « Lequel ? » avec les noms des prochains rendez-vous ; sinon $null
+function Get-QuestionVague([string]$Texte, $Codes) {
+    if ($script:Conversation -and $script:Conversation.Count -and ((Get-Date) - $script:ConversationQuand).TotalMinutes -le 3) { return $null }
+    $in = Get-IntentionsTexte $Texte
+    if (-not ($in.Supp -or $in.Modif) -or $in.Creer) { return $null }
+    $t = $Texte.ToLower()
+    if ($t -notmatch "\b(?:l'|le |la |un |une |cet |ce |cette |mon |ma )\s*(?:[ée]v[èée]nement|rendez-vous|rdv|truc|rappel)\b") { return $null }
+    if ($Codes -and (Test-DesigneExistant $Texte @() $Codes)) { return $null }
+    $sans = ' ' + ($t.Normalize([Text.NormalizationForm]::FormD) -replace '\p{Mn}', '') + ' '
+    if ($Codes -and @($Codes.Values | ForEach-Object { Get-RendezVous $_ } | Where-Object { $_ } | Where-Object { $rv = $_; @(Get-MotsTitre $rv.Titre | Where-Object { $sans -match "\b$_" }).Count }).Count) { return $null }
+    $p = Read-Phrase "x $Texte"
+    if ($p.Jour -or $p.Repetition -or $null -ne $p.Heure -or $Texte -match "(?i)\b(?:$RxJour|$RxMois|demain|aujourd'hui|hier|semaine|\d{1,2})\b") { return $null }
+    $noms = @(Get-Upcoming | Select-Object -First 6 | ForEach-Object { Get-TitreAffiche $_.RV.Titre } | Select-Object -Unique)
+    if (-not $noms.Count) { return 'Ton agenda est vide, il n''y a rien à changer.' }
+    $liste = if ($noms.Count -gt 1) { "$(($noms | Select-Object -SkipLast 1) -join ', ') ou $($noms[-1])" } else { $noms[0] }
+    "Lequel ? $liste ?"
 }
 
 # La phrase désigne-t-elle un rendez-vous existant avec un article défini (« le foot », « mon dentiste », « à la soirée ») ?
@@ -393,9 +426,17 @@ function Get-EcartAction([string]$Texte, $Actions, $Codes) {
             if (-not $cites.Count) { return 'L''utilisateur demande de CRÉER un nouvel événement, pas de modifier un rendez-vous existant. Utilise l''action "creer" avec sa phrase.' }
         }
     }
+    # « Relie / rattache / associe / joins le dossier de X au dentiste » : relier, pas ouvrir
+    if ($Texte -match "(?i)\b(?:reli|rattach|associ|joins|joindre|attach|lie[rsz]?\b|ajoute[rsz]?\s+(?:le|les)\s+(?:dossier|fichier))\w*" -and $sortes -contains 'ouvrir' -and $sortes -notcontains 'modifier' -and $sortes -notcontains 'creer') {
+        return 'L''utilisateur veut RELIER un dossier à un rendez-vous existant, pas l''ouvrir : utilise "modifier" avec l''id du rendez-vous et "dossiers" (par exemple ["Madame Dupont"]).'
+    }
+    # « Ouvre son dossier au début de la réunion » : à l'heure, pas maintenant
+    if ($sortes -contains 'ouvrir' -and $Texte -match "(?i)\b(?:au d[ée]but|à l'heure|au moment|quand (?:elle|il|ça) commence)\b") {
+        return 'L''utilisateur veut que les dossiers s''ouvrent À L''HEURE du rendez-vous, pas maintenant : utilise "modifier" avec son id et "ouvrir_au_debut": true (et "dossiers" si un dossier est nommé).'
+    }
     if (-not $sortes.Count) { return $null }
     # « annule le foot » : supprimer le foot ; « annule » tout seul : défaire la dernière action
-    if ($sortes -contains 'annuler' -and $supp) { return 'Ici « annule » vise un rendez-vous précis : utilise "supprimer" avec son id, pas "annuler" (qui défait seulement la dernière action d''Evermind).' }
+    if ($sortes -contains 'annuler' -and $supp -and $Codes -and (Test-DesigneExistant $Texte @() $Codes)) { return 'Ici « annule » vise un rendez-vous précis : utilise "supprimer" avec son id, pas "annuler" (qui défait seulement la dernière action d''Evermind).' }
     # Création d'un NOUVEL événement qui porte le nom d'un existant (« ajoute dentiste vendredi », « mets un rendez-vous foot ») :
     # « le dentiste », « mon foot », « à la soirée » désignent l'existant ; sinon c'est un nouveau
     if ($creer -and -not $supp -and -not $modif -and $sortes -contains 'modifier' -and $sortes -notcontains 'creer' -and $Codes -and -not (Test-DesigneExistant $Texte $Actions $Codes)) {
@@ -461,6 +502,8 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
         if (-not $a.Cible -and $a.action -notin 'creer', 'annuler' -and @($actions | Where-Object { $_.action -notin 'creer', 'annuler' }).Count -eq 1) { $rv = Get-CibleIA $rv $Codes "$Texte $($R.reponse)" }
         $nom = if ($rv) { Get-TitreAffiche $rv.Titre } else { '' }
         if ($a.action -eq 'creer') {
+            # L'IA mélange parfois du JSON à sa phrase (« courses samedi','choses_a_prendre(['lait'...]) ») : on le coupe
+            $a.phrase = ([string]$a.phrase -replace "\s*['""]?\s*[,;]?\s*['""]?\s*\w+_\w+\s*[\(\[:=].*$", '' -replace "['""\[\]\(\)\{\}]+\s*$", '').Trim()
             $p = Read-Phrase ([string]$a.phrase)
             # Une simple création : si la phrase de l'utilisateur, lue par les règles d'Evermind, dit plus que celle de
             # l'IA (répétition, plusieurs jours, autre jour ou heure), c'est elle qui compte : l'IA résume parfois trop
@@ -481,6 +524,12 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
             if ($a.notes) { $det.Notes = [string]$a.notes }
             if (@($a.choses_a_prendre).Count) { $det.APreparer = @(@($det.APreparer) + @($a.choses_a_prendre | Where-Object { $_ } | ForEach-Object { Get-Majuscule ([string]$_) }) | Select-Object -Unique) }
             if ($a.important) { $det.Important = $true }
+            # Dossiers : ceux que l'IA a notés (des noms, retrouvés dans les dossiers de recherche, ou des chemins),
+            # sinon ceux des personnes avec qui c'est (« réunion avec Monsieur Richard »)
+            $dits0 = @(@($a.dossiers) | Where-Object { $_ } | ForEach-Object { if (Test-Path -LiteralPath ([string]$_)) { [string]$_ } else { Find-DossierPersonne ([string]$_) } } | Where-Object { $_ })
+            if ($dits0.Count) { $det.Fichiers = @(@($det.Fichiers) + $dits0 | Select-Object -Unique) }
+            if (-not @($det.Fichiers).Count) { $det.Fichiers = @(Get-DossiersAuto ([string]$a.titre + ' ' + $p.Titre) $det.Avec) }
+            if ($a.ouvrir_au_debut -or $Texte -match "(?i)\bouvr\w*\b.*\b(?:au d[ée]but|à l'heure|au moment|quand (?:elle|il|ça) commence)") { $det.OuvrirAuDebut = [bool]@($det.Fichiers).Count }
             if ($seule -and -not $pu.Manque) {
                 # Les détails dits par l'utilisateur comptent même si l'IA les a oubliés (« un truc important : ... »)
                 if ($pu.Important) { $det.Important = $true }
@@ -492,9 +541,17 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
             $titre = if ($p.Titre) { $p.Titre } elseif ($a.titre) { [string]$a.titre } else { '' }
             $deja = @(Get-AgendaEntre $p.Quand.Date $p.Quand.Date.AddDays(1) | Where-Object { $_.RV.Titre -eq (Get-TitreAffiche $titre) })
             if ($deja.Count) { [void]$dits.Add("$(Get-TitreAffiche $titre) est déjà dans ton agenda."); [void]$ecrits.Add("Déjà dans l'agenda : $(Get-TitreAffiche $titre)."); continue }
-            $quands = @(Get-QuandsPhrase $p)
+            $creations = @(Get-CreationsPhrase $p)
+            $quands = @($creations | ForEach-Object { $_.Quand })
             $r = $null
-            foreach ($q in $quands) { $x = Add-RendezVous (Get-TitreAffiche $titre) $q $p.Repetition $p.Type $p.Journee $det; if (-not $r) { $r = $x } }
+            foreach ($c in $creations) { $det.Fin = $c.Fin; $x = Add-RendezVous (Get-TitreAffiche $titre) $c.Quand $p.Repetition $p.Type $p.Journee $det; if (-not $r) { $r = $x } }
+            if (@($p.Blocs | Where-Object { $_ }).Count -gt 1) {
+                $liste = @($creations | ForEach-Object { "du $($_.Quand.ToString('d', $Fr) -replace '/.*$', '') au $(([datetime]$_.Fin).ToString('d MMMM', $Fr))" })
+                $txt = "$(($liste | Select-Object -SkipLast 1) -join ', ') et $($liste[-1])"
+                [void]$ecrits.Add("C'est noté : $(Get-TitreAffiche $titre), $txt ($($creations.Count) événements).")
+                [void]$dits.Add("C'est noté : $(Get-TitreAffiche $titre), $txt.")
+                continue
+            }
             if ($quands.Count -gt 1) {
                 $liste = @($quands | ForEach-Object { $_.ToString('dddd d', $Fr) }); $mois = $quands[-1].ToString('MMMM', $Fr)
                 $jours = "$(($liste | Select-Object -SkipLast 1) -join ', ') et $($liste[-1]) $mois"
@@ -503,6 +560,7 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
                 continue
             }
             $n = Get-PhraseNote $r
+            $tf = (Get-TexteFichiers $r).TrimEnd('.'); if ($tf) { $n.Ecrit += '.' + $tf; $n.Dit += '.' + $tf }
             [void]$ecrits.Add("C'est noté : $($n.Ecrit).")
             $dit = "C'est noté : $($n.Dit)."
             $conf = if ($r.Journee) { @() } else { @(Get-Conflits $r.Quand $r.Fin $r.Id) }
@@ -519,6 +577,10 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
         elseif ($a.action -eq 'annuler') {
             if (Restore-Annulation) { [void]$dits.Add('J''ai annulé ma dernière action.'); [void]$ecrits.Add('Dernière action annulée.') }
             else { [void]$dits.Add('Il n''y a rien à annuler.'); [void]$ecrits.Add('Rien à annuler.') }
+        }
+        elseif ($a.action -eq 'ouvrir') {
+            $x = Invoke-OuvrirIA $rv $a
+            [void]$dits.Add($x.Dit); [void]$ecrits.Add($x.Ecrit)
         }
         elseif (-not $rv) {
             [void]$dits.Add('Je n''ai pas trouvé de quel rendez-vous tu parles.'); [void]$ecrits.Add('Rendez-vous introuvable.')
@@ -552,7 +614,9 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
                 $x = Remove-PeriodeRV $rv $lu.Arret; [void]$dits.Add($x.Dit); [void]$ecrits.Add($x.Ecrit); continue
             }
             if ($lu.Decalage) { $a | Add-Member -NotePropertyName phrase -NotePropertyValue $lu.Decalage -Force }
+            elseif ($lu.Jour -and [string]$a.phrase -notmatch "(?i)\b$(($lu.Jour -split ' ')[0])") { Write-Log "Modification : le jour dit ($($lu.Jour)) remplace « $($a.phrase) »"; $a | Add-Member -NotePropertyName phrase -NotePropertyValue $lu.Jour -Force }
             if ($lu.Retirer.Count) { $a | Add-Member -NotePropertyName retirer_personnes -NotePropertyValue @(@($a.retirer_personnes) + $lu.Retirer | Where-Object { $_ } | Select-Object -Unique) -Force; if ($a.notes -and ([string]$a.notes).Length -lt 40) { $a.notes = $null } }
+            if ($lu.AuDebut) { $a | Add-Member -NotePropertyName ouvrir_au_debut -NotePropertyValue $true -Force }
             if ($lu.Rappels.Count) { $a | Add-Member -NotePropertyName rappels -NotePropertyValue @(@($a.rappels) + $lu.Rappels | Where-Object { $_ } | Select-Object -Unique) -Force; if ($a.notes -and ([string]$a.notes) -match '(?i)pr[ée]ven|rappel') { $a.notes = $null } }
             if ($lu.Titre) { $a | Add-Member -NotePropertyName titre -NotePropertyValue $lu.Titre -Force; if ($a.phrase -and ([string]$a.phrase).Trim() -eq $lu.Titre) { $a.phrase = $null } }
             if ($lu.Personnes.Count) {
@@ -595,6 +659,7 @@ function Copy-Repetition($Rep) {
 function Remove-PeriodeRV($rv, [string]$Periode) {
     $nom = Get-TitreAffiche $rv.Titre
     $per = Read-Periode $Periode
+    if (-not $per -and $Periode -match "(?i)\b(?:tous|toutes|tout|toujours|chaque|enti[èe]re?)\b") { $per = @{ Debut = $null; Fin = $null } }   # « tous les mois » : toutes les fois
     if (-not $per) { return @{ Dit = "Je n'ai pas compris quelles dates enlever pour $nom, je n'ai rien touché."; Ecrit = "Rien supprimé : je n'ai pas compris « $Periode »." } }
     $D = $per.Debut; $F = $per.Fin
     $dans = { param($d) (-not $D -or $d -ge $D) -and (-not $F -or $d -le $F) }
@@ -636,6 +701,36 @@ function Remove-PeriodeRV($rv, [string]$Periode) {
     @{ Dit = $dit; Ecrit = "$dit$annule" }
 }
 
+# « Ouvre le dossier de Monsieur Richard » : les fichiers d'un rendez-vous, sinon un dossier retrouvé par son nom.
+# Un rendez-vous sans fichiers mais dont Evermind trouve le dossier : il l'ouvre, et le relie au passage.
+function Invoke-OuvrirIA($rv, $a) {
+    $chemins = @()
+    if ($rv -and @($rv.Fichiers).Count) { $chemins = @($rv.Fichiers) }
+    elseif ($rv) {
+        $chemins = @(Get-DossiersAuto $rv.Titre $rv.Avec)
+        if ($chemins.Count) { Set-RendezVousDetail $rv.Id 'Fichiers' $chemins }
+    }
+    if (-not $chemins.Count) { $chemins = @(@($a.dossiers) | Where-Object { $_ } | ForEach-Object { if (Test-Path -LiteralPath ([string]$_)) { [string]$_ } else { Find-DossierPersonne ([string]$_) } } | Where-Object { $_ }) }
+    if (-not $chemins.Count) {
+        $nom = @(@($a.dossiers) + $(if ($rv) { $rv.Titre })) | Where-Object { $_ } | Select-Object -First 1
+        return @{ Dit = "Je n'ai pas trouvé de dossier $(if ($nom) { "pour $nom" }). Ajoute-le dans la fiche du rendez-vous, ou dans les dossiers où je cherche (Réglages)."; Ecrit = "Dossier introuvable$(if ($nom) { " : $nom" }). (Réglages, Général : les dossiers où je cherche.)" }
+    }
+    $n = 0; foreach ($f in $chemins) { if (Open-Fichier $f) { $n++ } }
+    $quoi = if ($chemins.Count -eq 1) { Get-NomFichier $chemins[0] } else { "$($chemins.Count) dossiers et fichiers" }
+    @{ Dit = "J'ouvre $quoi."; Ecrit = "Ouvert : $(@($chemins | ForEach-Object { Split-Path $_ -Leaf }) -join ', ')." }
+}
+
+# Ouvrir tout de suite, dit clairement (« ouvre le dossier de Monsieur Richard ») : sans attendre l'avis de l'IA.
+# Retourne l'action, ou $null (« au début de la réunion » est une modification, pas une ouverture maintenant).
+function Get-OuvertureTexte([string]$Texte) {
+    $t = $Texte.Trim()
+    if ($t -match "(?i)\b(?:au d[ée]but|à l'heure|au moment|quand (?:elle|il|ça) commence|demain|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b") { return $null }
+    $m = [regex]::Match($t, "(?i)^\W*(?:(?:ok\W+)?[èe]ve\W+)?(?:(?:est-ce que )?(?:tu peux|peux-tu|pourrais-tu)\s+(?:m'|me\s+)?|(?:je veux|j'aimerais|il faut) que tu\s+(?:m'|me\s+)?)?ouvr\w*(?:[- ]moi)?\s+(?:le|les|mon|mes)\s+(?:dossier|dossiers|fichiers?|documents?)\s+(?:(?:de|du|des|pour)\s+|d')?(?<n>.+?)\s*[.!?]*$")
+    if (-not $m.Success) { return $null }
+    $n = $m.Groups['n'].Value -replace "(?i)^(?:la |le |l'|ma |mon )?(?:r[ée]union|rendez-vous|rdv)\s+(?:avec\s+)?", ''
+    [pscustomobject]@{ action = 'ouvrir'; dossiers = @($n.Trim()) }
+}
+
 # Suppression de tout ce qui tombe dans une période : la liste des actions, ou $null si la phrase ne demande pas ça.
 # « mes rendez-vous » laisse les anniversaires ; « tout ce que j'ai », « tout », « mon agenda » les enlève aussi.
 function Get-SuppressionsPeriode([string]$Texte) {
@@ -656,7 +751,9 @@ function Get-SuppressionsPeriode([string]$Texte) {
 #   Titre : « renomme le foot en match de foot » ; Personnes : « ajoute Paul et Inès », « invite Tom »
 #   Arret : « le raid, c'est fini après novembre », « plus de raid à partir de décembre » (période à enlever)
 function Get-ModifsTexte([string]$Texte, $rv) {
-    $res = @{ Decalage = $null; Titre = $null; Personnes = @(); Arret = $null; Retirer = @(); Rappels = @() }
+    $res = @{ Decalage = $null; Titre = $null; Personnes = @(); Arret = $null; Retirer = @(); Rappels = @(); Jour = $null; AuDebut = $false }
+    # « ouvre son dossier au début de la réunion » : ses fichiers s'ouvriront tout seuls à l'heure
+    if ($Texte -match "(?i)\bouvr\w*\b.*\b(?:au d[ée]but|à l'heure|au moment|quand (?:elle|il|ça) commence)") { $res.AuDebut = $true }
     $t = $Texte.Trim()
     $majX = "[A-ZÉÈÊÀÂÎÏÔÛÇ][\p{L}'-]+"
     # « retire Tom de la soirée » : seulement des gens qui y sont
@@ -669,6 +766,15 @@ function Get-ModifsTexte([string]$Texte, $rv) {
         $base = Get-NextOccurrence $rv.Repetition $rv.Quand (Get-Date); if ($base -eq [datetime]::MinValue) { $base = $rv.Quand }
         $n7 = $base.AddDays(7)
         $res.Decalage = "le $($n7.ToString('d MMMM yyyy', $Fr))$(if (-not $rv.Journee) { " à $($n7.Hour) h $($n7.ToString('mm'))" })"
+    }
+    # Nouveau jour de la semaine (« le raid passe au mardi », « le foot c'est plutôt vendredi ») : si l'IA ne l'a pas repris,
+    # c'est le jour dit qui compte (à la même heure, ou à l'heure dite)
+    if ($rv -and -not $res.Decalage -and ((Get-IntentionsTexte $t).Modif -or $t -match "(?i)\b(?:passe|bouge|plut[ôo]t|maintenant)\b")) {
+        $wds = @([regex]::Matches($t.ToLower(), "\b$RxJour") | ForEach-Object { $_.Value } | Select-Object -Unique)
+        if ($wds.Count -eq 1 -and $t -notmatch "(?i)\b\d{1,2}\s+$RxMois") {
+            $h = [regex]::Match($t, "(?i)\b\d{1,2}\s*h(?:\s*\d{2})?\b|\bmidi\b")
+            $res.Jour = "$($wds[0])$(if ($h.Success) { " à $($h.Value)" })"
+        }
     }
     # Série chaque mois : « le loyer, c'est le 3 maintenant »
     if ($rv -and $rv.Repetition -and [string]$rv.Repetition.Type -eq 'mois' -and -not $rv.Repetition.Rang) {
@@ -754,6 +860,14 @@ function Invoke-ModifierIA($rv, $a) {
     if (@($a.rappels | Where-Object { $_ }).Count) {
         $codes = @(@($a.rappels) | ForEach-Object { if ([string]$_ -match '^(m\d+|veille|matin)$') { [string]$_ } else { Read-RappelsTexte ([string]$_) } } | Where-Object { $_ })
         if ($codes.Count) { $det.Rappels = @(@(Get-RappelsRV $rv) + $codes | Select-Object -Unique) }
+    }
+    if (@($a.dossiers | Where-Object { $_ }).Count) {
+        $ajout = @(@($a.dossiers) | Where-Object { $_ } | ForEach-Object { if (Test-Path -LiteralPath ([string]$_)) { [string]$_ } else { Find-DossierPersonne ([string]$_) } } | Where-Object { $_ })
+        if ($ajout.Count) { $det.Fichiers = @(@($rv.Fichiers) + $ajout | Select-Object -Unique) }
+    }
+    if ($null -ne $a.ouvrir_au_debut) {
+        if (-not $det.Contains('Fichiers') -and [bool]$a.ouvrir_au_debut -and -not @($rv.Fichiers).Count) { $det.Fichiers = @(Get-DossiersAuto $rv.Titre $rv.Avec) }
+        $det.OuvrirAuDebut = [bool]$a.ouvrir_au_debut -and (@($rv.Fichiers).Count -or @($det.Fichiers).Count)
     }
     if (@($a.retirer_personnes | Where-Object { $_ }).Count) {
         $avant = if ($det.Contains('Avec')) { @($det.Avec) } else { @($rv.Avec) }

@@ -1,6 +1,6 @@
 ﻿#Requires -Version 5.1
 <#
-    Evermind 0.8.0
+    Evermind 0.9.0
     L'agenda qui se souvient de tout pour toi : tu notes ton rendez-vous, il te le rappelle à voix haute.
 
     Les rendez-vous sont gardés dans %LOCALAPPDATA%\Evermind\rendez-vous.json. Rien n'est envoyé sur Internet.
@@ -9,7 +9,7 @@
 #>
 param([switch]$Demarrage)   # -Demarrage : lancé avec Windows, la fenêtre ne s'ouvre pas
 
-$AppVersion = '0.8.0'
+$AppVersion = '0.9.0'
 $UpdateRepo = 'JordanJacquot/Evermind'   # dépôt GitHub où seront publiées les mises à jour
 $MainScript = $PSCommandPath
 $AppExe = Join-Path (Split-Path $PSScriptRoot -Parent) 'Evermind.exe'   # le programme qui exécute ce script
@@ -51,7 +51,7 @@ try {
 # ---------------------------------------------------------------------------
 $AppDir = $PSScriptRoot
 $ModulesDir = Join-Path $AppDir 'modules'
-$missing = @('natif.cs', 'interface.xaml', 'donnees.ps1', 'comprendre.ps1', 'systeme.ps1', 'interface.ps1', 'logo.ps1', 'agenda.ps1', 'details.ps1', 'voix.ps1', 'voix-kokoro.cs', 'eveil.ps1', 'cerveau.ps1', 'evenements.ps1' | Where-Object { -not (Test-Path -LiteralPath (Join-Path $ModulesDir $_)) })
+$missing = @('natif.cs', 'interface.xaml', 'donnees.ps1', 'fichiers.ps1', 'themes.ps1', 'comprendre.ps1', 'systeme.ps1', 'interface.ps1', 'logo.ps1', 'agenda.ps1', 'details.ps1', 'voix.ps1', 'voix-kokoro.cs', 'eveil.ps1', 'cerveau.ps1', 'evenements.ps1' | Where-Object { -not (Test-Path -LiteralPath (Join-Path $ModulesDir $_)) })
 if ($missing) {
     [System.Windows.MessageBox]::Show("Des fichiers d'Evermind sont manquants :`n`n$($missing -join ', ')`n`nRetélécharge Evermind et remplace tout le dossier.", 'Evermind', 'OK', 'Error') | Out-Null
     exit
@@ -63,7 +63,7 @@ Add-Type -TypeDefinition ([IO.File]::ReadAllText((Join-Path $ModulesDir 'natif.c
 $AppId = 'JordanJacquot.Evermind'
 try { [EMNative]::SetAppId($AppId) } catch {}
 
-foreach ($emModule in 'donnees', 'comprendre', 'systeme', 'interface', 'logo', 'agenda', 'details', 'voix', 'eveil', 'cerveau', 'evenements') { . (Join-Path $ModulesDir "$emModule.ps1") }
+foreach ($emModule in 'donnees', 'fichiers', 'themes', 'comprendre', 'systeme', 'interface', 'logo', 'agenda', 'details', 'voix', 'eveil', 'cerveau', 'evenements') { . (Join-Path $ModulesDir "$emModule.ps1") }
 
 # ---------------------------------------------------------------------------
 # Lancement
@@ -74,3 +74,11 @@ if (-not $EnTest) { [void](Get-TrayIcon) }
 if ($env:EVERMIND_CAPTURE) { Start-Capture $env:EVERMIND_CAPTURE }
 if (-not $Demarrage) { $Window.Show() }
 [System.Windows.Threading.Dispatcher]::Run()
+
+# Relance demandée (nouveau thème) : la place est libérée, puis un nouvel Evermind démarre
+if ($script:Relancer) {
+    try { $script:InstanceMutex.ReleaseMutex(); $script:InstanceMutex.Dispose() } catch {}
+    try { $script:ShowSignal.Dispose() } catch {}
+    if (Test-Path -LiteralPath $AppExe) { Start-Process -FilePath $AppExe }
+    else { Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$MainScript`"" }
+}

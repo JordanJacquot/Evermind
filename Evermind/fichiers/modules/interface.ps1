@@ -4,7 +4,8 @@
 # ---------------------------------------------------------------------------
 # Fenêtre (décrite dans interface.xaml)
 # ---------------------------------------------------------------------------
-[xml]$Xaml = [IO.File]::ReadAllText((Join-Path $ModulesDir 'interface.xaml'), [Text.Encoding]::UTF8)
+# Couleurs (et police) traduites dans le thème choisi (themes.ps1) avant le chargement
+[xml]$Xaml = Convert-ThemeXaml ([IO.File]::ReadAllText((Join-Path $ModulesDir 'interface.xaml'), [Text.Encoding]::UTF8))
 try { $Window = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $Xaml)) }
 catch {
     # Sans fenêtre, Evermind resterait caché sans rien faire : on prévient et on s'arrête
@@ -23,7 +24,7 @@ foreach ($node in $Xaml.SelectNodes('//*[@*[local-name()="Name"]]')) {
 # ok : c'est noté ; bad : il manque quelque chose ; accent et accent2 : couleurs de la marque (cyan, magenta)
 $Colors = @{ ok = '#7FF4FF'; bad = '#FF7A9C'; accent = '#00E5FF'; accent2 = '#FF2EB5'; dim = '#A6A1BC' }
 
-function Get-Brush([string]$Hex) { [System.Windows.Media.BrushConverter]::new().ConvertFromString($Hex) }
+function Get-Brush([string]$Hex) { [System.Windows.Media.BrushConverter]::new().ConvertFromString((ConvertTo-ThemeHex $Hex)) }
 
 # Icône de la fenêtre et logo de l'en-tête. Chargée en mémoire pour ne pas bloquer le fichier
 # (il doit pouvoir être remplacé par une mise à jour).
@@ -70,7 +71,7 @@ function New-Button([string]$Text, [string]$Style = 'BtnSecondary') {
 function Update-Greeting {
     $h = (Get-Date).Hour
     $hello = if ($h -ge 18 -or $h -lt 5) { 'Bonsoir' } else { 'Bonjour' }
-    $ui.Greeting.Text = "$hello ! Je me souviens de tout pour toi."
+    $ui.Greeting.Text = (Get-ThemeHello) -f $(if ($Theme.Decor -eq 'terminal') { $hello.ToLower() } else { $hello })
 }
 
 # ---------------------------------------------------------------------------
@@ -85,7 +86,7 @@ function Start-Capture([string]$Path) {
         $script:CaptureTimer = New-Object System.Windows.Threading.DispatcherTimer
         $script:CaptureTimer.Interval = [TimeSpan]::FromMilliseconds(300)
         $script:CaptureTimer.Add_Tick({
-            if ($script:Transcription -or $script:Demande -or $script:TestTimer -or ($script:Eveil -and $script:Eveil.Detecte) -or $script:Piper -or ($script:VoixDl -and -not $script:VoixDl.Fini)) { return }
+            if ($script:Transcription -or $script:Demande -or $script:TestTimer -or ($script:Eveil -and $script:Eveil.Detecte) -or $script:Parle -or ($script:VoixDl -and -not $script:VoixDl.Fini)) { return }
             $script:CaptureTimer.Stop()
             try {
                 $root = $Window.Content

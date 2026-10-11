@@ -39,9 +39,10 @@ function New-Icone([string]$Type, [double]$Taille) {
 function Get-MessageNote($r) {
     $rep = Format-Repetition $r.Repetition
     $nom = $Types[(Get-TypeRV $r)].Nom
-    if ($rep -and $r.Journee) { "C'est noté ($nom) : $($r.Titre), $rep." }
+    $msg = if ($rep -and $r.Journee) { "C'est noté ($nom) : $($r.Titre), $rep." }
     elseif ($rep) { "C'est noté ($nom) : $($r.Titre), $rep à $(Format-Heure $r.Quand). Le prochain : $(Format-Jour $r.Quand)." }
     else { "C'est noté ($nom) : $($r.Titre), $(Format-QuandRV $r $r.Quand)." }
+    $msg + (Get-TexteFichiers $r)
 }
 
 # ---------------------------------------------------------------------------
@@ -97,18 +98,24 @@ function Update-Apercu {
 # Des jours séparés (« les 3 et 10 novembre ») : un événement par jour ; le premier est retourné
 function Add-DepuisPhrase($p) {
     $premier = $null
-    foreach ($q in (Get-QuandsPhrase $p)) {
-        $r = Add-RendezVous (Get-TitreAffiche $p.Titre) $q $p.Repetition $p.Type $p.Journee (Get-DetailsPhrase $p)
+    foreach ($c in (Get-CreationsPhrase $p)) {
+        $det = Get-DetailsPhrase $p; $det.Fin = $c.Fin
+        $r = Add-RendezVous (Get-TitreAffiche $p.Titre) $c.Quand $p.Repetition $p.Type $p.Journee $det
         if (-not $premier) { $premier = $r }
     }
     $premier
 }
 
-# Les moments où créer l'événement : un seul, ou un par jour séparé (même heure)
-function Get-QuandsPhrase($p) {
+# Les événements à créer : un seul ; un par jour séparé (« les 3 et 10 novembre », même heure) ;
+# ou un par bloc de jours (« la première semaine des 3 prochains mois »). Chacun : @{ Quand; Fin }
+function Get-CreationsPhrase($p) {
+    $b = @($p.Blocs | Where-Object { $_ })
+    if ($b.Count -gt 1) { return @($b | ForEach-Object { @{ Quand = ([datetime]$_.Debut).Date + $p.Quand.TimeOfDay; Fin = $(if ($p.Journee) { ([datetime]$_.Fin).Date } else { ([datetime]$_.Fin).Date + ([datetime]$p.Fin).TimeOfDay }) } }) }
     $j = @($p.Jours | Where-Object { $_ })
-    if ($j.Count -gt 1 -and $p.Quand) { @($j | ForEach-Object { ([datetime]$_).Date + $p.Quand.TimeOfDay }) } else { @($p.Quand) }
+    if ($j.Count -gt 1 -and $p.Quand) { return @($j | ForEach-Object { @{ Quand = ([datetime]$_).Date + $p.Quand.TimeOfDay; Fin = $null } }) }
+    @(@{ Quand = $p.Quand; Fin = $p.Fin })
 }
+function Get-QuandsPhrase($p) { @(Get-CreationsPhrase $p | ForEach-Object { $_.Quand }) }
 
 function Invoke-Ajouter {
     # Une demande (« décale le dentiste à jeudi », « qu'est-ce que j'ai demain ? ») va à l'assistant
@@ -284,8 +291,8 @@ function New-RendezVousRow($Item) {
     if ($type -eq 'anniv') {
         $bg = New-Object System.Windows.Media.LinearGradientBrush
         $bg.StartPoint = '0,0'; $bg.EndPoint = '1,1'
-        $bg.GradientStops.Add((New-Object System.Windows.Media.GradientStop ([System.Windows.Media.ColorConverter]::ConvertFromString('#40FF2EB5')), 0))
-        $bg.GradientStops.Add((New-Object System.Windows.Media.GradientStop ([System.Windows.Media.ColorConverter]::ConvertFromString('#22B04BFF')), 1))
+        $bg.GradientStops.Add((New-Object System.Windows.Media.GradientStop ((Get-Couleur '#40FF2EB5')), 0))
+        $bg.GradientStops.Add((New-Object System.Windows.Media.GradientStop ((Get-Couleur '#22B04BFF')), 1))
         $row.Background = $bg; $row.BorderBrush = Get-Teinte $t.Couleur 0x90; $row.CornerRadius = 22
         if ($today) { $row.Effect = New-Object System.Windows.Media.Effects.DropShadowEffect -Property @{ Color = [System.Windows.Media.Color]::FromRgb(255, 46, 181); BlurRadius = 20; ShadowDepth = 0; Opacity = 0.6 } }
     } else {

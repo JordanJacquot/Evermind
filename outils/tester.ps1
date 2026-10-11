@@ -23,6 +23,9 @@ $ok = $LASTEXITCODE -eq 0
 # Le grand catalogue : des milliers de façons de dire un rendez-vous
 & (Join-Path $PSScriptRoot 'catalogue-phrases.ps1') -Exemples 3
 $ok = ($LASTEXITCODE -eq 0) -and $ok
+# Dossiers reliés aux rendez-vous, ouverture à l'heure
+& (Join-Path $PSScriptRoot 'tester-fichiers.ps1')
+$ok = ($LASTEXITCODE -eq 0) -and $ok
 
 # Rendez-vous d'exemple : aujourd'hui, demain (qui revient chaque semaine), dans quelques jours, un passé
 function New-DonneesExemple([string]$Dossier) {
@@ -50,7 +53,7 @@ function Invoke-Scenario([string]$Nom, [hashtable]$Env, [switch]$Exemples) {
     if ($Exemples) { New-DonneesExemple $donnees }
     $capture = Join-Path $test "capture-$Nom.png"
     Remove-Item -LiteralPath $capture -ErrorAction SilentlyContinue
-    foreach ($k in 'EVERMIND_PHRASE', 'EVERMIND_AJOUTER', 'EVERMIND_FORMULAIRE', 'EVERMIND_REGLAGES', 'EVERMIND_CONFIRMATION', 'EVERMIND_FICHE', 'EVERMIND_FORMULAIRE_RV', 'EVERMIND_TEST_PAROLE', 'EVERMIND_COMMANDE', 'EVERMIND_EVEIL_WAV', 'EVERMIND_DICTEE_WAV', 'EVERMIND_VOIX') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
+    foreach ($k in 'EVERMIND_DOSSIERS', 'EVERMIND_PACKS', 'EVERMIND_THEME', 'EVERMIND_FERMER', 'EVERMIND_PHRASE', 'EVERMIND_AJOUTER', 'EVERMIND_FORMULAIRE', 'EVERMIND_REGLAGES', 'EVERMIND_CONFIRMATION', 'EVERMIND_FICHE', 'EVERMIND_FORMULAIRE_RV', 'EVERMIND_TEST_PAROLE', 'EVERMIND_COMMANDE', 'EVERMIND_EVEIL_WAV', 'EVERMIND_DICTEE_WAV', 'EVERMIND_VOIX') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
     $env:EVERMIND_TEST = '1'; $env:EVERMIND_DONNEES = $donnees; $env:EVERMIND_CAPTURE = $capture
     $env:EVERMIND_VOIX = Join-Path $donnees 'voix-absente'
     foreach ($k in $Env.Keys) { Set-Item "env:$k" $Env[$k] }
@@ -83,7 +86,37 @@ if (Invoke-Scenario 'reglages' @{ EVERMIND_REGLAGES = '1'; EVERMIND_VOIX = $Voix
         if ($pv) { Write-Host "       voix naturelle (Kokoro) : $pv" -ForegroundColor DarkGray } else { Write-Host 'ÉCHEC  reglages : la voix naturelle n''a rien produit' -ForegroundColor Red; $ok = $false }
     }
 } else { $ok = $false }
+$ok = (Invoke-Scenario 'reglages-voix' @{ EVERMIND_REGLAGES = 'Voix'; EVERMIND_VOIX = $Voix }) -and $ok
+$ok = (Invoke-Scenario 'reglages-general' @{ EVERMIND_REGLAGES = 'General' }) -and $ok
+$ok = (Invoke-Scenario 'reglages-theme' @{ EVERMIND_REGLAGES = 'Theme' }) -and $ok
+# Chaque thème de couleurs, sur l'agenda d'exemple
+foreach ($th in 'crepuscule', 'terminal', 'arcade', 'rubis') { $ok = (Invoke-Scenario "theme-$th" @{ EVERMIND_THEME = $th } -Exemples) -and $ok }
+# Thèmes personnalisés : ceux du bureau (Thème-Evermind), installés dans _test\packs (jamais dans le dépôt)
+$zips = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Thème-Evermind'
+if (Test-Path -LiteralPath $zips) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $packs = Join-Path $test 'packs'
+    Remove-Item -LiteralPath $packs -Recurse -Force -ErrorAction SilentlyContinue
+    foreach ($z in Get-ChildItem -LiteralPath $zips -Filter '*.zip') {
+        $id = (($z.BaseName -replace '^(?i)th[eè]me-', '').Normalize([Text.NormalizationForm]::FormD) -replace '\p{Mn}', '' -replace '[^\w\-]', '-').ToLower()
+        [IO.Compression.ZipFile]::ExtractToDirectory($z.FullName, (Join-Path $packs $id))
+        $ok = (Invoke-Scenario "pack-$id" @{ EVERMIND_PACKS = $packs; EVERMIND_THEME = "pack:$id" } -Exemples) -and $ok
+    }
+    $ok = (Invoke-Scenario 'pack-reglages' @{ EVERMIND_PACKS = $packs; EVERMIND_THEME = 'pack:mario'; EVERMIND_REGLAGES = 'Theme' }) -and $ok
+} else { Write-Host '(thèmes personnalisés non testés : pas de dossier Thème-Evermind sur le bureau)' -ForegroundColor DarkGray }
 $ok = (Invoke-Scenario 'fiche' @{ EVERMIND_FICHE = 'Dentiste' } -Exemples) -and $ok
+$ok = (Invoke-Scenario 'fermer' @{ EVERMIND_FERMER = '1' } -Exemples) -and $ok
+# Dossier relié tout seul (« réunion avec Monsieur Richard ») : la fiche et le formulaire
+function Get-RV([string]$Titre) { @(@((ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $script:Donnees 'rendez-vous.json'), [Text.Encoding]::UTF8))).RendezVous) | Where-Object { $_.Titre -like $Titre }) }
+$compta = Join-Path $test 'comptabilite'
+foreach ($d in 'Monsieur Richard', 'Madame Dupont') { New-Item -ItemType Directory -Force -Path (Join-Path $compta $d) | Out-Null }
+if (Invoke-Scenario 'fichiers-fiche' @{ EVERMIND_DOSSIERS = $compta; EVERMIND_PHRASE = 'réunion avec Monsieur Richard demain à 10 h'; EVERMIND_AJOUTER = '1'; EVERMIND_FICHE = 'R*union*' } -Exemples) {
+    $r = @(Get-RV 'R*union*')
+    if (-not ($r.Count -eq 1 -and @($r[0].Fichiers | Where-Object { $_ -like '*\Monsieur Richard' }).Count -eq 1)) { Write-Host 'ÉCHEC  fichiers-fiche : le dossier de Monsieur Richard n''est pas relié' -ForegroundColor Red; $ok = $false }
+    else { Write-Host '       dossier relié tout seul : Monsieur Richard' -ForegroundColor DarkGray }
+} else { $ok = $false }
+$ok = (Invoke-Scenario 'fichiers-formulaire' @{ EVERMIND_DOSSIERS = $compta; EVERMIND_PHRASE = 'réunion avec Madame Dupont demain à 10 h'; EVERMIND_AJOUTER = '1'; EVERMIND_FORMULAIRE_RV = 'R*union*' } -Exemples) -and $ok
+$ok = (Invoke-Scenario 'fichiers-reglages' @{ EVERMIND_DOSSIERS = $compta; EVERMIND_REGLAGES = 'General' }) -and $ok
 $ok = (Invoke-Scenario 'confirmation' @{ EVERMIND_CONFIRMATION = 'Raid avec les potes' } -Exemples) -and $ok
 $ok = (Invoke-Scenario 'fiche-anniversaire' @{ EVERMIND_FICHE = 'Anniversaire de Léa' } -Exemples) -and $ok
 $ok = (Invoke-Scenario 'formulaire-details' @{ EVERMIND_FORMULAIRE_RV = 'Dentiste' } -Exemples) -and $ok
@@ -151,11 +184,13 @@ if (-not $env:EVERMIND_EVEIL_SEUL -and (Test-Path -LiteralPath (Join-Path $Voix 
     $ok = ($LASTEXITCODE -eq 0) -and $ok
 } else { Write-Host "(assistant non testé : pas d'IA dans $Voix)" -ForegroundColor DarkGray }
 
-# « OK Eve » : une phrase dite par une voix naturelle (Piper) passe par l'écoute, comme si elle venait du micro
+# « OK Eve » : une phrase dite par une voix de synthèse (Piper, gardé seulement pour les tests dans _test\voix) passe
+# par l'écoute, comme si elle venait du micro
+$Piper = Join-Path $test 'voix'
 function New-WavPiper([string]$Texte, [string]$Fichier) {
-    $psi = New-Object Diagnostics.ProcessStartInfo; $psi.FileName = (Join-Path $Voix 'piper\piper.exe')
-    $psi.Arguments = "-m `"$(Join-Path $Voix 'fr_FR-upmc-medium.onnx')`" -f `"$Fichier`" -q -s 1"
-    $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true; $psi.WorkingDirectory = (Join-Path $Voix 'piper')
+    $psi = New-Object Diagnostics.ProcessStartInfo; $psi.FileName = (Join-Path $Piper 'piper\piper.exe')
+    $psi.Arguments = "-m `"$(Join-Path $Piper 'fr_FR-upmc-medium.onnx')`" -f `"$Fichier`" -q -s 1"
+    $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true; $psi.WorkingDirectory = (Join-Path $Piper 'piper')
     $pr = [Diagnostics.Process]::Start($psi); $w = New-Object IO.StreamWriter($pr.StandardInput.BaseStream, (New-Object Text.UTF8Encoding($false))); $w.WriteLine($Texte); $w.Close(); $pr.WaitForExit()
 }
 if ((Test-Path -LiteralPath (Join-Path $Voix 'eveil\vosk-win64-0.3.45\libvosk.dll')) -and (Test-Path -LiteralPath (Join-Path $Voix 'ia\llama-server.exe'))) {

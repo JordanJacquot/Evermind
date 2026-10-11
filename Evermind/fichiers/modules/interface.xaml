@@ -376,11 +376,15 @@
         </Rectangle.Fill>
       </Rectangle>
     </Grid>
+    <!-- Décor propre au thème (Terminal : lignes d'écran), au-dessus du fond, derrière le reste -->
+    <Grid x:Name="BackdropDeco" Grid.RowSpan="4" IsHitTestVisible="False"/>
 
     <!-- En-tête : logo, nom, et le bouton pour ajouter un rendez-vous à la main -->
     <DockPanel Margin="32,22,32,6">
       <Button x:Name="BtnNouveau" DockPanel.Dock="Right" Style="{StaticResource BtnPrimary}" Content="+  Nouveau rendez-vous" VerticalAlignment="Center"/>
       <Button x:Name="BtnReglages" DockPanel.Dock="Right" Style="{StaticResource BtnSecondary}" Content="Réglages" VerticalAlignment="Center" Margin="0,0,12,0"/>
+      <!-- Mascotte d'un thème personnalisé (themes.ps1) -->
+      <Border x:Name="Mascotte" DockPanel.Dock="Right" Height="72" Margin="0,-14,22,-14" VerticalAlignment="Center" Visibility="Collapsed" IsHitTestVisible="False"/>
       <!-- Logo animé en boucle (logo.ps1) : E qui glitche, anneaux qui tournent, halo, balayage -->
       <Grid x:Name="LogoHote" Width="84" Height="84" Margin="-14,-14,2,-14" VerticalAlignment="Center" Cursor="Hand"/>
       <StackPanel VerticalAlignment="Center">
@@ -489,6 +493,8 @@
     <!-- Bas de la fenêtre -->
     <DockPanel Grid.Row="3" Margin="32,14,32,18">
       <TextBlock x:Name="VersionText" DockPanel.Dock="Right" Style="{StaticResource Sub}" FontSize="12" VerticalAlignment="Center"/>
+      <!-- Dessin animé d'un thème personnalisé (themes.ps1) -->
+      <Border x:Name="FooterArt" DockPanel.Dock="Right" Margin="0,-6,24,-6" VerticalAlignment="Center" Visibility="Collapsed" IsHitTestVisible="False"/>
       <StackPanel Orientation="Horizontal">
         <CheckBox x:Name="ChkDemarrage" Style="{StaticResource Switch}" VerticalAlignment="Center"/>
         <TextBlock Text="Démarrer avec Windows" Foreground="#EEEBF7" FontSize="14" Margin="12,0,0,0" VerticalAlignment="Center"/>
@@ -589,6 +595,16 @@
                 <TextBlock Text="Avec qui ?" Style="{StaticResource Label}"/>
                 <TextBox x:Name="FAvec" Style="{StaticResource Champ}" Tag="Paul, Léa..." MaxLength="200"/>
 
+                <TextBlock Text="Dossiers et fichiers" Style="{StaticResource Label}"/>
+                <StackPanel x:Name="FFichiers"/>
+                <WrapPanel Margin="0,2,0,0">
+                  <Button x:Name="FAjouterDossier" Style="{StaticResource Chip}" Content="📁  Ajouter un dossier…"/>
+                  <Button x:Name="FAjouterFichier" Style="{StaticResource Chip}" Content="📄  Ajouter un fichier…"/>
+                  <Button x:Name="FTrouverDossier" Style="{StaticResource Chip}" Content="🔍  Trouver le dossier"/>
+                </WrapPanel>
+                <TextBlock x:Name="FFichiersInfo" Style="{StaticResource Sub}" FontSize="13" TextWrapping="Wrap" Visibility="Collapsed" Margin="2,0,0,6"/>
+                <CheckBox x:Name="FOuvrirDebut" Margin="2,4,0,0" Foreground="#C9C3DD" FontSize="13" Content="Les ouvrir tout seul à l'heure du rendez-vous"/>
+
                 <TextBlock Text="Lien (visio, Discord, billet...)" Style="{StaticResource Label}"/>
                 <TextBox x:Name="FLien" Style="{StaticResource Champ}" Tag="https://..." MaxLength="500"/>
 
@@ -655,40 +671,92 @@
     <!-- Réglages : la voix d'Evermind -->
     <Grid x:Name="Reglages" Grid.RowSpan="4" Visibility="Collapsed">
       <Rectangle x:Name="ReglagesFond" Fill="#C8050410"/>
-      <Border Style="{StaticResource Card}" Background="#F2141026" Width="580" Margin="0,24" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="26,22,12,22">
+      <Border Style="{StaticResource Card}" Background="#F2141026" Width="620" Height="640" Margin="0,24" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="26,22,12,22">
         <Border.Effect><DropShadowEffect Color="#7A3CFF" BlurRadius="40" ShadowDepth="0" Opacity="0.45"/></Border.Effect>
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
-          <StackPanel Margin="0,0,14,0">
+        <DockPanel>
+          <StackPanel DockPanel.Dock="Top" Margin="0,0,14,0">
             <TextBlock Text="Réglages" Style="{StaticResource H2}"/>
-            <TextBlock Text="La voix d'Evermind" Style="{StaticResource Label}" FontSize="16" Margin="2,18,0,4"/>
-            <TextBlock Text="Choisis la voix qui te parle (confirmations et rappels). Clique sur une voix pour l'écouter." Style="{StaticResource Sub}" Margin="2,0,0,12"/>
-            <StackPanel x:Name="VoixChoix"/>
-            <TextBlock x:Name="VoixReglageInfo" Style="{StaticResource Sub}" Margin="2,6,0,0" Visibility="Collapsed"/>
-            <TextBlock Text="Le micro" Style="{StaticResource Label}" FontSize="16" Margin="2,22,0,4"/>
-            <TextBlock Text="Celui qu'Evermind écoute (dictée et « OK Eve »). Parle : la barre qui bouge montre le micro qui t'entend." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
-            <StackPanel x:Name="MicroChoix"/>
-            <TextBlock Text="Réveil par la voix" Style="{StaticResource Label}" FontSize="16" Margin="2,22,0,4"/>
-            <DockPanel>
-              <CheckBox x:Name="ChkEveil" DockPanel.Dock="Left" Style="{StaticResource Switch}" VerticalAlignment="Center" Margin="2,0,14,0"/>
-              <StackPanel VerticalAlignment="Center">
-                <TextBlock Text="Réagir quand je dis « OK Eve »" Foreground="#EEEBF7" FontSize="14"/>
-                <TextBlock x:Name="EveilEtat" Style="{StaticResource Sub}" FontSize="13" Margin="0,2,0,0"/>
-              </StackPanel>
-            </DockPanel>
-
-            <TextBlock Text="L'assistant" Style="{StaticResource Label}" FontSize="16" Margin="2,22,0,4"/>
-            <DockPanel>
-              <Button x:Name="BtnAssistant" DockPanel.Dock="Right" Style="{StaticResource BtnPrimary}" Content="Installer l'assistant" VerticalAlignment="Center" Margin="14,0,0,0"/>
-              <TextBlock x:Name="AssistantEtat" Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="2,0,0,0"/>
-            </DockPanel>
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
-              <Button x:Name="BtnReglagesFermer" Style="{StaticResource BtnPrimary}" Content="Fermer"/>
-            </StackPanel>
+            <!-- Onglets -->
+            <WrapPanel Margin="0,16,0,6">
+              <Button x:Name="OngletSon" Style="{StaticResource Chip}" Content="🎧  Son"/>
+              <Button x:Name="OngletVoix" Style="{StaticResource Chip}" Content="🗣  Voix"/>
+              <Button x:Name="OngletAssistant" Style="{StaticResource Chip}" Content="✨  Assistant"/>
+              <Button x:Name="OngletTheme" Style="{StaticResource Chip}" Content="🎨  Thème"/>
+              <Button x:Name="OngletGeneral" Style="{StaticResource Chip}" Content="⚙  Général"/>
+            </WrapPanel>
           </StackPanel>
-        </ScrollViewer>
+          <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,14,0">
+            <Button x:Name="BtnReglagesFermer" Style="{StaticResource BtnPrimary}" Content="Fermer"/>
+          </StackPanel>
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <Grid Margin="0,0,14,0">
+              <!-- Son : le casque où Evermind parle, le micro qu'il écoute -->
+              <StackPanel x:Name="PanSon">
+                <TextBlock Text="Le casque" Style="{StaticResource Label}" FontSize="16" Margin="2,10,0,4"/>
+                <TextBlock Text="Là où Evermind te parle (réponses et rappels). Clique sur une sortie pour l'entendre. Ton choix est gardé, même après un redémarrage ; s'il est débranché, Evermind parle sur celle de Windows en attendant." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
+                <StackPanel x:Name="CasqueChoix"/>
+                <TextBlock Text="Le micro" Style="{StaticResource Label}" FontSize="16" Margin="2,22,0,4"/>
+                <TextBlock Text="Celui qu'Evermind écoute (dictée et « OK Eve »). Parle : la barre qui bouge montre le micro qui t'entend. Ton choix est gardé, même après un redémarrage ; s'il est débranché, Evermind y revient dès qu'il est rebranché." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
+                <StackPanel x:Name="MicroChoix"/>
+              </StackPanel>
+              <!-- Voix -->
+              <StackPanel x:Name="PanVoix" Visibility="Collapsed">
+                <TextBlock Text="La voix d'Evermind" Style="{StaticResource Label}" FontSize="16" Margin="2,10,0,4"/>
+                <TextBlock Text="Choisis la voix qui te parle (confirmations et rappels). Clique sur une voix pour l'écouter." Style="{StaticResource Sub}" Margin="2,0,0,12"/>
+                <StackPanel x:Name="VoixChoix"/>
+                <TextBlock x:Name="VoixReglageInfo" Style="{StaticResource Sub}" Margin="2,6,0,0" Visibility="Collapsed" TextWrapping="Wrap"/>
+              </StackPanel>
+              <!-- Assistant : « OK Eve » et l'IA -->
+              <StackPanel x:Name="PanAssistant" Visibility="Collapsed">
+                <TextBlock Text="Réveil par la voix" Style="{StaticResource Label}" FontSize="16" Margin="2,10,0,4"/>
+                <DockPanel>
+                  <CheckBox x:Name="ChkEveil" DockPanel.Dock="Left" Style="{StaticResource Switch}" VerticalAlignment="Center" Margin="2,0,14,0"/>
+                  <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="Réagir quand je dis « OK Eve »" Foreground="#EEEBF7" FontSize="14"/>
+                    <TextBlock x:Name="EveilEtat" Style="{StaticResource Sub}" FontSize="13" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                  </StackPanel>
+                </DockPanel>
+                <TextBlock Text="L'assistant" Style="{StaticResource Label}" FontSize="16" Margin="2,22,0,4"/>
+                <DockPanel>
+                  <Button x:Name="BtnAssistant" DockPanel.Dock="Right" Style="{StaticResource BtnPrimary}" Content="Installer l'assistant" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                  <TextBlock x:Name="AssistantEtat" Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="2,0,0,0" TextWrapping="Wrap"/>
+                </DockPanel>
+              </StackPanel>
+              <!-- Thème : les couleurs de Nevermind, adaptées -->
+              <StackPanel x:Name="PanTheme" Visibility="Collapsed">
+                <TextBlock Text="Le thème" Style="{StaticResource Label}" FontSize="16" Margin="2,10,0,4"/>
+                <TextBlock Text="Les couleurs d'Evermind, les mêmes thèmes que Nevermind. Choisis-en un : Evermind se relance pour l'appliquer (quelques secondes), tes rendez-vous et réglages ne changent pas." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
+                <UniformGrid x:Name="ThemeChoix" Columns="2"/>
+                <DockPanel Margin="2,6,0,0">
+                  <Button x:Name="BtnThemeAppliquer" DockPanel.Dock="Right" Style="{StaticResource BtnPrimary}" Content="Appliquer et relancer" Visibility="Collapsed" Margin="12,0,0,0"/>
+                  <TextBlock x:Name="ThemeInfo" Style="{StaticResource Sub}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                </DockPanel>
+                <TextBlock Text="Thèmes personnalisés" Style="{StaticResource Label}" FontSize="16" Margin="2,22,0,4"/>
+                <TextBlock Text="Un thème personnalisé est un zip (avec pack.json, images, police) : il reste sur ton PC, dans le dossier des thèmes d'Evermind." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,10"/>
+                <WrapPanel>
+                  <Button x:Name="BtnThemeImporter" Style="{StaticResource BtnSecondary}" Content="Importer un thème (.zip)" Margin="0,0,10,0"/>
+                  <Button x:Name="BtnThemeDossier" Style="{StaticResource BtnSecondary}" Content="Ouvrir le dossier"/>
+                </WrapPanel>
+              </StackPanel>
+              <!-- Général -->
+              <StackPanel x:Name="PanGeneral" Visibility="Collapsed">
+                <TextBlock Text="La croix de la fenêtre" Style="{StaticResource Label}" FontSize="16" Margin="2,10,0,4"/>
+                <TextBlock Text="Ce que fait Evermind quand tu cliques sur la croix." Style="{StaticResource Sub}" Margin="2,0,0,10"/>
+                <WrapPanel>
+                  <Button x:Name="CroixDemander" Style="{StaticResource Chip}" Content="Me demander"/>
+                  <Button x:Name="CroixReduire" Style="{StaticResource Chip}" Content="Réduire près de l'horloge"/>
+                  <Button x:Name="CroixQuitter" Style="{StaticResource Chip}" Content="Quitter"/>
+                </WrapPanel>
+                <TextBlock Text="Les dossiers où je cherche" Style="{StaticResource Label}" FontSize="16" Margin="2,22,0,4"/>
+                <TextBlock Text="Quand tu notes « réunion avec Monsieur Richard », je cherche ici un dossier à son nom pour le relier au rendez-vous. Je ne regarde que les noms des dossiers, jamais leur contenu, et rien ne sort de ton PC." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,10"/>
+                <StackPanel x:Name="DossiersRecherche"/>
+                <Button x:Name="BtnDossierRechercheAjouter" Style="{StaticResource Chip}" Content="📁  Ajouter un dossier…" HorizontalAlignment="Left"/>
+              </StackPanel>
+            </Grid>
+          </ScrollViewer>
+        </DockPanel>
       </Border>
-    </Grid>
-    <!-- « Êtes-vous sûr ? » : par dessus tout le reste -->
+    </Grid>    <!-- « Êtes-vous sûr ? » : par dessus tout le reste -->
     <Grid x:Name="Confirmation" Grid.RowSpan="4" Visibility="Collapsed">
       <Rectangle x:Name="ConfirmationFond" Fill="#B0050410"/>
       <Border Style="{StaticResource Card}" Background="#F7141026" Width="440" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="28,24">
@@ -699,6 +767,25 @@
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
             <Button x:Name="BtnConfirmationNon" Style="{StaticResource BtnSecondary}" Content="Annuler" Margin="0,0,10,0"/>
             <Button x:Name="BtnConfirmationOui" Style="{StaticResource BtnDanger}" Content="Supprimer"/>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Grid>
+
+    <!-- La croix : réduire près de l'horloge ou quitter -->
+    <Grid x:Name="Fermer" Grid.RowSpan="4" Visibility="Collapsed">
+      <Rectangle x:Name="FermerFond" Fill="#B0050410"/>
+      <Border Style="{StaticResource Card}" Background="#F7141026" Width="480" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="28,24">
+        <Border.Effect><DropShadowEffect Color="#7A3CFF" BlurRadius="40" ShadowDepth="0" Opacity="0.45"/></Border.Effect>
+        <StackPanel>
+          <TextBlock Text="Fermer Evermind ?" Style="{StaticResource H2}"/>
+          <TextBlock Style="{StaticResource Sub}" FontSize="14" Margin="0,10,0,0" TextWrapping="Wrap"
+                     Text="Réduit, Evermind reste près de l'horloge et continue de te rappeler tes rendez-vous. Quitté, il ne te rappelle plus rien jusqu'à son prochain lancement."/>
+          <CheckBox x:Name="ChkFermerRetenir" Margin="0,16,0,0" Foreground="#C9C3DD" FontSize="13" Content="Retenir mon choix (modifiable dans les réglages)"/>
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+            <Button x:Name="BtnFermerAnnuler" Style="{StaticResource BtnSecondary}" Content="Annuler" Margin="0,0,10,0"/>
+            <Button x:Name="BtnFermerQuitter" Style="{StaticResource BtnDanger}" Content="Quitter" Margin="0,0,10,0"/>
+            <Button x:Name="BtnFermerReduire" Style="{StaticResource BtnPrimary}" Content="Réduire"/>
           </StackPanel>
         </StackPanel>
       </Border>

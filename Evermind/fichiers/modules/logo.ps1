@@ -24,7 +24,7 @@ function Get-ArcGeometry([double]$C, [double]$R, [double]$Start, [double]$Sweep)
 
 function New-Glow([string]$Hex, [double]$Blur = 16, [double]$Opacity = 0.55) {
     $fx = New-Object System.Windows.Media.Effects.DropShadowEffect
-    $fx.Color = [System.Windows.Media.ColorConverter]::ConvertFromString($Hex)
+    $fx.Color = (Get-Couleur $Hex)
     $fx.BlurRadius = $Blur; $fx.ShadowDepth = 0; $fx.Opacity = $Opacity
     $fx
 }
@@ -33,7 +33,7 @@ function New-LinearBrush([string[]]$Hex, [double]$X1 = 0, [double]$Y1 = 0, [doub
     $b = New-Object System.Windows.Media.LinearGradientBrush
     $b.StartPoint = [System.Windows.Point]::new($X1, $Y1); $b.EndPoint = [System.Windows.Point]::new($X2, $Y2)
     for ($i = 0; $i -lt $Hex.Count; $i++) {
-        [void]$b.GradientStops.Add([System.Windows.Media.GradientStop]::new([System.Windows.Media.ColorConverter]::ConvertFromString($Hex[$i]), $i / [math]::Max(1, $Hex.Count - 1)))
+        [void]$b.GradientStops.Add([System.Windows.Media.GradientStop]::new((Get-Couleur $Hex[$i]), $i / [math]::Max(1, $Hex.Count - 1)))
     }
     $b
 }
@@ -148,9 +148,9 @@ function Start-LogoAnime($Hote, [double]$S = 84) {
     $halo = New-Object System.Windows.Shapes.Ellipse
     $halo.Width = 220 * $k; $halo.Height = 220 * $k
     $rb = New-Object System.Windows.Media.RadialGradientBrush
-    [void]$rb.GradientStops.Add([System.Windows.Media.GradientStop]::new([System.Windows.Media.ColorConverter]::ConvertFromString('#5500E5FF'), 0))
-    [void]$rb.GradientStops.Add([System.Windows.Media.GradientStop]::new([System.Windows.Media.ColorConverter]::ConvertFromString('#22FF2EB5'), 0.6))
-    [void]$rb.GradientStops.Add([System.Windows.Media.GradientStop]::new([System.Windows.Media.ColorConverter]::ConvertFromString('#00FF2EB5'), 1))
+    [void]$rb.GradientStops.Add([System.Windows.Media.GradientStop]::new((Get-Couleur '#5500E5FF'), 0))
+    [void]$rb.GradientStops.Add([System.Windows.Media.GradientStop]::new((Get-Couleur '#22FF2EB5'), 0.6))
+    [void]$rb.GradientStops.Add([System.Windows.Media.GradientStop]::new((Get-Couleur '#00FF2EB5'), 1))
     $halo.Fill = $rb
     $halo.RenderTransformOrigin = [System.Windows.Point]::new(0.5, 0.5)
     $hs = New-Object System.Windows.Media.ScaleTransform 1, 1
@@ -178,7 +178,7 @@ function Start-LogoAnime($Hote, [double]$S = 84) {
     $com.Width = $S; $com.Height = $S
     $rot2 = New-Object System.Windows.Media.RotateTransform 0, $C, $C
     $com.RenderTransform = $rot2
-    $col = [System.Windows.Media.ColorConverter]::ConvertFromString($EveMagenta)
+    $col = (Get-Couleur $EveMagenta)
     $cb = New-Object System.Windows.Media.LinearGradientBrush
     $cb.StartPoint = [System.Windows.Point]::new(0, 1); $cb.EndPoint = [System.Windows.Point]::new(1, 0)
     [void]$cb.GradientStops.Add([System.Windows.Media.GradientStop]::new([System.Windows.Media.Color]::FromArgb(0, $col.R, $col.G, $col.B), 0))
@@ -186,6 +186,18 @@ function Start-LogoAnime($Hote, [double]$S = 84) {
     [void]$com.Children.Add((New-LogoArc $C (124 * $k) 0 60 $cb ([math]::Max(1.2, 2 * $k))))
     [void]$cv.Children.Add($com)
     Start-LogoLoop $rot2 ([System.Windows.Media.RotateTransform]::AngleProperty) 360 0 2600 $false
+
+    # Thème personnalisé avec son logo : l'image remplace le E (avec son anneau et ses lueurs)
+    if ($ThemePack -and $ThemePack.Logo) {
+        Add-PackLogo $cv $C (150 * $k)
+        [void]$Hote.Children.Add($cv)
+        $script:LogoTimer = New-Object System.Windows.Threading.DispatcherTimer
+        $script:LogoTimer.Interval = [TimeSpan]::FromSeconds(7)
+        $script:LogoTimer.Add_Tick({ param($s) $s.Interval = [TimeSpan]::FromSeconds((Get-Random -Minimum 6 -Maximum 13)); if ($Window.IsVisible -and $Window.WindowState -ne 'Minimized') { Start-PackLogoShake } })
+        $script:LogoTimer.Start()
+        $Hote.Add_MouseEnter({ Start-PackLogoShake })
+        return
+    }
 
     # Le E, au centre
     $mark = New-EveMark (128 * $k)
@@ -214,4 +226,52 @@ function Start-LogoAnime($Hote, [double]$S = 84) {
     $script:LogoTimer.Add_Tick({ if ($Window.IsVisible -and $Window.WindowState -ne 'Minimized') { Start-EveGlitch $script:LogoMarque 260 } })
     $script:LogoTimer.Start()
     $Hote.Add_MouseEnter({ Start-EveGlitch $script:LogoMarque 420 })
+}
+
+# ---------------------------------------------------------------------------
+# Logo d'un thème personnalisé (image du pack) : il se secoue de temps en temps et au survol ;
+# une planche animée joue un tour ; avec une lueur (LogoGlow), il lévite en brillant
+# ---------------------------------------------------------------------------
+function Add-PackLogo($Canvas, [double]$C, [double]$Taille) {
+    $img = New-Object System.Windows.Controls.Image
+    $img.Width = $Taille; $img.Height = $Taille; $img.Stretch = 'Uniform'
+    [System.Windows.Media.RenderOptions]::SetBitmapScalingMode($img, 'HighQuality')
+    $frames = $null; $timer = $null
+    if ($ThemePack.LogoFrames -gt 1) {
+        $frames = Get-SheetFrames $ThemePack.Logo $ThemePack.LogoFrames
+        $img.Source = $frames[0]
+        $timer = New-Object System.Windows.Threading.DispatcherTimer
+        $timer.Interval = [TimeSpan]::FromMilliseconds($ThemePack.LogoDelay)
+        $timer.Add_Tick({
+            param($s)
+            $m = $script:PackLogo
+            $m.Frame++
+            if ($m.Frame -ge $m.Frames.Count) { $m.Frame = 0; $s.Stop() }
+            $m.Img.Source = $m.Frames[$m.Frame]
+        })
+    } else {
+        $bi = New-Object System.Windows.Media.Imaging.BitmapImage
+        $bi.BeginInit(); $bi.UriSource = New-Object Uri $ThemePack.Logo; $bi.DecodePixelWidth = 256; $bi.CacheOption = 'OnLoad'; $bi.EndInit(); $bi.Freeze()
+        $img.Source = $bi
+    }
+    $rot = New-Object System.Windows.Media.RotateTransform 0
+    $mv = New-Object System.Windows.Media.TranslateTransform
+    $grp = New-Object System.Windows.Media.TransformGroup; $grp.Children.Add($rot); $grp.Children.Add($mv)
+    $img.RenderTransformOrigin = [System.Windows.Point]::new(0.5, 0.85); $img.RenderTransform = $grp
+    [System.Windows.Controls.Canvas]::SetLeft($img, $C - $Taille / 2); [System.Windows.Controls.Canvas]::SetTop($img, $C - $Taille / 2)
+    [void]$Canvas.Children.Add($img)
+    $script:PackLogo = @{ Img = $img; Rot = $rot; Move = $mv; Frames = $frames; Frame = 0; Timer = $timer; Glow = $ThemePack.LogoGlow }
+    if ($ThemePack.LogoGlow) { Start-Sautille $img 3 $ThemePack.LogoGlow }   # lévitation lumineuse permanente
+}
+
+function Start-PackLogoShake {
+    $m = $script:PackLogo
+    if (-not $m) { return }
+    if ($m.Timer) { if (-not $m.Timer.IsEnabled) { $m.Frame = 0; $m.Timer.Start() }; return }
+    if ($m.Glow) { return }
+    $a = New-Object System.Windows.Media.Animation.DoubleAnimationUsingKeyFrames
+    foreach ($k in @(@(0, 0), @(110, -22), @(240, 18), @(360, -12), @(470, 6), @(580, 0))) {
+        [void]$a.KeyFrames.Add((New-Object System.Windows.Media.Animation.EasingDoubleKeyFrame ([double]$k[1]), ([System.Windows.Media.Animation.KeyTime]::FromTimeSpan([TimeSpan]::FromMilliseconds($k[0])))))
+    }
+    $m.Rot.BeginAnimation([System.Windows.Media.RotateTransform]::AngleProperty, $a)
 }

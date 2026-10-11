@@ -11,19 +11,20 @@ $VoixDir   = if ($env:EVERMIND_VOIX) { $env:EVERMIND_VOIX } else { Join-Path $Da
 $WhisperExe = Join-Path $VoixDir 'whisper-cli.exe'
 $WhisperModele = Join-Path $VoixDir 'ggml-small-q5_1.bin'
 $WhisperServeur = Join-Path $VoixDir 'whisper-server.exe'   # Whisper gardé chargé : une phrase est écrite en moins d'une seconde
-$PiperExe = Join-Path $VoixDir 'piper\piper.exe'
-$HfPiper = 'https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR'
 $IaDir = Join-Path $VoixDir 'ia'
 $LlamaExe = Join-Path $IaDir 'llama-server.exe'
 $IaModele = Join-Path $IaDir 'Qwen3-4B-Instruct-2507-Q4_K_M.gguf'
 $KokoroDir = Join-Path $VoixDir 'kokoro'
 $KokoroModele = Join-Path $KokoroDir 'modele'
 $KokoroExe = Join-Path $KokoroDir 'EvermindVoix.exe'
-# L'ancienne voix Supertonic (Evermind 0.8, prononçait mal le français) est effacée pour rendre la place
+# Les anciennes voix (Supertonic, Piper) ne servent plus : effacées pour rendre la place
 $VoixAncienne = Join-Path $VoixDir 'supertonic'
-if (-not $EnTest -and (Test-Path -LiteralPath $VoixAncienne)) { try { Remove-Item -LiteralPath $VoixAncienne -Recurse -Force -ErrorAction Stop } catch {} }
-#   Pack : « voix » (dictée et voix Kokoro), « ia » (l'assistant qui comprend tout), « eveil » (« OK Eve »),
-#          « piper » (anciennes voix, gardées si elles sont déjà installées)
+if (-not $EnTest) {
+    foreach ($ancien in @($VoixAncienne, (Join-Path $VoixDir 'piper')) + @(Get-ChildItem -LiteralPath $VoixDir -Filter 'fr_FR-*.onnx*' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })) {
+        if (Test-Path -LiteralPath $ancien) { try { Remove-Item -LiteralPath $ancien -Recurse -Force -ErrorAction Stop } catch {} }
+    }
+}
+#   Pack : « voix » (dictée et voix Kokoro), « ia » (l'assistant qui comprend tout), « eveil » (« OK Eve »)
 #   Extraire : fichiers gardés d'un zip (tout le reste est ignoré), rangés dans le sous-dossier Vers (Plat : sans leurs dossiers)
 #   Tar : dossiers et fichiers gardés d'une archive .tar.bz2 (extraits par tar.exe de Windows, sans leur premier dossier)
 #   Garder : le fichier qui montre que c'est déjà installé
@@ -33,17 +34,6 @@ $VoixFichiers = @(
        Extraire = '^Release/(whisper-cli\.exe|whisper-server\.exe|whisper\.dll|ggml[^/]*\.dll)$'; Vers = ''; Garder = $WhisperServeur }
     @{ Pack = 'voix'; Nom = 'modèle de français'; Url = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin'
        Sha256 = 'AE85E4A935D7A567BD102FE55AFC16BB595BDB618E11B2FC7591BC08120411BB'; Taille = 190085487; Garder = $WhisperModele }
-    @{ Pack = 'piper'; Nom = 'programme de voix'; Url = 'https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip'
-       Sha256 = 'F3C58906402B24F3A96D92145F58ACBA6D86C9B5DB896D207F78DC80811EFCEA'; Taille = 22477236
-       Extraire = '^piper/(?!pkgconfig/).+[^/]$'; Vers = ''; Garder = $PiperExe }
-    @{ Pack = 'piper'; Nom = 'voix de Siwis'; Url = "$HfPiper/siwis/medium/fr_FR-siwis-medium.onnx"
-       Sha256 = '641D1AB097DA2B81128C076810EDB052B385DECC8BE3381814802A64A73BAF99'; Taille = 63201294; Garder = (Join-Path $VoixDir 'fr_FR-siwis-medium.onnx') }
-    @{ Pack = 'piper'; Nom = 'voix de Siwis'; Url = "$HfPiper/siwis/medium/fr_FR-siwis-medium.onnx.json"
-       Sha256 = '39479916C2DB192B5AC9764DADDD0C744D83E023AD890C6976C0633AE4DF8959'; Taille = 4875; Garder = (Join-Path $VoixDir 'fr_FR-siwis-medium.onnx.json') }
-    @{ Pack = 'piper'; Nom = 'voix de Jessica et Pierre'; Url = "$HfPiper/upmc/medium/fr_FR-upmc-medium.onnx"
-       Sha256 = '9ABB3800C199148897A9ED64E100D224F3DE83579F100044174AD19418F1786F'; Taille = 76733615; Garder = (Join-Path $VoixDir 'fr_FR-upmc-medium.onnx') }
-    @{ Pack = 'piper'; Nom = 'voix de Jessica et Pierre'; Url = "$HfPiper/upmc/medium/fr_FR-upmc-medium.onnx.json"
-       Sha256 = 'E8636EC15DFD5D72DB37A02CB5320A20F2B8D339F2A0E4337DA64C58A33A5868'; Taille = 4996; Garder = (Join-Path $VoixDir 'fr_FR-upmc-medium.onnx.json') }
     # La voix : Kokoro (synthèse récente, prononciation française par espeak-ng), lancée par EvermindVoix.exe avec sherpa-onnx
     @{ Pack = 'voix'; Nom = 'moteur de la voix'; Url = 'https://api.nuget.org/v3-flatcontainer/org.k2fsa.sherpa.onnx.runtime.win-x64/1.13.8/org.k2fsa.sherpa.onnx.runtime.win-x64.1.13.8.nupkg'
        Sha256 = '2257C06893D1D90792EA3157606DE33A51122D935B6913BED5442D2FFB9E9BD7'; Taille = 8535869; Extraire = '^runtimes/win-x64/native/(onnxruntime|sherpa-onnx-c-api)\.dll$'; Vers = 'kokoro'; Plat = $true; Garder = (Join-Path $KokoroDir 'sherpa-onnx-c-api.dll') }
@@ -63,18 +53,15 @@ $VoixFichiers = @(
 
 # Voix au choix (réglages).
 #   Kokoro (voix naturelles qui prononcent le français comme il faut) : la voix 1 est une vraie voix française,
-#   les autres sont des voix d'autres pays à qui on fait parler français (petit accent) ;
-#   Piper (anciennes voix, si elles sont déjà installées) ; Hortense, la voix de Windows : toujours là, mais robotique.
+#   les autres sont des voix d'autres pays à qui on fait parler français (petit accent).
+#   La voix de Windows n'est pas proposée : elle sert seulement de secours, si la voix n'est pas encore installée.
 $VoixListe = [ordered]@{}
 $VoixListe['K30'] = @{ Nom = 'Voix 1'; Desc = 'Femme, française (conseillée)'; Moteur = 'kokoro'; Locuteur = 30 }
 $VoixListe['K31'] = @{ Nom = 'Voix 2'; Desc = 'Femme, petit accent'; Moteur = 'kokoro'; Locuteur = 31 }
 $VoixListe['K29'] = @{ Nom = 'Voix 3'; Desc = 'Homme, petit accent'; Moteur = 'kokoro'; Locuteur = 29 }
 $VoixListe['K36'] = @{ Nom = 'Voix 4'; Desc = 'Homme, petit accent'; Moteur = 'kokoro'; Locuteur = 36 }
 $VoixListe['K33'] = @{ Nom = 'Voix 5'; Desc = 'Homme grave, petit accent'; Moteur = 'kokoro'; Locuteur = 33 }
-$VoixListe['siwis']   = @{ Nom = 'Siwis'; Desc = 'Ancienne voix de femme (Piper)'; Moteur = 'piper'; Modele = 'fr_FR-siwis-medium.onnx'; Locuteur = $null }
-$VoixListe['jessica'] = @{ Nom = 'Jessica'; Desc = 'Ancienne voix de femme (Piper)'; Moteur = 'piper'; Modele = 'fr_FR-upmc-medium.onnx'; Locuteur = 0 }
-$VoixListe['pierre']  = @{ Nom = 'Pierre'; Desc = 'Ancienne voix d''homme (Piper)'; Moteur = 'piper'; Modele = 'fr_FR-upmc-medium.onnx'; Locuteur = 1 }
-$VoixListe['windows'] = @{ Nom = 'Hortense'; Desc = 'Voix de Windows : robotique, mais sans téléchargement'; Moteur = 'windows' }
+$VoixListe['windows'] = @{ Nom = 'Windows'; Desc = 'Voix de secours'; Moteur = 'windows'; Cachee = $true }
 
 function Test-KokoroInstalle { @($VoixFichiers | Where-Object { $_.Garder -like "$KokoroDir*" -and -not (Test-Path -LiteralPath $_.Garder) }).Count -eq 0 }
 
@@ -83,16 +70,15 @@ function Test-VoixDispo([string]$Cle) {
     if (-not $v) { return $false }
     switch ($v.Moteur) {
         'kokoro'     { Test-KokoroInstalle }
-        'piper'      { (Test-Path -LiteralPath $PiperExe) -and (Test-Path -LiteralPath (Join-Path $VoixDir $v.Modele)) }
         default      { $true }
     }
 }
 
-# Voix choisie dans les réglages ; sinon la voix française de Kokoro, sinon l'ancienne voix, sinon Windows
+# Voix choisie dans les réglages ; sinon la voix française de Kokoro ; sinon (pas encore installée) celle de Windows
 function Get-VoixChoisie {
     $k = [string](Get-Setting 'Voix3' '')
     if ($k -and (Test-VoixDispo $k)) { return $k }
-    foreach ($c in 'K30',([string](Get-Setting 'Voix' 'siwis')), 'siwis') { if (Test-VoixDispo $c) { return $c } }
+    if (Test-VoixDispo 'K30') { return 'K30' }
     'windows'
 }
 
@@ -252,8 +238,8 @@ function Update-VoixInstall {
 # ---------------------------------------------------------------------------
 # Parler (réponse à voix haute)
 # ---------------------------------------------------------------------------
-# La voix choisie dit la phrase : Kokoro (EvermindVoix.exe, toujours prêt une fois lancé), Piper (ancienne voix)
-# ou Windows (si rien n'est installé). Le son est fabriqué en un instant dans un fichier, puis joué.
+# La voix choisie dit la phrase : Kokoro (EvermindVoix.exe, toujours prêt une fois lancé),
+# ou Windows (si la voix n'est pas encore installée). Le son est fabriqué en un instant dans un fichier, puis joué.
 function Invoke-Parole([string]$Texte, [string]$Voix) {
     if ($EnTest -and -not $env:EVERMIND_TEST_PAROLE) { Write-Log "Parole : $(Convert-PourParler $Texte)"; return }
     $Texte = Convert-PourParler $Texte
@@ -262,7 +248,6 @@ function Invoke-Parole([string]$Texte, [string]$Voix) {
     try {
         switch ($v.Moteur) {
             'kokoro'     { Start-KokoroParole $Texte $Voix; return }
-            'piper'      { Start-PiperParole $Texte (Join-Path $VoixDir $v.Modele) $v.Locuteur; return }
         }
     } catch { Write-Log "Voix naturelle impossible : $_" }
     Invoke-ParoleWindows $Texte
@@ -319,10 +304,10 @@ function Stop-KokoroServeur {
 function Start-KokoroParole([string]$Texte, [string]$Voix) {
     Stop-Parole
     $s = Start-KokoroServeur
-    $script:PiperNum = 1 - [int]$script:PiperNum
-    $wav = Join-Path $env:TEMP "evermind-$PID-parole$($script:PiperNum).wav"
+    $script:ParoleNum = 1 - [int]$script:ParoleNum
+    $wav = Join-Path $env:TEMP "evermind-$PID-parole$($script:ParoleNum).wav"
     $s.Attente = @{ Texte = ($Texte -replace '[\t\r\n]+', ' '); Locuteur = $VoixListe[$Voix].Locuteur; Wav = $wav; Envoye = $false; Debut = [Diagnostics.Stopwatch]::StartNew() }
-    $script:Piper = $s.Attente      # « Evermind parle » : « OK Eve » reste en pause
+    $script:Parle = $s.Attente      # « Evermind parle » : « OK Eve » reste en pause
     Step-Kokoro
 }
 
@@ -332,18 +317,18 @@ function Step-Kokoro {
     while ($s.Remarques.Suivante()) {}
     while ($true) {
         $l = $s.Lignes.Suivante()
-        if ($null -eq $l) { Write-Log 'Voix Kokoro arrêtée'; $script:Kokoro = $null; $script:Piper = $null; $script:KokoroTimer.Stop(); return }
+        if ($null -eq $l) { Write-Log 'Voix Kokoro arrêtée'; $script:Kokoro = $null; $script:Parle = $null; $script:KokoroTimer.Stop(); return }
         if ($l -eq '') { break }
         if ($l -eq 'PRET') { $s.Pret = $true; continue }
         $x = $l -split "`t"
         $a = $s.Attente
         if ($x[0] -eq 'ERREUR') {
             Write-Log "Voix Kokoro : $($x[1])"
-            if ($a -and $a.Envoye) { $s.Attente = $null; $script:Piper = $null; Invoke-ParoleWindows $a.Texte }
+            if ($a -and $a.Envoye) { $s.Attente = $null; $script:Parle = $null; Invoke-ParoleWindows $a.Texte }
             continue
         }
         if ($x[0] -eq 'OK' -and $a -and $a.Envoye -and $x[1] -eq $a.Wav) {
-            $s.Attente = $null; $script:Piper = $null; $s.Dernier = Get-Date
+            $s.Attente = $null; $script:Parle = $null; $s.Dernier = Get-Date
             Invoke-Son $a.Wav $a.Debut
         }
     }
@@ -351,9 +336,9 @@ function Step-Kokoro {
     if ($s.Pret -and $a -and -not $a.Envoye) {
         $a.Envoye = $true
         try { $s.Entree.WriteLine("PARLE`t$($a.Locuteur)`t1.0`t0`t$($a.Wav)`t$($a.Texte)") }
-        catch { Write-Log "Voix Kokoro : $_"; $s.Attente = $null; $script:Piper = $null; Invoke-ParoleWindows $a.Texte }
+        catch { Write-Log "Voix Kokoro : $_"; $s.Attente = $null; $script:Parle = $null; Invoke-ParoleWindows $a.Texte }
     }
-    if ($a -and $a.Debut.Elapsed.TotalSeconds -gt 30) { Write-Log 'Voix Kokoro : trop lente, voix de Windows'; $s.Attente = $null; $script:Piper = $null; Invoke-ParoleWindows $a.Texte }
+    if ($a -and $a.Debut.Elapsed.TotalSeconds -gt 30) { Write-Log 'Voix Kokoro : trop lente, voix de Windows'; $s.Attente = $null; $script:Parle = $null; Invoke-ParoleWindows $a.Texte }
     # Rien à dire depuis 10 minutes : la mémoire est rendue
     if (-not $s.Attente -and ((Get-Date) - $s.Dernier).TotalMinutes -gt 10) { Stop-KokoroServeur; Write-Log 'Voix Kokoro mise en veille' }
 }
@@ -361,12 +346,19 @@ function Step-Kokoro {
 # Joue un fichier son ; « OK Eve » reste en pause le temps qu'il soit dit
 function Invoke-Son([string]$Wav, $Chrono) {
     if ($EnTest) { Write-Log "Voix naturelle prête : $((Get-Item -LiteralPath $Wav).Length) octets en $([math]::Round($Chrono.Elapsed.TotalSeconds, 2)) s"; return }
-    try {
-        $script:Lecteur = New-Object System.Media.SoundPlayer $Wav
+    try { Invoke-SonOctets ([IO.File]::ReadAllBytes($Wav)) } catch { Write-Log "Lecture de la voix : $_" }
+}
+
+# Joue un son (.wav en mémoire) sur le casque choisi dans les réglages (sinon la sortie de Windows)
+function Invoke-SonOctets([byte[]]$Octets) {
+    $duree = [EMSortie]::Jouer($Octets)
+    if (-not $duree) {
+        # Sortie indisponible : le lecteur de Windows, sur la sortie par défaut
+        $script:Lecteur = New-Object System.Media.SoundPlayer (New-Object IO.MemoryStream (, $Octets))
         $script:Lecteur.Play()
-        $oct = (Get-Item -LiteralPath $Wav).Length; $fs = [IO.File]::OpenRead($Wav); $hd = New-Object byte[] 44; [void]$fs.Read($hd, 0, 44); $fs.Close()
-        $script:EveilReprise = (Get-Date).AddSeconds(($oct - 44) / [math]::Max(1, [BitConverter]::ToInt32($hd, 28)) + 0.8)
-    } catch { Write-Log "Lecture de la voix : $_" }
+        $duree = ($Octets.Length - 44) / [math]::Max(1, [BitConverter]::ToInt32($Octets, 28))
+    }
+    $script:EveilReprise = (Get-Date).AddSeconds($duree + 0.8)
 }
 
 
@@ -377,10 +369,14 @@ function Invoke-ParoleWindows([string]$Texte) {
             $script:Synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
             $v = $script:Synth.GetInstalledVoices() | Where-Object { $_.Enabled -and $_.VoiceInfo.Culture.Name -like 'fr*' } | Select-Object -First 1
             if ($v) { $script:Synth.SelectVoice($v.VoiceInfo.Name) }
-            $script:Synth.SetOutputToDefaultAudioDevice()
         }
         Stop-Parole
-        [void]$script:Synth.SpeakAsync($Texte)
+        # Fabriquée en mémoire, puis jouée sur le casque choisi
+        $ms = New-Object IO.MemoryStream
+        $script:Synth.SetOutputToWaveStream($ms)
+        $script:Synth.Speak($Texte)
+        $script:Synth.SetOutputToNull()
+        Invoke-SonOctets $ms.ToArray()
     } catch { Write-Log "Parole impossible : $_" }
 }
 
@@ -388,37 +384,9 @@ function Invoke-ParoleWindows([string]$Texte) {
 function Stop-Parole {
     try { if ($script:Synth) { $script:Synth.SpeakAsyncCancelAll() } } catch {}
     try { if ($script:Lecteur) { $script:Lecteur.Stop() } } catch {}
-    if ($script:Piper -and $script:Piper.Process) { try { if (-not $script:Piper.Process.HasExited) { $script:Piper.Process.Kill() } } catch {} }
-    $script:Piper = $null
+    try { [EMSortie]::Arreter() } catch {}
+    $script:Parle = $null
     if ($script:Kokoro) { $script:Kokoro.Attente = $null }
-}
-
-function Start-PiperParole([string]$Texte, [string]$Modele, $Locuteur) {
-    Stop-Parole
-    $script:PiperNum = 1 - [int]$script:PiperNum   # deux fichiers en alternance : l'ancien peut encore être lu
-    $wav = Join-Path $env:TEMP "evermind-$PID-parole$($script:PiperNum).wav"
-    $psi = New-Object Diagnostics.ProcessStartInfo
-    $psi.FileName = $PiperExe
-    $psi.Arguments = "-m `"$Modele`" -f `"$wav`" -q" + $(if ($null -ne $Locuteur) { " -s $Locuteur" } else { '' })
-    $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
-    $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true; $psi.WorkingDirectory = Split-Path $PiperExe
-    $p = [Diagnostics.Process]::Start($psi)
-    $w = New-Object IO.StreamWriter($p.StandardInput.BaseStream, (New-Object Text.UTF8Encoding($false)))
-    $w.WriteLine(($Texte -replace '\s+', ' ')); $w.Close()
-    $script:Piper = @{ Process = $p; Wav = $wav; Debut = [Diagnostics.Stopwatch]::StartNew() }
-    if (-not $script:PiperTimer) {
-        $script:PiperTimer = New-Object System.Windows.Threading.DispatcherTimer
-        $script:PiperTimer.Interval = [TimeSpan]::FromMilliseconds(60)
-        $script:PiperTimer.Add_Tick({
-            $pp = $script:Piper
-            if (-not $pp) { $script:PiperTimer.Stop(); return }
-            if (-not $pp.Process.HasExited) { if ($pp.Debut.Elapsed.TotalSeconds -gt 20) { try { $pp.Process.Kill() } catch {} }; return }
-            $script:Piper = $null; $script:PiperTimer.Stop()
-            if ($pp.Process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $pp.Wav)) { Write-Log "Voix naturelle : échec (code $($pp.Process.ExitCode))"; return }
-            Invoke-Son $pp.Wav $pp.Debut
-        })
-    }
-    $script:PiperTimer.Start()
 }
 
 # « 15 h 30 » se dit « 15 heures 30 » ; un anniversaire n'a pas d'heure
@@ -437,7 +405,7 @@ function Update-VoixChoix {
     foreach ($k in $VoixListe.Keys) {
         $v = $VoixListe[$k]
         $dispo = Test-VoixDispo $k
-        if ($v.Moteur -eq 'piper' -and -not $dispo) { continue }   # anciennes voix : seulement si elles sont déjà là
+        if ($v.Cachee) { continue }   # la voix de Windows : seulement en secours
         $on = $k -eq $choisie
         $b = New-Object System.Windows.Controls.Border
         $b.CornerRadius = 14; $b.Padding = '14,9'; $b.Margin = '0,0,0,6'; $b.BorderThickness = 1.5; $b.Tag = $k
@@ -479,7 +447,23 @@ function Update-AssistantEtat {
                              else { 'Une petite IA sur ton PC (2,3 Go) pour tout comprendre : décaler, supprimer, ajouter des détails, répondre à tes questions. Rien ne part sur Internet.' }
 }
 
-function Open-Reglages { Update-VoixChoix; Update-MicroChoix; Update-AssistantEtat; Update-EveilReglage; $ui.Reglages.Visibility = 'Visible'; Start-Vumetre }
+function Open-Reglages([string]$Onglet) {
+    Update-VoixChoix; Update-CroixReglage; Update-CasqueChoix; Update-MicroChoix; Update-AssistantEtat; Update-EveilReglage
+    Set-OngletReglages $(if ($Onglet) { $Onglet } elseif ($script:OngletReglages) { $script:OngletReglages } else { 'Son' })
+    $ui.Reglages.Visibility = 'Visible'
+    Start-Vumetre
+}
+
+# Onglets des réglages : Son (casque et micro), Voix, Assistant, Général
+function Set-OngletReglages([string]$Nom) {
+    $script:OngletReglages = $Nom
+    if ($Nom -eq 'Theme') { Update-ThemeChoix }
+    if ($Nom -eq 'General') { Update-DossiersReglage }
+    foreach ($o in 'Son', 'Voix', 'Assistant', 'Theme', 'General') {
+        $ui["Onglet$o"].Tag = if ($o -eq $Nom) { 'on' } else { $null }
+        $ui["Pan$o"].Visibility = if ($o -eq $Nom) { 'Visible' } else { 'Collapsed' }
+    }
+}
 function Close-Reglages { $ui.Reglages.Visibility = 'Collapsed'; Stop-Vumetre }
 
 # ---------------------------------------------------------------------------
@@ -491,16 +475,84 @@ function Set-MicroActif {
     $nom = [string](Get-Setting 'Micro' '')
     $noms = @([EMMicros]::Noms())
     $i = if ($nom) { [array]::IndexOf($noms, $nom) } else { -1 }
+    $avant = [EMMicros]::Choisi
     [EMMicros]::Choisi = if ($i -ge 0) { [uint32]$i } else { [uint32]::MaxValue }
+    $avant -ne [EMMicros]::Choisi
+}
+
+# Windows coupe les noms d'appareils à 31 lettres : « … » le montre au lieu d'une parenthèse qui ne se ferme pas
+function Get-NomAppareil([string]$Nom) {
+    $m = [regex]::Match($Nom, '^(?<nom>.{31})(?<reste>.*)$')
+    if ($m.Success -and $m.Groups['nom'].Value -match '\([^)]*$') { return $m.Groups['nom'].Value.TrimEnd() + '…)' + $m.Groups['reste'].Value }
+    $Nom
+}
+
+# Le casque : comme le micro, gardé par son nom
+function Set-CasqueActif {
+    if (-not ('EMSortie' -as [type])) { return $false }
+    $nom = [string](Get-Setting 'Casque' '')
+    $noms = @([EMSortie]::Noms())
+    $i = if ($nom) { [array]::IndexOf($noms, $nom) } else { -1 }
+    $avant = [EMSortie]::Choisi
+    [EMSortie]::Choisi = if ($i -ge 0) { [uint32]$i } else { [uint32]::MaxValue }
+    $avant -ne [EMSortie]::Choisi
+}
+
+function Update-CasqueChoix {
+    $ui.CasqueChoix.Children.Clear()
+    $choisi = [string](Get-Setting 'Casque' '')
+    $noms = @([EMSortie]::Noms())
+    $liste = @(@{ Cle = ''; Nom = 'Celui de Windows'; Absent = $false }) + @($noms | ForEach-Object { @{ Cle = $_; Nom = $_; Absent = $false } })
+    if ($choisi -and $noms -notcontains $choisi) { $liste += @{ Cle = $choisi; Nom = "$choisi (débranché)"; Absent = $true } }
+    foreach ($c in $liste) {
+        $on = $c.Cle -eq $choisi
+        $b = New-Object System.Windows.Controls.Border
+        $b.CornerRadius = 14; $b.Padding = '14,9'; $b.Margin = '0,0,0,6'; $b.BorderThickness = 1.5; $b.Tag = $c.Cle; $b.Cursor = 'Hand'
+        $b.Background = Get-Brush $(if ($on) { '#2600E5FF' } else { '#0FFFFFFF' })
+        $b.BorderBrush = if ($on) { $Window.FindResource('AccentBg') } else { Get-Brush '#1CFFFFFF' }
+        $dp = New-Object System.Windows.Controls.DockPanel
+        $ec = New-Object System.Windows.Controls.TextBlock
+        $ec.Text = if ($on -and $c.Absent) { '✓ choisi (en attente)' } elseif ($on) { '✓ choisi' } else { '▶ choisir et écouter' }
+        $ec.Foreground = Get-Brush $(if ($on) { '#7FF4FF' } else { $Colors.dim }); $ec.FontSize = 13; $ec.VerticalAlignment = 'Center'; $ec.Margin = '12,0,0,0'
+        [System.Windows.Controls.DockPanel]::SetDock($ec, 'Right')
+        [void]$dp.Children.Add($ec)
+        $n = New-Object System.Windows.Controls.TextBlock; $n.Text = (Get-NomAppareil $c.Nom); $n.FontSize = 14; $n.Foreground = Get-Brush '#FFFFFF'; $n.VerticalAlignment = 'Center'; $n.TextTrimming = 'CharacterEllipsis'
+        [void]$dp.Children.Add($n)
+        $b.Child = $dp
+        $b.Add_MouseLeftButtonUp({
+            param($s)
+            Set-Setting 'Casque' ([string]$s.Tag)
+            [void](Set-CasqueActif)
+            Write-Log "Casque choisi : $(if ($s.Tag) { $s.Tag } else { 'celui de Windows' })"
+            Update-CasqueChoix
+            Invoke-Parole 'Salut ! Je te parle dans ce casque.'
+        })
+        [void]$ui.CasqueChoix.Children.Add($b)
+    }
+}
+
+# Le micro choisi est débranché au lancement (casque USB pas encore prêt) : Evermind prend celui de Windows en attendant,
+# et revient tout seul au micro choisi dès qu'il réapparaît (vérifié toutes les 10 secondes)
+function Test-MicroRevenu {
+    if (-not ('EMMicros' -as [type])) { return }
+    if ($script:MicroVu -and ((Get-Date) - $script:MicroVu).TotalSeconds -lt 10) { return }
+    $script:MicroVu = Get-Date
+    if ([string](Get-Setting 'Casque' '') -and (Set-CasqueActif)) { Write-Log "Casque : $(if ([EMSortie]::Choisi -ne [uint32]::MaxValue) { "« $(Get-Setting 'Casque' '') » est là" } else { "« $(Get-Setting 'Casque' '') » débranché, celui de Windows en attendant" })" }
+    if (-not [string](Get-Setting 'Micro' '')) { return }
+    if (Set-MicroActif) {
+        Write-Log "Micro : $(if ([EMMicros]::Choisi -ne [uint32]::MaxValue) { "« $(Get-Setting 'Micro' '') » est là" } else { "« $(Get-Setting 'Micro' '') » débranché, celui de Windows en attendant" })"
+        if ((Test-EveilActif) -and -not $script:Ecoute) { Stop-Eveil; Start-Eveil }
+    }
 }
 
 function Update-MicroChoix {
     $ui.MicroChoix.Children.Clear()
     $choisi = [string](Get-Setting 'Micro' '')
     $noms = @([EMMicros]::Noms())
-    if ($choisi -and $noms -notcontains $choisi) { $choisi = '' }   # micro débranché : celui de Windows
     $script:MicroBarres = @{}
     $liste = @(@{ Cle = ''; Nom = 'Celui de Windows'; Index = -1 }) + @(for ($i = 0; $i -lt $noms.Count; $i++) { @{ Cle = $noms[$i]; Nom = $noms[$i]; Index = $i } })
+    # Micro choisi mais débranché : il reste choisi (Evermind y reviendra), avec celui de Windows en attendant
+    if ($choisi -and $noms -notcontains $choisi) { $liste += @{ Cle = $choisi; Nom = "$choisi (débranché)"; Index = -2 } }
     foreach ($m in $liste) {
         $on = $m.Cle -eq $choisi
         $b = New-Object System.Windows.Controls.Border
@@ -509,7 +561,7 @@ function Update-MicroChoix {
         $b.BorderBrush = if ($on) { $Window.FindResource('AccentBg') } else { Get-Brush '#1CFFFFFF' }
         $dp = New-Object System.Windows.Controls.DockPanel
         $ec = New-Object System.Windows.Controls.TextBlock
-        $ec.Text = if ($on) { '✓ choisi' } else { 'choisir' }
+        $ec.Text = if ($on -and $m.Index -eq -2) { '✓ choisi (en attente)' } elseif ($on) { '✓ choisi' } else { 'choisir' }
         $ec.Foreground = Get-Brush $(if ($on) { '#7FF4FF' } else { $Colors.dim }); $ec.FontSize = 13; $ec.VerticalAlignment = 'Center'; $ec.Margin = '12,0,0,0'
         [System.Windows.Controls.DockPanel]::SetDock($ec, 'Right')
         [void]$dp.Children.Add($ec)
@@ -524,13 +576,13 @@ function Update-MicroChoix {
             [void]$dp.Children.Add($fond)
             $script:MicroBarres[$m.Index] = $barre
         }
-        $n = New-Object System.Windows.Controls.TextBlock; $n.Text = $m.Nom; $n.FontSize = 14; $n.Foreground = Get-Brush '#FFFFFF'; $n.VerticalAlignment = 'Center'; $n.TextTrimming = 'CharacterEllipsis'
+        $n = New-Object System.Windows.Controls.TextBlock; $n.Text = (Get-NomAppareil $m.Nom); $n.FontSize = 14; $n.Foreground = Get-Brush '#FFFFFF'; $n.VerticalAlignment = 'Center'; $n.TextTrimming = 'CharacterEllipsis'
         [void]$dp.Children.Add($n)
         $b.Child = $dp
         $b.Add_MouseLeftButtonUp({
             param($s)
             Set-Setting 'Micro' ([string]$s.Tag)
-            Set-MicroActif
+            [void](Set-MicroActif)
             Write-Log "Micro choisi : $(if ($s.Tag) { $s.Tag } else { 'celui de Windows' })"
             if (Test-EveilActif) { Stop-Eveil; Start-Eveil; try { Update-EveilReglage } catch {} }   # « OK Eve » écoute le nouveau micro
             Update-MicroChoix
@@ -568,8 +620,8 @@ function Stop-Vumetre {
     if ($v) { try { $v.Stop() } catch {} }
 }
 
-Set-MicroActif
-
+[void](Set-MicroActif)
+[void](Set-CasqueActif)
 # Petit son au début et à la fin de l'écoute
 function Invoke-Bip([bool]$Debut) {
     if ($EnTest) { return }
@@ -589,7 +641,7 @@ function Invoke-Bip([bool]$Debut) {
             }
         }
         $mem.Position = 0
-        (New-Object System.Media.SoundPlayer $mem).Play()
+        [void][EMSortie]::Jouer($mem.ToArray())
     } catch {}
 }
 
@@ -661,6 +713,7 @@ function Start-Ecoute([string]$Source, [switch]$Silencieux) {
         Invoke-Parole 'Pour comprendre ta voix, installe d''abord la voix dans Evermind.'
         return
     }
+    Test-MicroRevenu
     $mic = New-Object EMMicro
     $err = if ([EMMicro]::HasDevice()) { $mic.Start() } else { -1 }
     if ($err -ne 0) {
@@ -953,7 +1006,7 @@ function Invoke-DicteeRegles([string]$Texte) {
         if (@($r.Avec).Count) { $dit += ", avec $(@($r.Avec) -join ' et ')" }
         $conf = if ($r.Journee) { @() } else { @(Get-Conflits $r.Quand $r.Fin $r.Id) }
         if ($conf.Count) { $dit += ". Attention, tu as déjà $(Get-TitreAffiche $conf[0].RV.Titre) à ce moment-là" }
-        Invoke-Parole "C'est noté : $dit."
+        Invoke-Parole "C'est noté : $dit.$(Get-TexteFichiers $r)"
         Update-Agenda
         return
     }

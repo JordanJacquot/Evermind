@@ -52,6 +52,90 @@ function Get-Morceau($State, [string]$Pattern) {
 }
 
 # ---------------------------------------------------------------------------
+# Semaines entières, du lundi au dimanche (et week-ends) : liste de @{ Debut; Fin }, ou $null
+# ---------------------------------------------------------------------------
+function Get-BlocsSemaine($st, [datetime]$today) {
+    $lundiDe = { param([datetime]$d) $d.Date.AddDays(-((([int]$d.DayOfWeek) + 6) % 7)) }
+    # Une semaine : du lundi au dimanche ; un week-end : samedi et dimanche
+    $bloc = { param([datetime]$Debut, [bool]$WE) if ($WE) { @{ Debut = $Debut; Fin = $Debut.AddDays(1) } } else { @{ Debut = $Debut; Fin = $Debut.AddDays(6) } } }
+    # La n-ième semaine d'un mois commence au n-ième lundi ; le n-ième week-end, au n-ième samedi.
+    # « dernière semaine » : la dernière semaine entière du mois ; « dernier week-end » : le dernier samedi.
+    $nieme = {
+        param([int]$An, [int]$Mois, [int]$Rang, [bool]$WE)
+        $premier = [datetime]::new($An, $Mois, 1); $der = $premier.AddMonths(1).AddDays(-1)
+        $jour = if ($WE) { 6 } else { 1 }
+        if ($Rang -gt 0) { return (& $bloc ($premier.AddDays((($jour - [int]$premier.DayOfWeek) + 7) % 7).AddDays(7 * ($Rang - 1))) $WE) }
+        if ($WE) { return (& $bloc ($der.AddDays(-(((([int]$der.DayOfWeek) - 6) + 7) % 7))) $true) }
+        $l = & $lundiDe $der; if ($l.AddDays(6) -gt $der) { $l = $l.AddDays(-7) }
+        & $bloc $l $false
+    }
+    $rxRang = "(?<r>premi[èe]re?|1re|1er|1[eè]re|deuxi[èe]me|second|seconde|2e|troisi[èe]me|3e|quatri[èe]me|4e|derni[èe]re?)"
+    $rxU = "(?<u>semaine|week-?end)"
+    $rxDe = "(?:(?:de|d'|du mois de|du mois d'|en)\s*)?"
+    $rang = { param($s) switch -Regex ($s.ToLower()) { '^(prem|1)' { 1 } '^(deux|sec|2)' { 2 } '^(trois|3)' { 3 } '^(quat|4)' { 4 } default { -1 } } }
+    $rxN = "(?<n>\d{1,2}|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze)"
+    $avant = "\b(?:pendant\s+|durant\s+|sur\s+|tout\s+|toute\s+)?(?:la|le)\s+"
+    # « la première semaine des 3 prochains mois », « le premier week-end de chaque mois pendant 3 mois »
+    if (($m = Get-Morceau $st "$avant$rxRang\s+$rxU\s+(?:des\s+$rxN\s+prochains\s+mois|de\s+chaque\s+mois\s+(?:pendant|durant|sur)\s+$rxN\s+mois)\b").Success) {
+        $r = & $rang $m.Groups['r'].Value; $n = ConvertFrom-Nombre $m.Groups['n'].Value; $we = $m.Groups['u'].Value -match 'week'
+        $blocs = @(); $mois = $today.AddDays(1 - $today.Day)
+        while ($blocs.Count -lt $n -and $blocs.Count -lt 24) {
+            $b = & $nieme $mois.Year $mois.Month $r $we
+            if ($b.Debut -ge $today) { $blocs += $b }   # une semaine déjà commencée ne compte pas
+            $mois = $mois.AddMonths(1)
+        }
+        return $blocs
+    }
+    # « la première semaine de novembre », « le dernier week-end d'octobre », « le dernier week-end octobre 2027 »,
+    # « la deuxième semaine du mois prochain »
+    if (($m = Get-Morceau $st "$avant$rxRang\s+$rxU\s+(?:$rxDe(?<mo>$RxMois)(?:\s+(?<y>\d{4}))?|du\s+mois\s+(?<pro>prochain))").Success) {
+        $r = & $rang $m.Groups['r'].Value; $we = $m.Groups['u'].Value -match 'week'
+        if ($m.Groups['pro'].Success) { $x = $today.AddDays(1 - $today.Day).AddMonths(1); $mo = $x.Month; $y = $x.Year }
+        else { $mo = $MoisNoms[$m.Groups['mo'].Value.ToLower()]; $y = if ($m.Groups['y'].Success) { [int]$m.Groups['y'].Value } else { $today.Year } }
+        $b = & $nieme $y $mo $r $we
+        if (-not $m.Groups['y'].Success -and -not $m.Groups['pro'].Success -and $b.Fin -lt $today) { $b = & $nieme ($y + 1) $mo $r $we }
+        return @($b)
+    }
+    # « les deux prochains week-ends », « les 3 prochaines semaines »
+    if (($m = Get-Morceau $st "\b(?:pendant\s+|durant\s+)?les\s+$rxN\s+prochain(?:e)?s\s+(?<u>semaines|week-?ends)\b").Success) {
+        $n = ConvertFrom-Nombre $m.Groups['n'].Value; $we = $m.Groups['u'].Value -match 'week'
+        if ($we) {
+            $sam = $today.AddDays((6 - [int]$today.DayOfWeek + 7) % 7); if ($today.DayOfWeek -eq 'Sunday') { $sam = $today.AddDays(6) }
+            if ($today.DayOfWeek -eq 'Saturday') { $sam = $sam.AddDays(7) }   # « les prochains » dit un samedi : à partir du suivant
+            return @(for ($k = 0; $k -lt $n; $k++) { & $bloc $sam.AddDays(7 * $k) $true })
+        }
+        # Les semaines qui viennent, d'un seul bloc : de lundi prochain à la fin de la dernière
+        $l = (& $lundiDe $today).AddDays(7)
+        return @(@{ Debut = $l; Fin = $l.AddDays(7 * $n - 1) })
+    }
+    # « la semaine du 9 novembre », « le week-end du 24 octobre »
+    if (($m = Get-Morceau $st "\b(?:pendant\s+|durant\s+|toute\s+|tout\s+)?(?:la|le)\s+$rxU\s+du\s+(?<d>$RxNombre)(?:er)?\s+(?<mo>$RxMois)(?:\s+(?<y>\d{4}))?").Success) {
+        $mo = $MoisNoms[$m.Groups['mo'].Value.ToLower()]; $d = ConvertFrom-Nombre $m.Groups['d'].Value; $we = $m.Groups['u'].Value -match 'week'
+        $y = if ($m.Groups['y'].Success) { [int]$m.Groups['y'].Value } else { $today.Year }
+        try { $jour = [datetime]::new($y, $mo, $d); if (-not $m.Groups['y'].Success -and $jour.AddDays(6) -lt $today) { $jour = $jour.AddYears(1) } } catch { return $null }
+        $l = & $lundiDe $jour
+        if ($we) { return @(& $bloc $l.AddDays(5) $true) }
+        return @(& $bloc $l $false)
+    }
+    # « toute la semaine prochaine », « pendant la semaine prochaine », « toute cette semaine »
+    if (($m = Get-Morceau $st "\b(?:toute|pendant|durant|sur)\s+(?:la\s+)?(?<q>semaine\s+prochaine|semaine\s+d'apr[èe]s|cette\s+semaine)\b").Success) {
+        $l = & $lundiDe $today
+        if ($m.Groups['q'].Value -notmatch 'cette') { $l = $l.AddDays(7) }
+        $b = & $bloc $l $false; if ($b.Debut -lt $today) { $b.Debut = $today }
+        return @($b)
+    }
+    # « ce week-end », « le week-end prochain » (samedi et dimanche)
+    if (($m = Get-Morceau $st "\b(?:ce|le)\s+week-?end(?:\s+(?<pro>prochain))?\b(?!\s+(?:du|de|d'))").Success) {
+        # Dit un dimanche, « ce week-end » c'est aujourd'hui ; « le week-end prochain », celui d'après
+        if ($today.DayOfWeek -eq 'Sunday' -and -not $m.Groups['pro'].Success) { return @(@{ Debut = $today; Fin = $today }) }
+        $sam = $today.AddDays((6 - [int]$today.DayOfWeek + 7) % 7)
+        if ($today.DayOfWeek -eq 'Sunday') { $sam = $today.AddDays(6) }
+        elseif ($today.DayOfWeek -eq 'Saturday' -and $m.Groups['pro'].Success) { $sam = $sam.AddDays(7) }   # dit un samedi : celui d'après
+        return @(& $bloc $sam $true)
+    }
+    $null
+}
+# ---------------------------------------------------------------------------
 # Rendez-vous qui reviennent : prochaine fois à partir d'un moment donné
 # ---------------------------------------------------------------------------
 #   Repetition : { Type = 'jour' } | { Type = 'semaine'; Jour = 0..6 (0 = dimanche) } | { Type = 'mois'; Jour = 1..31 }
@@ -209,7 +293,7 @@ function Read-Phrase([string]$Text, $Now) {
         $rep = [ordered]@{ Type = 'mois'; Jour = $JoursNoms[$m.Groups['wd'].Value.ToLower()]; Rang = $r }
     } elseif (($m = Get-Morceau $st "\b(?:en semaine|du lundi au vendredi|(?:tous les|chaque)\s+jours?\s+de\s+(?:la\s+)?semaine|les jours de semaine)\b").Success) {
         $rep = [ordered]@{ Type = 'semaine'; Jour = 1; Jours = @(1, 2, 3, 4, 5) }
-    } elseif (($m = Get-Morceau $st "\b(?:tous les week-?ends?|chaque week-?end|le week-?end)\b(?!\s+(?:prochain|du|de|dernier))").Success) {
+    } elseif (($m = Get-Morceau $st "\b(?:tous les week-?ends?|chaque week-?end|le week-?end)\b(?!\s+(?:prochain|du|de|d'|dernier|(?:$RxMois)))").Success) {
         $rep = [ordered]@{ Type = 'semaine'; Jour = 6; Jours = @(6, 0) }
     } elseif (($m = Get-Morceau $st "\b(?:tous les|chaque|le|les)\s+$RxJour(?:s)?(?:\s*(?:,|et)\s*(?:le\s+|les\s+)?$RxJour(?:s)?)+\b").Success) {
         $js = & $nJours $m.Value
@@ -221,15 +305,15 @@ function Read-Phrase([string]$Text, $Now) {
         $rep = [ordered]@{ Type = 'semaine'; Jour = $js[0]; Jours = $js }
     } elseif (($m = Get-Morceau $st "\b(?:un|une)\s+(?<wd>$RxJour)\s+sur\s+(?<n>$rxN)\b").Success) {
         $rep = [ordered]@{ Type = 'semaine'; Jour = $JoursNoms[$m.Groups['wd'].Value.ToLower()]; Intervalle = (ConvertFrom-Nombre $m.Groups['n'].Value) }
-    } elseif (($m = Get-Morceau $st "\btoutes les\s+(?<n>$rxN)\s+semaines\b").Success) {
+    } elseif (($m = Get-Morceau $st "\btou(?:te)?s les\s+(?<n>$rxN)\s+semaines\b").Success) {
         $rep = [ordered]@{ Type = 'semaine'; Jour = $null; Intervalle = (ConvertFrom-Nombre $m.Groups['n'].Value) }
-    } elseif (($m = Get-Morceau $st "\btous les\s+(?<n>$rxN)\s+jours\b").Success) {
+    } elseif (($m = Get-Morceau $st "\btou(?:te)?s les\s+(?<n>$rxN)\s+jours\b").Success) {
         $n = ConvertFrom-Nombre $m.Groups['n'].Value
         # « tous les 15 jours » se dit pour « toutes les deux semaines »
         $rep = if ($n -in 14, 15) { [ordered]@{ Type = 'semaine'; Jour = $null; Intervalle = 2 } } else { [ordered]@{ Type = 'jour'; Intervalle = $n } }
-    } elseif (($m = Get-Morceau $st "\btous les\s+(?<n>$rxN)\s+mois(?:\s+le\s+(?<d>$RxNombre)(?:er)?\b)?").Success) {
+    } elseif (($m = Get-Morceau $st "\btou(?:te)?s les\s+(?<n>$rxN)\s+mois(?:\s+le\s+(?<d>$RxNombre)(?:er)?\b)?").Success) {
         $rep = [ordered]@{ Type = 'mois'; Jour = $(if ($m.Groups['d'].Success) { ConvertFrom-Nombre ($m.Groups['d'].Value -replace 'er$', '') } else { $null }); Intervalle = (ConvertFrom-Nombre $m.Groups['n'].Value) }
-    } elseif (($m = Get-Morceau $st "\b(?:tous les\s+(?<n>$rxN)\s+ans|toutes les\s+(?<n>$rxN)\s+ann[ée]es)\b").Success) {
+    } elseif (($m = Get-Morceau $st "\btou(?:te)?s les\s+(?<n>$rxN)\s+(?:ans|ann[ée]es)\b").Success) {
         $rep = [ordered]@{ Type = 'an'; Jour = $null; Mois = $null; Intervalle = (ConvertFrom-Nombre $m.Groups['n'].Value) }
     } elseif (($m = Get-Morceau $st "\b(?:tous les|chaque)\s+(?<wd>$RxJour)s?\b").Success) {
         $rep = [ordered]@{ Type = 'semaine'; Jour = $JoursNoms[$m.Groups['wd'].Value.ToLower()] }
@@ -238,7 +322,7 @@ function Read-Phrase([string]$Text, $Now) {
     } elseif ((Get-Morceau $st '\b(?:tous les jours|chaque jour)\b').Success) {
         $rep = [ordered]@{ Type = 'jour' }
     } elseif (($m = Get-Morceau $st "\ble\s+(?<d>$RxNombre)(?:er)?\s+(?:de\s+)?(?:chaque|tous les)\s+mois\b").Success -or
-              ($m = Get-Morceau $st "\b(?:tous les mois|chaque mois)(?:\s+le\s+(?<d>$RxNombre)(?:er)?\b)?").Success) {
+              ($m = Get-Morceau $st "(?<!semaine\s+de\s+)\b(?:tous les mois|chaque mois)(?:\s+le\s+(?<d>$RxNombre)(?:er)?\b)?").Success) {
         $rep = [ordered]@{ Type = 'mois'; Jour = $(if ($m.Groups['d'].Success) { ConvertFrom-Nombre $m.Groups['d'].Value } else { $null }) }
     } elseif ((Get-Morceau $st '\b(?:toutes les semaines|chaque semaine)\b').Success) {
         $rep = [ordered]@{ Type = 'semaine'; Jour = $null }
@@ -329,7 +413,18 @@ function Read-Phrase([string]$Text, $Now) {
             $suivis = $true; for ($k = 1; $k -lt $jours.Count; $k++) { if (($jours[$k] - $jours[$k - 1]).TotalDays -ne 1) { $suivis = $false } }
             if ($jours.Count -gt 1) { if ($suivis) { $det.FinJour = $jours[-1] } else { $det.Jours = $jours } }
         }
-        if (($m = Get-Morceau $st "\b(?:sur|pendant)\s+(?<n>$RxNombre)\s+jours\b").Success) { $n = ConvertFrom-Nombre $m.Groups['n'].Value; if ($n -gt 1 -and $n -le 366) { $det.NbJours = $n } }
+        if (($m = Get-Morceau $st "\b(?:sur|pendant|durant)\s+(?<n>$RxNombre)\s+jours\b").Success) { $n = ConvertFrom-Nombre $m.Groups['n'].Value; if ($n -gt 1 -and $n -le 366) { $det.NbJours = $n } }
+        elseif (($m = Get-Morceau $st "\b(?:sur|pendant|durant)\s+(?<n>une|un|deux|trois|quatre|\d)\s+semaines?\b").Success) { $det.NbJours = 7 * (ConvertFrom-Nombre ($m.Groups['n'].Value -replace '^une?$', 'un')) }
+        # Des semaines entières (du lundi au dimanche) : « la première semaine des 3 prochains mois », « la semaine du 9 novembre »,
+        # « la dernière semaine de décembre », « toute la semaine prochaine », « ce week-end »
+        if (-not $jours) {
+            $blocs = @(Get-BlocsSemaine $st $today | Where-Object { $_ })
+            if ($blocs.Count) {
+                $date = $blocs[0].Debut
+                if ($blocs.Count -gt 1) { $det.Blocs = $blocs }
+                if ($blocs[0].Fin -gt $blocs[0].Debut) { $det.FinJour = $blocs[0].Fin }
+            }
+        }
     }
 
     # 3. Jours relatifs
@@ -455,6 +550,8 @@ function Read-Phrase([string]$Text, $Now) {
     if ($m.Success) {
         $det.Avec = @($m.Groups['qui'].Value -split '\s*(?:,|\bet\b)\s*' | ForEach-Object { $_.Trim(' .') } | Where-Object { $_ })
         $titre = Get-TitreNettoye $m.Groups['avant'].Value
+        # « rendez-vous avec Madame Dupont » : sans autre titre, le rendez-vous porte le nom des personnes
+        if (-not $titre -and $det.Avec.Count) { $titre = "rendez-vous avec $($det.Avec -join ' et ')" }
     }
 
     # Sorte de rendez-vous, devinée d'après les mots. Un anniversaire revient chaque année et n'a pas besoin d'heure.
@@ -512,6 +609,7 @@ function Read-Phrase([string]$Text, $Now) {
 # Ajoute au résultat les détails compris (lieu, avec qui, lien, importance, rappels, âge) et l'heure de fin
 function Complete-Phrase($Res, $Det, $FinHeure, $DureeMin, $AgeDit) {
     foreach ($k in $Det.Keys) { if ($k -notin 'FinJour', 'NbJours') { $Res[$k] = $Det[$k] } }
+    if (-not $Res.Contains('Blocs')) { $Res.Blocs = $null }
     $Res.Fin = $null
     $q = $Res.Quand
     # Sur plusieurs jours : la fin est le dernier jour (à l'heure de fin si elle est dite)
