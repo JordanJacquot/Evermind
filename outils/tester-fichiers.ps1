@@ -11,8 +11,9 @@ $EnTest = $true
 $env:EVERMIND_DONNEES = Join-Path $racine '_test\fichiers'
 Remove-Item $env:EVERMIND_DONNEES -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $env:EVERMIND_DONNEES | Out-Null
-$compta = Join-Path $racine '_test\comptabilite'
-foreach ($d in 'Monsieur Richard', 'Madame Dupont', 'Clients 2025\M. Lefèvre') { New-Item -ItemType Directory -Force -Path (Join-Path $compta $d) | Out-Null }
+$compta = Join-Path $racine '_test\comptabilite-fichiers'
+Remove-Item $compta -Recurse -Force -ErrorAction SilentlyContinue
+foreach ($d in 'Monsieur Richard', 'Madame Dupont', 'Clients 2025\M. Lefèvre', '_test\Monsieur Richard', '.copie\Madame Dupont', 'Comptabilité\Monsieur Martin', 'Juridique\Monsieur Martin') { New-Item -ItemType Directory -Force -Path (Join-Path $compta $d) | Out-Null }
 $env:EVERMIND_DOSSIERS = $compta
 foreach ($m in 'donnees', 'fichiers', 'comprendre') { . (Join-Path $modules "$m.ps1") }
 function Get-TitreAffiche([string]$t) { $t }
@@ -31,6 +32,13 @@ foreach ($c in @(@('Monsieur Richard', 'Monsieur Richard'), @('M. Richard', 'Mon
     $t = Find-DossierPersonne $c[0]
     Test-Cas "dossier de « $($c[0]) »" ($(if ($c[1]) { $t -and (Split-Path $t -Leaf) -eq $c[1] } else { -not $t })) "(trouvé : $t)"
 }
+# Deux dossiers du même nom : pas de choix au hasard, mais le dossier au-dessus départage (« comptabilité de... »)
+foreach ($c in @(@('Monsieur Martin', ''), @('comptabilité de Monsieur Martin', 'Comptabilité'), @('Martin juridique', 'Juridique'))) {
+    $t = Find-DossierPersonne $c[0]
+    Test-Cas "dossier de « $($c[0]) »" ($(if ($c[1]) { $t -and (Split-Path (Split-Path $t -Parent) -Leaf) -eq $c[1] } else { -not $t })) "(trouvé : $t)"
+}
+$s = Resolve-Dossiers @('Monsieur Martin', 'Monsieur Personne')
+Test-Cas 'dit quand il y a plusieurs dossiers, ou aucun' ($s.Soucis.Count -eq 2 -and $s.Soucis[0] -match 'plusieurs' -and $s.Soucis[1] -match "pas trouvé") "($($s.Soucis -join ' | '))"
 $auto = @(Get-DossiersAuto 'réunion' @('Monsieur Richard'))
 Test-Cas 'relié tout seul : réunion avec Monsieur Richard' ($auto.Count -eq 1 -and $auto[0] -like '*\Monsieur Richard')
 $p = Read-Phrase 'réunion avec Madame Dupont demain à 10 h'

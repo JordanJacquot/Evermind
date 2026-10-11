@@ -233,7 +233,11 @@ $multi = @(
 )
 foreach ($r in $multi) { Add-Cas 'plusieurs jours' $r[0] $r[1] $r[2] '' $r[3] }
 $details = @(
-    , @('dentiste mardi à 15 h pendant 1 h', '2026-10-13 15:00', 'dentiste', '', '2026-10-13 16:00')
+    , @('crée une réunion avec Madame Dupont mardi à 15 h et que tu ouvres son dossier au début', '2026-10-13 15:00', 'réunion', '', '')
+    , @('crée une réunion mardi à 15 h pour M. Richard. Et tu ouvres directement son dossier.', '2026-10-13 15:00', 'réunion pour M. Richard', '', '')
+    , @('mets un café avec Paul mardi à 15 h et ouvre mes fichiers', '2026-10-13 15:00', 'café', '', '')
+    , @('réunion mardi à 15 h, puis tu me lis le compte rendu', '2026-10-13 15:00', 'réunion', '', '')
+    , @('dentiste mardi à 15 h pendant 1 h','2026-10-13 15:00', 'dentiste', '', '2026-10-13 16:00')
     , @('réunion lundi de 14 h à 16 h', '2026-10-12 14:00', 'réunion', '', '2026-10-12 16:00')
     , @('réunion lundi de 14h à 15h30', '2026-10-12 14:00', 'réunion', '', '2026-10-12 15:30')
     , @("soirée samedi prochain à 21 h jusqu'à 2 h", '2026-10-17 21:00', 'soirée', '', '2026-10-18 02:00')

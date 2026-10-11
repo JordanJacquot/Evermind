@@ -21,42 +21,70 @@ function Get-MotsNom([string]$Nom) {
     @([regex]::Matches($t, '[a-z0-9]+') | ForEach-Object { $_.Value } | Where-Object { $_ -notin $Civilites -and $_.Length -ge 2 })
 }
 
-# Les dossiers sous les dossiers de recherche (4 niveaux au plus), gardés 2 minutes
+# Les dossiers sous les dossiers de recherche (4 niveaux au plus, sans les dossiers techniques), gardés 2 minutes
 function Get-ListeDossiers {
     if ($script:ListeDossiers -and ((Get-Date) - $script:ListeDossiersQuand).TotalSeconds -lt 120) { return $script:ListeDossiers }
     $l = New-Object System.Collections.ArrayList
     foreach ($r in (Get-DossiersRecherche)) {
         if (-not (Test-Path -LiteralPath $r)) { continue }
-        try { foreach ($d in (Get-ChildItem -LiteralPath $r -Directory -Recurse -Depth 3 -ErrorAction SilentlyContinue)) { [void]$l.Add($d.FullName) } } catch {}
+        # Sans les dossiers techniques (« _test », « .git », « node_modules »...) : des copies y traînent souvent
+        try {
+            foreach ($d in (Get-ChildItem -LiteralPath $r -Directory -Recurse -Depth 3 -ErrorAction SilentlyContinue)) {
+                if ($d.FullName.Substring($r.TrimEnd('\').Length) -match '\\(?:[._$]|node_modules\\|node_modules$|AppData\\|AppData$)') { continue }
+                [void]$l.Add($d.FullName)
+            }
+        } catch {}
     }
     $script:ListeDossiers = @($l); $script:ListeDossiersQuand = Get-Date
     $script:ListeDossiers
 }
 
-# Les dossiers qui portent ce nom, les meilleurs d'abord (tous les mots du nom, puis le nom de famille seul)
-function Find-Dossiers([string]$Nom) {
+# Les dossiers qui portent ce nom, les meilleurs d'abord. Le nom du dossier doit contenir le nom de famille (le
+# dernier mot) ; les autres mots peuvent être dans son nom ou au-dessus (« comptabilité de Madame Dupont » :
+# Comptabilité\Madame Dupont). 3 : tout est dit et rien de plus ; 2 : tout est dit ; 1 : le nom de famille seul.
+function Get-DossiersNotes([string]$Nom) {
     $mots = @(Get-MotsNom $Nom)
     if (-not $mots.Count) { return @() }
+    $racines = @(Get-DossiersRecherche | ForEach-Object { $_.TrimEnd('\') })
     $res = foreach ($chemin in (Get-ListeDossiers)) {
         $md = @(Get-MotsNom (Split-Path $chemin -Leaf))
-        if (-not $md.Count) { continue }
-        $tous = @($mots | Where-Object { $md -contains $_ }).Count
-        $score = if ($tous -eq $mots.Count -and $md.Count -eq $mots.Count) { 3 } elseif ($tous -eq $mots.Count) { 2 } elseif ($md -contains $mots[-1]) { 1 } else { 0 }
-        if ($score) { [pscustomobject]@{ Chemin = $chemin; Score = $score; Profondeur = ($chemin -split '\\').Count } }
+        if (-not @($mots | Where-Object { $md -contains $_ }).Count) { continue }
+        # Les dossiers au-dessus, sous le dossier de recherche seulement (« Comptabilité » choisi dans les réglages ne départage rien)
+        $parent = Split-Path $chemin -Parent
+        foreach ($rc in $racines) { if ($parent.StartsWith($rc, [StringComparison]::OrdinalIgnoreCase)) { $parent = $parent.Substring($rc.Length); break } }
+        $haut = @(Get-MotsNom $parent)
+        $tous = @($mots | Where-Object { $md -contains $_ -or $haut -contains $_ }).Count -eq $mots.Count
+        $score = if ($tous -and @($md | Where-Object { $mots -notcontains $_ }).Count -eq 0) { 3 } elseif ($tous) { 2 } elseif ($md -contains $mots[-1]) { 1 } else { continue }
+        [pscustomobject]@{ Chemin = $chemin; Score = $score; Profondeur = ($chemin -split '\\').Count }
     }
-    @($res | Sort-Object @{ Expression = 'Score'; Descending = $true }, Profondeur | ForEach-Object { $_.Chemin })
+    @($res | Sort-Object @{ Expression = 'Score'; Descending = $true }, Profondeur)
 }
+function Find-Dossiers([string]$Nom) { @(Get-DossiersNotes $Nom | ForEach-Object { $_.Chemin }) }
 
 # Le dossier d'une personne, seulement s'il n'y a pas de doute (un seul dossier au meilleur score)
 function Find-DossierPersonne([string]$Nom) {
-    $mots = @(Get-MotsNom $Nom)
-    if (-not $mots.Count) { return $null }
-    $c = @(Find-Dossiers $Nom)
+    $c = @(Get-DossiersNotes $Nom)
     if (-not $c.Count) { return $null }
-    $meilleur = @($c | Where-Object { @(Get-MotsNom (Split-Path $_ -Leaf) | Where-Object { $mots -contains $_ }).Count -eq $mots.Count })
-    if ($meilleur.Count -eq 1) { return $meilleur[0] }
-    if (-not $meilleur.Count -and $c.Count -eq 1) { return $c[0] }
+    $meilleurs = @($c | Where-Object { $_.Score -eq $c[0].Score })
+    if ($meilleurs.Count -eq 1) { return $meilleurs[0].Chemin }
     $null
+}
+
+# Des noms de dossiers (ou des chemins) -> les chemins trouvés, et ce qu'il faut dire pour ceux qui manquent
+# (introuvable, ou plusieurs dossiers possibles : Evermind ne choisit pas au hasard)
+function Resolve-Dossiers($Noms) {
+    $chemins = @(); $soucis = @()
+    foreach ($n in @($Noms | Where-Object { $_ } | ForEach-Object { ([string]$_).Trim() })) {
+        if (Test-Path -LiteralPath $n) { $chemins += $n; continue }
+        $c = Find-DossierPersonne $n
+        if ($c) { $chemins += $c; continue }
+        $tous = @(Find-Dossiers $n)
+        $soucis += if ($tous.Count -gt 1) {
+            $ou = @($tous | Select-Object -First 3 | ForEach-Object { Split-Path (Split-Path $_ -Parent) -Leaf } | Select-Object -Unique)
+            "j'ai trouvé plusieurs dossiers pour $n (dans $(($ou | Select-Object -SkipLast 1) -join ', ')$(if ($ou.Count -gt 1) { ' et ' })$($ou[-1])), dis-moi lequel"
+        } else { "je n'ai pas trouvé de dossier pour $n" }
+    }
+    @{ Chemins = @($chemins | Select-Object -Unique); Soucis = $soucis }
 }
 
 # Les dossiers à relier à un nouveau rendez-vous : ceux des personnes avec qui il est
@@ -74,6 +102,12 @@ function Get-TexteFichiers($r) {
     if (-not $f.Count) { return '' }
     $quoi = if ($f.Count -eq 1) { Get-NomFichier $f[0] } else { "$($f.Count) dossiers et fichiers" }
     " J'ai relié $quoi$(if ($r.OuvrirAuDebut) { ', je l''ouvrirai à l''heure' })."
+}
+
+# « Par contre, je n'ai pas trouvé de dossier pour Monsieur Martin » (seulement si rien n'a pu être relié)
+function Get-TexteSoucisDossiers($Soucis, $r) {
+    if (-not @($Soucis).Count -or ($r -and @($r.Fichiers).Count)) { return '' }
+    " Par contre, $(@($Soucis) -join ', et ')."
 }
 
 # Ouvre un dossier (Explorateur) ou un fichier (son application)

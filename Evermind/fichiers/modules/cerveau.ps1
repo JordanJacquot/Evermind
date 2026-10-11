@@ -468,6 +468,25 @@ function Get-MotsTitre([string]$Titre) {
     $t = $Titre.ToLower().Normalize([Text.NormalizationForm]::FormD) -replace '\p{Mn}', ''
     @([regex]::Matches($t, '[a-z]{4,}') | ForEach-Object { $_.Value } | Where-Object { $_ -notin 'anniversaire', 'rendez', 'vous', 'avec', 'chez', 'faire', 'pour', 'tous', 'evenement' })
 }
+# L'IA glisse parfois ses champs dans la phrase (« réunion avec Mr Richard dans 5 minutes','dossiers':['Mr Richard'],
+# 'ouvrir_au_debut':true} », « courses samedi','choses_a_prendre(['lait']) ») : la phrase est coupée et les champs
+# récupérés (sans écraser ceux qu'elle a bien remplis)
+function Repair-ActionIA($a) {
+    $ph = [string]$a.phrase
+    $m = [regex]::Match($ph, "\s*['""]\s*[,;{]\s*['""]?[a-z_]+['""]?\s*[:=(]|\s*['""]?\s*[,;]?\s*['""]?\b[a-z]+_[a-z_]+['""]?\s*[:=(\[]|\s*['""]\s*[}\]]|\s*\{\s*['""]")
+    if (-not $m.Success) { return }
+    $reste = $ph.Substring($m.Index)
+    foreach ($c in [regex]::Matches($reste, "['""]?(?<k>dossiers|ouvrir_au_debut|personnes|choses_a_prendre|lieu|notes|important|rappels|titre)['""]?\s*[:=(]\s*\(?\s*(?<v>\[[^\]]*\]|true|false|""[^""]*""|'[^']*')")) {
+        $k = $c.Groups['k'].Value; $v = $c.Groups['v'].Value
+        if ($null -ne $a.$k -and @($a.$k | Where-Object { $_ }).Count) { continue }
+        $val = if ($v -match '^\[') { , @([regex]::Matches($v, "['""](?<s>[^'""]+)['""]") | ForEach-Object { $_.Groups['s'].Value }) }
+               elseif ($v -in 'true', 'false') { $v -eq 'true' } else { $v.Trim('''"') }
+        $a | Add-Member -NotePropertyName $k -NotePropertyValue $val -Force
+    }
+    $a | Add-Member -NotePropertyName phrase -NotePropertyValue (($ph.Substring(0, $m.Index) -replace "['""\[\]\(\)\{\},;:\s]+$", '').Trim()) -Force
+    Write-Log "Assistant : phrase réparée « $($a.phrase) »"
+}
+
 function Get-CibleIA($Rv, $Codes, [string]$Dit) {
     $d = ' ' + ($Dit.ToLower().Normalize([Text.NormalizationForm]::FormD) -replace '\p{Mn}', '') + ' '
     $nomme = { param($r) @(Get-MotsTitre $r.Titre | Where-Object { $d -match "\b$_" }).Count -gt 0 }
@@ -485,6 +504,7 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
     $dits = New-Object System.Collections.ArrayList
     $ecrits = New-Object System.Collections.ArrayList
     $aCorriger = $null
+    $cree = $null
     $actions = @($R.actions | Where-Object { $_ -and $_.action })
     # Un même rendez-vous supprimé puis modifié dans la même réponse (« supprime-le et mets-le sur 3 jours ») :
     # c'est un changement, la modification l'emporte (sinon elle n'aurait plus rien à modifier)
@@ -499,11 +519,16 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
         $rv = $null
         if ($a.Cible) { $rv = $a.Cible }
         elseif ($a.id) { $code = ([string]$a.id).Trim('[] '); if ($Codes.ContainsKey($code)) { $rv = Get-RendezVous $Codes[$code] } }
-        if (-not $a.Cible -and $a.action -notin 'creer', 'annuler' -and @($actions | Where-Object { $_.action -notin 'creer', 'annuler' }).Count -eq 1) { $rv = Get-CibleIA $rv $Codes "$Texte $($R.reponse)" }
+        # « crée la réunion et ouvre son dossier au début » : l'IA désigne l'événement qu'elle vient de créer par un
+        # numéro inventé (« 1 », « 2 ») ou sans numéro : c'est lui, pas un autre rendez-vous de l'agenda
+        $surCree = $cree -and $a.action -in 'modifier', 'ouvrir' -and -not $rv -and -not $a.Cible
+        if ($surCree) { $rv = $cree }
+        elseif (-not $a.Cible -and $a.action -notin 'creer', 'annuler' -and @($actions | Where-Object { $_.action -notin 'creer', 'annuler' }).Count -eq 1) { $rv = Get-CibleIA $rv $Codes "$Texte $($R.reponse)" }
+        # Une note qui redit seulement « ouvrir à l'heure » n'en est pas une
+        if ($a.action -eq 'modifier' -and $a.ouvrir_au_debut -and $a.notes -and [string]$a.notes -match '(?i)\b(dossier|fichier|ouvr)') { $a.notes = $null }
         $nom = if ($rv) { Get-TitreAffiche $rv.Titre } else { '' }
+        if ($a.action -in 'creer', 'modifier' -and $a.phrase) { Repair-ActionIA $a }
         if ($a.action -eq 'creer') {
-            # L'IA mélange parfois du JSON à sa phrase (« courses samedi','choses_a_prendre(['lait'...]) ») : on le coupe
-            $a.phrase = ([string]$a.phrase -replace "\s*['""]?\s*[,;]?\s*['""]?\s*\w+_\w+\s*[\(\[:=].*$", '' -replace "['""\[\]\(\)\{\}]+\s*$", '').Trim()
             $p = Read-Phrase ([string]$a.phrase)
             # Une simple création : si la phrase de l'utilisateur, lue par les règles d'Evermind, dit plus que celle de
             # l'IA (répétition, plusieurs jours, autre jour ou heure), c'est elle qui compte : l'IA résume parfois trop
@@ -526,8 +551,8 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
             if ($a.important) { $det.Important = $true }
             # Dossiers : ceux que l'IA a notés (des noms, retrouvés dans les dossiers de recherche, ou des chemins),
             # sinon ceux des personnes avec qui c'est (« réunion avec Monsieur Richard »)
-            $dits0 = @(@($a.dossiers) | Where-Object { $_ } | ForEach-Object { if (Test-Path -LiteralPath ([string]$_)) { [string]$_ } else { Find-DossierPersonne ([string]$_) } } | Where-Object { $_ })
-            if ($dits0.Count) { $det.Fichiers = @(@($det.Fichiers) + $dits0 | Select-Object -Unique) }
+            $doss = Resolve-Dossiers $a.dossiers
+            if ($doss.Chemins.Count) { $det.Fichiers = @(@($det.Fichiers) + $doss.Chemins | Select-Object -Unique) }
             if (-not @($det.Fichiers).Count) { $det.Fichiers = @(Get-DossiersAuto ([string]$a.titre + ' ' + $p.Titre) $det.Avec) }
             if ($a.ouvrir_au_debut -or $Texte -match "(?i)\bouvr\w*\b.*\b(?:au d[ée]but|à l'heure|au moment|quand (?:elle|il|ça) commence)") { $det.OuvrirAuDebut = [bool]@($det.Fichiers).Count }
             if ($seule -and -not $pu.Manque) {
@@ -539,12 +564,17 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
                 if (@($pu.APreparer).Count -and -not @($det.APreparer).Count) { $det.APreparer = @($pu.APreparer) }
             }
             $titre = if ($p.Titre) { $p.Titre } elseif ($a.titre) { [string]$a.titre } else { '' }
-            $deja = @(Get-AgendaEntre $p.Quand.Date $p.Quand.Date.AddDays(1) | Where-Object { $_.RV.Titre -eq (Get-TitreAffiche $titre) })
+            # Déjà là : même nom, même moment et mêmes personnes (deux « Réunion » le même jour avec deux personnes différentes, c'est permis)
+            $avecDit = (@($det.Avec | Where-Object { $_ } | ForEach-Object { Get-MotsNom $_ }) | Sort-Object) -join ' '
+            $deja = @(Get-AgendaEntre $p.Quand.Date $p.Quand.Date.AddDays(1) | Where-Object {
+                $_.RV.Titre -eq (Get-TitreAffiche $titre) -and ($p.Journee -or [math]::Abs(($_.Prochain - $p.Quand).TotalMinutes) -lt 1) -and
+                ((@($_.RV.Avec | Where-Object { $_ } | ForEach-Object { Get-MotsNom $_ }) | Sort-Object) -join ' ') -eq $avecDit })
             if ($deja.Count) { [void]$dits.Add("$(Get-TitreAffiche $titre) est déjà dans ton agenda."); [void]$ecrits.Add("Déjà dans l'agenda : $(Get-TitreAffiche $titre)."); continue }
             $creations = @(Get-CreationsPhrase $p)
             $quands = @($creations | ForEach-Object { $_.Quand })
             $r = $null
             foreach ($c in $creations) { $det.Fin = $c.Fin; $x = Add-RendezVous (Get-TitreAffiche $titre) $c.Quand $p.Repetition $p.Type $p.Journee $det; if (-not $r) { $r = $x } }
+            $cree = $r
             if (@($p.Blocs | Where-Object { $_ }).Count -gt 1) {
                 $liste = @($creations | ForEach-Object { "du $($_.Quand.ToString('d', $Fr) -replace '/.*$', '') au $(([datetime]$_.Fin).ToString('d MMMM', $Fr))" })
                 $txt = "$(($liste | Select-Object -SkipLast 1) -join ', ') et $($liste[-1])"
@@ -561,6 +591,7 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
             }
             $n = Get-PhraseNote $r
             $tf = (Get-TexteFichiers $r).TrimEnd('.'); if ($tf) { $n.Ecrit += '.' + $tf; $n.Dit += '.' + $tf }
+            $tf = Get-TexteSoucisDossiers $doss.Soucis $r; if ($tf) { $n.Ecrit += '.' + $tf; $n.Dit += '.' + $tf }
             [void]$ecrits.Add("C'est noté : $($n.Ecrit).")
             $dit = "C'est noté : $($n.Dit)."
             $conf = if ($r.Journee) { @() } else { @(Get-Conflits $r.Quand $r.Fin $r.Id) }
@@ -608,7 +639,8 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
                 $a.phrase = ([string]$a.phrase -replace "(?i)\s*(?:(?:de|à|a)\s+)?\d{1,2}\s*h(?:\s*\d{2})?(?:\s*(?:à|a|-)\s*\d{1,2}\s*h(?:\s*\d{2})?)?", '').Trim()
             }
             # Ce qu'Evermind lit lui-même dans la phrase, plus sûr que l'IA pour ces cas-là
-            $lu = Get-ModifsTexte $Texte $rv
+            # (pas pour l'événement qu'on vient de créer : la phrase dite a déjà servi à le créer)
+            $lu = if ($surCree) { @{ Retirer = @(); Rappels = @(); Personnes = @(); AuDebut = $false } } else { Get-ModifsTexte $Texte $rv }
             if ($lu.Arret) {
                 # « le raid, c'est fini après novembre » : la série s'arrête (les fois d'après sont enlevées)
                 $x = Remove-PeriodeRV $rv $lu.Arret; [void]$dits.Add($x.Dit); [void]$ecrits.Add($x.Ecrit); continue
@@ -625,7 +657,17 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
                 if ($a.notes -and ([string]$a.notes).Length -lt 40 -and @($lu.Personnes | Where-Object { ([string]$a.notes) -match [regex]::Escape($_) }).Count) { $a.notes = $null }
             }
             $r = Invoke-ModifierIA $rv $a
+            if ($surCree) {
+                # Un réglage de l'événement qu'on vient de créer : une petite phrase, pas un deuxième « c'est changé »
+                $deja = ($dits -join ' ') -match "ouvrirai"
+                $s = Get-TexteSoucisDossiers (Resolve-Dossiers $a.dossiers).Soucis $r
+                if ($r.OuvrirAuDebut -and -not $deja) { [void]$dits.Add("J'ouvrirai $(if (@($r.Fichiers).Count -eq 1) { Get-NomFichier $r.Fichiers[0] } else { 'ses dossiers' }) à l'heure."); [void]$ecrits.Add('Ouverture à l''heure du rendez-vous.') }
+                elseif ($a.ouvrir_au_debut -and -not @($r.Fichiers).Count) { [void]$dits.Add("Par contre, je n'ai pas trouvé de dossier à ouvrir."); [void]$ecrits.Add('Aucun dossier trouvé à ouvrir.') }
+                elseif ($s) { [void]$dits.Add($s.Trim()); [void]$ecrits.Add($s.Trim()) }
+                continue
+            }
             $n = Get-PhraseNote $r
+            $tf = Get-TexteSoucisDossiers (Resolve-Dossiers $a.dossiers).Soucis $null; if ($tf) { $n.Ecrit += '.' + $tf; $n.Dit += '.' + $tf }
             [void]$dits.Add("C'est changé : $($n.Dit)."); [void]$ecrits.Add("C'est changé : $($n.Ecrit).")
         }
     }
@@ -710,8 +752,9 @@ function Invoke-OuvrirIA($rv, $a) {
         $chemins = @(Get-DossiersAuto $rv.Titre $rv.Avec)
         if ($chemins.Count) { Set-RendezVousDetail $rv.Id 'Fichiers' $chemins }
     }
-    if (-not $chemins.Count) { $chemins = @(@($a.dossiers) | Where-Object { $_ } | ForEach-Object { if (Test-Path -LiteralPath ([string]$_)) { [string]$_ } else { Find-DossierPersonne ([string]$_) } } | Where-Object { $_ }) }
+    if (-not $chemins.Count) { $doss = Resolve-Dossiers $a.dossiers; $chemins = @($doss.Chemins) }
     if (-not $chemins.Count) {
+        if (@($doss.Soucis).Count) { $s = Get-Majuscule $doss.Soucis[0]; return @{ Dit = "$s."; Ecrit = "$s." } }
         $nom = @(@($a.dossiers) + $(if ($rv) { $rv.Titre })) | Where-Object { $_ } | Select-Object -First 1
         return @{ Dit = "Je n'ai pas trouvé de dossier $(if ($nom) { "pour $nom" }). Ajoute-le dans la fiche du rendez-vous, ou dans les dossiers où je cherche (Réglages)."; Ecrit = "Dossier introuvable$(if ($nom) { " : $nom" }). (Réglages, Général : les dossiers où je cherche.)" }
     }
@@ -862,8 +905,8 @@ function Invoke-ModifierIA($rv, $a) {
         if ($codes.Count) { $det.Rappels = @(@(Get-RappelsRV $rv) + $codes | Select-Object -Unique) }
     }
     if (@($a.dossiers | Where-Object { $_ }).Count) {
-        $ajout = @(@($a.dossiers) | Where-Object { $_ } | ForEach-Object { if (Test-Path -LiteralPath ([string]$_)) { [string]$_ } else { Find-DossierPersonne ([string]$_) } } | Where-Object { $_ })
-        if ($ajout.Count) { $det.Fichiers = @(@($rv.Fichiers) + $ajout | Select-Object -Unique) }
+        $ajout = @((Resolve-Dossiers $a.dossiers).Chemins)
+        if ($ajout.Count){ $det.Fichiers = @(@($rv.Fichiers) + $ajout | Select-Object -Unique) }
     }
     if ($null -ne $a.ouvrir_au_debut) {
         if (-not $det.Contains('Fichiers') -and [bool]$a.ouvrir_au_debut -and -not @($rv.Fichiers).Count) { $det.Fichiers = @(Get-DossiersAuto $rv.Titre $rv.Avec) }

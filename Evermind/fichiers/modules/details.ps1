@@ -424,7 +424,8 @@ function Show-Fiche($RV, [datetime]$Quand) {
     $ui.FicheRond.Background = Get-Teinte $t.Couleur 0x30; $ui.FicheRond.BorderBrush = Get-Brush $t.Couleur
     $ui.FicheIcone.Text = $t.Icone; $ui.FicheIcone.Foreground = Get-Brush $t.Couleur
     try { $ui.FicheLueur.Color = (Get-Couleur $t.Couleur) } catch {}
-    $ui.FicheSorte.Text = $t.Nom.ToUpper() + $(if ($RV.Important) { '   ★ IMPORTANT' } else { '' }) + $(if ($RV.Fait) { '   ✓ FAIT' } else { '' })
+    $valide = $type -ne 'rappel' -and (Test-Valide $RV $Quand)
+    $ui.FicheSorte.Text = $t.Nom.ToUpper() + $(if ($RV.Important) { '   ★ IMPORTANT' } else { '' }) + $(if ($RV.Fait) { '   ✓ FAIT' } elseif ($valide) { '   ✓ VALIDÉ' } else { '' })
     $ui.FicheSorte.Foreground = Get-Brush $(if ($RV.Important) { '#FFD84D' } else { $t.Couleur })
     $ui.FicheTitre.Text = Get-TitreAffiche $RV.Titre
     $rep = Format-Repetition $RV.Repetition
@@ -433,6 +434,22 @@ function Show-Fiche($RV, [datetime]$Quand) {
     # Corps : seulement ce qui est rempli
     $c = $ui.FicheCorps.Children
     $c.Clear()
+    # Passé : validé tout seul, mais s'il n'a pas eu lieu on peut encore le décaler
+    if ($valide) {
+        $dp = New-Object System.Windows.Controls.DockPanel
+        if (-not $RV.Repetition) {
+            $b = New-Button 'Décaler'
+            $b.Margin = '12,0,0,0'; $b.VerticalAlignment = 'Top'; $b.ToolTip = 'Choisis un autre jour'
+            $b.Add_Click({ $rv = $script:FicheRV; Close-Fiche; Open-Formulaire -RV $rv -Decaler })
+            [System.Windows.Controls.DockPanel]::SetDock($b, 'Right'); [void]$dp.Children.Add($b)
+        }
+        $vt = New-Object System.Windows.Controls.TextBlock
+        $vt.Text = if ($RV.Repetition) { 'Cette fois-ci est passée, elle est validée toute seule.' } else { 'Il est passé, je l''ai validé tout seul. S''il n''a pas eu lieu, tu peux encore le décaler.' }
+        $vt.FontSize = 15; $vt.Foreground = Get-Brush '#3DDC97'; $vt.TextWrapping = 'Wrap'; $vt.VerticalAlignment = 'Center'
+        [void]$dp.Children.Add($vt)
+        [void]$c.Add((New-FicheSection '✓' 'Validé' $dp))
+        $c[$c.Count - 1].Children[0].Foreground = Get-Brush '#3DDC97'
+    }
     $age = Get-AgeTexte $RV $Quand
     if ($age) { [void]$c.Add((New-FicheSection '🎂' 'Âge' $age)) }
     if ($RV.Lieu) { [void]$c.Add((New-FicheSection '📍' 'Où' (New-TexteBouton $RV.Lieu 'Itinéraire' ('https://www.google.com/maps/search/?api=1&query=' + [uri]::EscapeDataString($RV.Lieu))))) }

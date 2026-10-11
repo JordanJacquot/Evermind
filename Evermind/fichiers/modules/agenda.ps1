@@ -201,6 +201,12 @@ function Update-Calendrier {
                 $pt = New-Object System.Windows.Controls.TextBlock
                 $pt.FontSize = 11; $pt.Foreground = Get-Brush '#F2EFFA'; $pt.TextTrimming = 'CharacterEllipsis'
                 $ic = New-Object System.Windows.Documents.Run "$($Types[$type].Icone) "; $ic.FontFamily = $PoliceIcone; $ic.Foreground = Get-Brush $c
+                # Passé : une petite coche verte devant, et la pastille s'efface un peu
+                if (Test-Valide $it.RV $it.Prochain) {
+                    $ok = New-Object System.Windows.Documents.Run '✓ '; $ok.FontFamily = 'Segoe UI Symbol'; $ok.FontWeight = 'Bold'; $ok.Foreground = Get-Brush '#3DDC97'
+                    $pt.Inlines.Add($ok); $pt.Foreground = Get-Brush '#A9A3BD'; $pill.Background = Get-Teinte $c 0x22
+                    $pill.ToolTip = 'Passé, validé. Clique pour le voir ou le décaler.'
+                }
                 $pt.Inlines.Add($ic)
                 $pt.Inlines.Add((New-Object System.Windows.Documents.Run $(if ($it.RV.Journee) { Get-TitreAffiche $it.RV.Titre } else { "$(Format-Heure $it.Prochain) $(Get-TitreAffiche $it.RV.Titre)" })))
                 $pill.Child = $pt
@@ -249,7 +255,7 @@ function Show-Aujourdhui {
 # ---------------------------------------------------------------------------
 function New-PetitBouton([string]$Texte, [string]$Tag) {
     $b = New-Button $Texte
-    $b.Tag = $Tag; $b.Margin = '0,0,8,0'
+    $b.Tag = $Tag; $b.Margin = '0,0,8,8'
     $b
 }
 
@@ -258,14 +264,16 @@ function Confirm-Suppression([string]$Id) {
     $rv = Get-RendezVous $Id
     if (-not $rv) { return }
     $texte = if ($rv.Repetition) { "Il revient $(Format-Repetition $rv.Repetition) : toutes les fois seront supprimées." } else { 'Il sera enlevé de ton agenda.' }
+    # (sans GetNewClosure : le bloc perdrait l'accès aux fonctions d'Evermind ; l'identifiant est gardé à part)
+    $script:SuppressionId = $Id
     Show-Confirmation "Supprimer « $(Get-TitreAffiche $rv.Titre) » ?" $texte 'Supprimer' {
-        $r = Get-RendezVous $Id
+        $r = Get-RendezVous $script:SuppressionId
         if (-not $r) { return }
         try { Save-Annulation; Remove-RendezVous $r.Id } catch { Write-Log "Suppression impossible : $_"; return }
         if ($script:FicheRV -and $script:FicheRV.Id -eq $r.Id) { Close-Fiche }
         Show-FormMessage "Supprimé : $(Get-TitreAffiche $r.Titre). (Dis « annule » pour revenir en arrière.)" $Colors.ok
         Update-Agenda
-    }.GetNewClosure()
+    }
 }
 
 function New-Texte([string]$Texte, [double]$Taille, [string]$Couleur, [string]$Poids = 'Normal') {
@@ -331,6 +339,20 @@ function New-RendezVousRow($Item) {
         $badge.Child = $bs
         [void]$g.Children.Add($badge)
     }
+    # Passé : validé tout seul, une coche verte sur sa pastille (les choses à faire ont déjà la leur)
+    $valide = Test-Valide $r $quand
+    if ($valide -and $type -ne 'rappel') {
+        $coche = New-Object System.Windows.Controls.Border
+        $coche.Width = 22; $coche.Height = 22; $coche.CornerRadius = 11; $coche.Margin = '0,-5,8,0'
+        $coche.HorizontalAlignment = 'Right'; $coche.VerticalAlignment = 'Top'
+        $coche.Background = Get-Brush '#3DDC97'; $coche.BorderBrush = Get-Brush '#08060F'; $coche.BorderThickness = 2
+        $coche.ToolTip = 'Passé, validé'
+        $ct = New-Object System.Windows.Controls.TextBlock
+        $ct.Text = '✓'; $ct.FontFamily = 'Segoe UI Symbol'; $ct.FontSize = 11; $ct.FontWeight = 'Bold'; $ct.Foreground = Get-Brush '#08060F'
+        $ct.HorizontalAlignment = 'Center'; $ct.VerticalAlignment = 'Center'
+        $coche.Child = $ct
+        [void]$g.Children.Add($coche)
+    }
 
     # Quoi (avec la sorte), quand, dans combien de temps, s'il revient, puis Modifier et Supprimer
     $txt = New-Object System.Windows.Controls.StackPanel
@@ -351,12 +373,20 @@ function New-RendezVousRow($Item) {
     elseif ($rep) { $rel.Inlines.Add((New-Run "   ↻ $rep" '#C58CFF')) }
     $age = if ($type -eq 'anniv') { Get-AgeTexte $r $quand } else { '' }
     if ($age) { $rel.Inlines.Add((New-Run "   🎂 $age" '#FF7AD0')) }
+    if ($valide -and $type -ne 'rappel') { $rel.Inlines.Add((New-Run '   ✓ validé' '#3DDC97' 'SemiBold')) }
     [void]$txt.Children.Add($rel)
     $resume = Get-ResumeDetails $r
     if ($resume) { $rd = New-Texte $resume 12 $Colors.dim; $rd.Margin = '0,4,0,0'; [void]$txt.Children.Add($rd) }
 
-    $btns = New-Object System.Windows.Controls.StackPanel
-    $btns.Orientation = 'Horizontal'; $btns.Margin = '0,10,0,0'
+    $btns = New-Object System.Windows.Controls.WrapPanel   # (passe à la ligne s'il y a trop de boutons pour la largeur)
+    $btns.Orientation = 'Horizontal'; $btns.Margin = '0,10,0,-8'
+    # Validé mais pas eu lieu : on peut toujours le décaler à un autre jour
+    if ($valide -and -not $r.Repetition) {
+        $dec = New-PetitBouton 'Décaler' $r.Id
+        $dec.ToolTip = 'Il n''a pas eu lieu ? Choisis un autre jour'
+        $dec.Add_Click({ param($s) $rv = Get-RendezVous ([string]$s.Tag); if ($rv) { Open-Formulaire -RV $rv -Decaler } })
+        [void]$btns.Children.Add($dec)
+    }
     $edit = New-PetitBouton 'Modifier' $r.Id
     $edit.Add_Click({ param($s) $rv = $script:Agenda | Where-Object { $_.Id -eq [string]$s.Tag } | Select-Object -First 1; if ($rv) { Open-Formulaire -RV $rv } })
     $del = New-PetitBouton 'Supprimer' $r.Id
@@ -477,13 +507,14 @@ function Update-FHeureInfo {
     else { $ui.FHeureInfo.Text = '= ' + (Format-Heure ([datetime]::Today + $h)); $ui.FHeureInfo.Foreground = Get-Brush $Colors.ok }
 }
 
-function Show-FMessage([string]$Text) {
-    $ui.FMessage.Text = $Text; $ui.FMessage.Foreground = Get-Brush $Colors.bad; $ui.FMessage.Visibility = 'Visible'
+function Show-FMessage([string]$Text, [string]$Couleur = $Colors.bad) {
+    $ui.FMessage.Text = $Text; $ui.FMessage.Foreground = Get-Brush $Couleur; $ui.FMessage.Visibility = 'Visible'
 }
 
 # -Jour : jour proposé (sinon le jour choisi, sinon aujourd'hui). -RV : rendez-vous à modifier.
-function Open-Formulaire($Jour, $RV, [switch]$Copie) {
+function Open-Formulaire($Jour, $RV, [switch]$Copie, [switch]$Decaler) {
     $script:FormEdition = $RV
+    $script:FormDecaler = [bool]$Decaler
     $titre = ''; $heure = ''; $rep = 'une'; $type = 'rdv'; $journee = $false; $script:FJusqua = $null; $script:FRepPhrase = $null
     $jourForm = if ($Jour) { ([datetime]$Jour).Date } elseif ($script:JourChoisi -and $script:JourChoisi -ge (Get-Date).Date) { $script:JourChoisi } else { (Get-Date).Date }
     if ($RV) {
@@ -503,7 +534,7 @@ function Open-Formulaire($Jour, $RV, [switch]$Copie) {
         if ($p.Repetition -and $p.Repetition.Type -ne 'jour') { $rep = [string]$p.Repetition.Type; $script:FJusqua = [string]$p.Repetition.Jusqua; $script:FRepPhrase = $p.Repetition }
     }
     $script:FRepetDepart = $rep
-    $ui.FormTitre.Text = if ($Copie) { 'Copie du rendez-vous' } elseif ($RV) { 'Modifier le rendez-vous' } else { 'Nouveau rendez-vous' }
+    $ui.FormTitre.Text = if ($Copie) { 'Copie du rendez-vous' } elseif ($Decaler) { 'Décaler le rendez-vous' } elseif ($RV) { 'Modifier le rendez-vous' } else { 'Nouveau rendez-vous' }
     $ui.BtnFEnregistrer.Content = if ($RV -and -not $Copie) { 'Enregistrer' } else { 'Ajouter' }
     Set-FDetails $(if ($RV) { $RV } elseif ($p -and $ui.InPhrase.Text.Trim()) { $p } else { $null })
     if ($Copie) { $script:FormEdition = $null; foreach ($x in @($script:FAvant)) { $x.Fait = $false } }
@@ -524,6 +555,11 @@ function Open-Formulaire($Jour, $RV, [switch]$Copie) {
     Update-FDetailsVisibles
     Update-FFinInfo
     $ui.FMessage.Visibility = 'Collapsed'
+    if ($Decaler) {
+        # Le calendrier s'ouvre sur le mois en cours : il ne reste qu'à choisir le nouveau jour (et l'heure si besoin)
+        $script:FMois = (Get-Date).Date.AddDays(1 - (Get-Date).Day); Update-FCalendrier
+        Show-FMessage 'Il n''a pas eu lieu ? Choisis le nouveau jour, et l''heure si elle change.' $Colors.accent
+    }
     $ui.BtnAjouter.IsDefault = $false; $ui.BtnFEnregistrer.IsDefault = $true
     $ui.Formulaire.Visibility = 'Visible'
     if ($titre -and -not $heure -and -not $journee) { [void]$ui.FHeure.Focus() } else { [void]$ui.FTitre.Focus() }
@@ -539,7 +575,7 @@ function Update-FTypeAuto {
 function Close-Formulaire {
     $ui.Formulaire.Visibility = 'Collapsed'
     $ui.BtnFEnregistrer.IsDefault = $false; $ui.BtnAjouter.IsDefault = $true
-    $script:FormEdition = $null
+    $script:FormEdition = $null; $script:FormDecaler = $false
 }
 
 function Save-Formulaire {
@@ -573,7 +609,7 @@ function Save-Formulaire {
     }
     $edition = $script:FormEdition
     $limite = if ($script:FJournee) { (Get-Date).Date } else { Get-Date }
-    if (-not $rep -and $quand -lt $limite -and -not $edition) { Show-FMessage 'Ce moment est déjà passé. Choisis un autre jour ou une autre heure.'; return }
+    if (-not $rep -and $quand -lt $limite -and (-not $edition -or $script:FormDecaler)) { Show-FMessage 'Ce moment est déjà passé. Choisis un autre jour ou une autre heure.'; return }
     $type = if ($script:FType) { $script:FType } else { 'rdv' }
     $lu = Read-FDetails $quand $script:FJournee
     if ($lu.Erreur) { Show-FMessage $lu.Erreur; return }
@@ -582,6 +618,8 @@ function Save-Formulaire {
         $titre = Get-TitreAffiche $titre
         $r = if ($edition) { Update-RendezVous $edition.Id $titre $quand $rep $type $script:FJournee $lu.Detail } else { Add-RendezVous $titre $quand $rep $type $script:FJournee $lu.Detail }
     } catch { Write-Log "Enregistrement impossible : $_"; Show-FMessage "Je n'ai pas réussi à l'enregistrer. ($($_.Exception.Message))"; return }
+    # Remis à plus tard : il n'est plus validé ni fait
+    if ($edition -and $edition.Fait -and $quand -ge $limite) { Set-RendezVousDetail $r.Id 'Fait' $false; $r = Get-RendezVous $r.Id }
     Close-Formulaire
     if (-not $edition) { $ui.InPhrase.Text = '' }
     $depuis = if ($r.Journee) { (Get-Date).Date } else { Get-Date }

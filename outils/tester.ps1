@@ -53,7 +53,7 @@ function Invoke-Scenario([string]$Nom, [hashtable]$Env, [switch]$Exemples) {
     if ($Exemples) { New-DonneesExemple $donnees }
     $capture = Join-Path $test "capture-$Nom.png"
     Remove-Item -LiteralPath $capture -ErrorAction SilentlyContinue
-    foreach ($k in 'EVERMIND_DOSSIERS', 'EVERMIND_PACKS', 'EVERMIND_THEME', 'EVERMIND_FERMER', 'EVERMIND_PHRASE', 'EVERMIND_AJOUTER', 'EVERMIND_FORMULAIRE', 'EVERMIND_REGLAGES', 'EVERMIND_CONFIRMATION', 'EVERMIND_FICHE', 'EVERMIND_FORMULAIRE_RV', 'EVERMIND_TEST_PAROLE', 'EVERMIND_COMMANDE', 'EVERMIND_EVEIL_WAV', 'EVERMIND_DICTEE_WAV', 'EVERMIND_VOIX') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
+    foreach ($k in 'EVERMIND_DOSSIERS', 'EVERMIND_PACKS', 'EVERMIND_THEME', 'EVERMIND_FERMER', 'EVERMIND_PHRASE', 'EVERMIND_AJOUTER', 'EVERMIND_FORMULAIRE', 'EVERMIND_REGLAGES', 'EVERMIND_CONFIRMATION', 'EVERMIND_FICHE', 'EVERMIND_FORMULAIRE_RV', 'EVERMIND_JOUR', 'EVERMIND_DECALER', 'EVERMIND_FICHE_SUPPRIMER', 'EVERMIND_CONFIRMATION_OUI', 'EVERMIND_TEST_PAROLE', 'EVERMIND_COMMANDE', 'EVERMIND_EVEIL_WAV', 'EVERMIND_DICTEE_WAV', 'EVERMIND_VOIX') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
     $env:EVERMIND_TEST = '1'; $env:EVERMIND_DONNEES = $donnees; $env:EVERMIND_CAPTURE = $capture
     $env:EVERMIND_VOIX = Join-Path $donnees 'voix-absente'
     foreach ($k in $Env.Keys) { Set-Item "env:$k" $Env[$k] }
@@ -106,6 +106,10 @@ if (Test-Path -LiteralPath $zips) {
 } else { Write-Host '(thèmes personnalisés non testés : pas de dossier Thème-Evermind sur le bureau)' -ForegroundColor DarkGray }
 $ok = (Invoke-Scenario 'fiche' @{ EVERMIND_FICHE = 'Dentiste' } -Exemples) -and $ok
 $ok = (Invoke-Scenario 'fermer' @{ EVERMIND_FERMER = '1' } -Exemples) -and $ok
+# Rendez-vous passé (le coiffeur, il y a 2 jours) : validé tout seul (✓), et on peut encore le décaler
+$ok = (Invoke-Scenario 'valide-jour' @{ EVERMIND_JOUR = (Get-Date).Date.AddDays(-2).ToString('yyyy-MM-dd') } -Exemples) -and $ok
+$ok = (Invoke-Scenario 'valide-fiche' @{ EVERMIND_FICHE = 'Coiffeur' } -Exemples) -and $ok
+$ok = (Invoke-Scenario 'valide-decaler' @{ EVERMIND_FORMULAIRE_RV = 'Coiffeur'; EVERMIND_DECALER = '1' } -Exemples) -and $ok
 # Dossier relié tout seul (« réunion avec Monsieur Richard ») : la fiche et le formulaire
 function Get-RV([string]$Titre) { @(@((ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $script:Donnees 'rendez-vous.json'), [Text.Encoding]::UTF8))).RendezVous) | Where-Object { $_.Titre -like $Titre }) }
 $compta = Join-Path $test 'comptabilite'
@@ -118,6 +122,13 @@ if (Invoke-Scenario 'fichiers-fiche' @{ EVERMIND_DOSSIERS = $compta; EVERMIND_PH
 $ok = (Invoke-Scenario 'fichiers-formulaire' @{ EVERMIND_DOSSIERS = $compta; EVERMIND_PHRASE = 'réunion avec Madame Dupont demain à 10 h'; EVERMIND_AJOUTER = '1'; EVERMIND_FORMULAIRE_RV = 'R*union*' } -Exemples) -and $ok
 $ok = (Invoke-Scenario 'fichiers-reglages' @{ EVERMIND_DOSSIERS = $compta; EVERMIND_REGLAGES = 'General' }) -and $ok
 $ok = (Invoke-Scenario 'confirmation' @{ EVERMIND_CONFIRMATION = 'Raid avec les potes' } -Exemples) -and $ok
+# Supprimer pour de vrai : depuis la carte (confirmation), puis depuis la fiche
+foreach ($s in @(@('supprimer-carte', @{ EVERMIND_CONFIRMATION = 'Foot'; EVERMIND_CONFIRMATION_OUI = '1' }), @('supprimer-fiche', @{ EVERMIND_FICHE = 'Foot'; EVERMIND_FICHE_SUPPRIMER = '1' }))) {
+    if (Invoke-Scenario $s[0] $s[1] -Exemples) {
+        if (@(Get-RV 'Foot').Count -or $script:Journal -match 'Erreurs') { Write-Host "ÉCHEC  $($s[0]) : le foot n'a pas été supprimé" -ForegroundColor Red; Write-Host (($script:Journal -split "`n" | Select-String 'Erreurs' | Select-Object -First 2) -join "`n"); $ok = $false }
+        else { Write-Host '       le foot est bien supprimé' -ForegroundColor DarkGray }
+    } else { $ok = $false }
+}
 $ok = (Invoke-Scenario 'fiche-anniversaire' @{ EVERMIND_FICHE = 'Anniversaire de Léa' } -Exemples) -and $ok
 $ok = (Invoke-Scenario 'formulaire-details' @{ EVERMIND_FORMULAIRE_RV = 'Dentiste' } -Exemples) -and $ok
 $ok = (Invoke-Scenario 'apercu-details' @{ EVERMIND_PHRASE = 'concert au Zénith demain de 21 h à 23 h avec Paul et Léa, rappelle-moi la veille, c''est important' } -Exemples) -and $ok

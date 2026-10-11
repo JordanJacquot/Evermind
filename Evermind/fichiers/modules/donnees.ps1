@@ -219,6 +219,19 @@ function Get-Conflits([datetime]$Debut, $Fin, [string]$SaufId) {
     })
 }
 
+# Un rendez-vous passé est validé tout seul (✓) : fini (son heure de fin, ou une heure après le début), ou la journée
+# terminée. Les choses « à faire » restent à cocher à la main (Fait). Validé ne bloque rien : il peut toujours être décalé.
+function Test-Valide($r, [datetime]$Quand) {
+    if ((Get-TypeRV $r) -eq 'rappel') { return [bool]$r.Fait }
+    $now = Get-Date
+    if ($r.Journee -or (Test-PlusieursJours $r)) {
+        $fin = if ($r.Fin -and -not $r.Repetition) { ([datetime]$r.Fin).Date } else { $Quand.Date }
+        return $fin -lt $now.Date
+    }
+    $fin = if ($r.Fin) { $Quand + ([datetime]$r.Fin - $r.Quand) } else { $Quand.AddHours(1) }
+    $fin -le $now
+}
+
 # Toutes les fois où des rendez-vous tombent entre deux moments (pour le calendrier du mois)
 function Get-AgendaEntre([datetime]$Debut, [datetime]$Fin) {
     @(foreach ($r in $script:Agenda) {

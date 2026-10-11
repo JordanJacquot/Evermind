@@ -228,6 +228,13 @@ function Read-Phrase([string]$Text, $Now) {
     $Now = [datetime]$Now
     $today = $Now.Date
     $st = @{ S = ' ' + ($Text -replace "[’‘`´]", "'") + ' ' }
+    # Ce qui est demandé à Eve en plus de l'événement ne fait pas partie de l'événement : « ... et que tu ouvres son
+    # dossier au début », « ... . Et tu ouvres directement son dossier », « ... et ouvre son dossier » (sauf un autre
+    # ordre de création : « ... et que tu mettes un anniversaire Jordan »)
+    $st.S = $st.S -replace "(?i)(?:\s*[.;!]\s*(?:et\s+|puis\s+|ensuite\s+)?|\s*,?\s*\b(?:et|puis|ensuite)\s+)(?:(?:je veux|j'aimerais|je voudrais|il faut)\s+)?(?:que\s+|qu')?tu\s+(?>(?:m'|me\s+|lui\s+|les?\s+|l'|nous\s+)?)(?!(?:$RxOrdre|me|m|lui|les?|nous)\b)\p{L}+\b.*$", ' '
+    $st.S = $st.S -replace "(?i)(?:\s*[.,;!]\s*|\s+)(?:et|puis|ensuite)\s+(?:m'|me\s+)?ouvr\w*(?:[- ]moi)?\s+(?:son|ses|sa|le|les|mon|mes|leur|leurs)\s.*$", ' '
+    # « pour dans une minute », « pour demain » : le « pour » du moment
+    $st.S = $st.S -replace "(?i)\bpour\s+(?=dans\s+\S+\s+(?:minutes?|heures?|jours?|semaines?|mois|ans?)\b)", ''
     # « à 17 h pile », « à 9 h précises » : l'heure suffit
     $st.S = $st.S -replace "(?i)(\d\s*(?:h|heures?)(?:\s*\d{2})?|\bmidi|\bminuit)\s+(?:pile|pr[ée]cises?|tapantes?)\b", '$1'
     # L'année, où qu'elle soit dite, va juste après le mois : « octobre, 2026 » (ponctuation de la dictée),
@@ -666,6 +673,8 @@ function Get-TitreNettoye([string]$Text) {
         $t = $t -replace "^(?:j'ai|il y a|y a|pr[ée]vois)\b\s*(?:(?:de|que)\s+|d'|qu')?", ''
         $t = $t -replace "^(?:un |une |le |la |mon |ma |l')?(?:nouvel? |nouvelle )?$RxGenre\b\s*(?:(?:de|du|des|pour)\s+|d'|:)?", ''
         $t = $t -replace '^(?:et|puis|à|a|au|pour|vers|de|du)\s+', ''
+        # « une réunion », « un café avec Paul » : l'article ne fait pas partie du nom
+        $t = $t -replace '^(?:un|une)\s+(?=\S)', ''
         $t = $t -replace '\s+(?:à|a|au|le|la|de|du|pour|et|vers|ce|cet|cette)$', ''
         $t = $t -replace '\s+(?:à|a|au|le|la|de|du|pour|et|vers)\s*([,;])', '$1'
     }

@@ -103,8 +103,17 @@ if ($env:EVERMIND_PHRASE) { $ui.InPhrase.Text = $env:EVERMIND_PHRASE; if ($env:E
 if ($env:EVERMIND_FORMULAIRE) { Open-Formulaire }
 if ($env:EVERMIND_REGLAGES) { Open-Reglages $(if ($env:EVERMIND_REGLAGES -ne '1') { $env:EVERMIND_REGLAGES }) }
 if ($env:EVERMIND_CONFIRMATION) { Confirm-Suppression (@($script:Agenda | Where-Object { $_.Titre -like $env:EVERMIND_CONFIRMATION })[0]).Id; if ($env:EVERMIND_CONFIRMATION_OUI) { $ui.BtnConfirmationOui.RaiseEvent((New-Object System.Windows.RoutedEventArgs ([System.Windows.Controls.Button]::ClickEvent))) } }
-if ($env:EVERMIND_FICHE) { $it = @(Get-Upcoming | Where-Object { $_.RV.Titre -like $env:EVERMIND_FICHE })[0]; if ($it) { Show-Fiche $it.RV $it.Prochain } }
-if ($env:EVERMIND_FORMULAIRE_RV) { Open-Formulaire -RV (@($script:Agenda | Where-Object { $_.Titre -like $env:EVERMIND_FORMULAIRE_RV })[0]) }
+if ($env:EVERMIND_JOUR) { Select-JourCalendrier ([datetime]$env:EVERMIND_JOUR) }
+if ($env:EVERMIND_FICHE) {
+    $it = @(@(Get-Upcoming) + @(Get-AgendaEntre (Get-Date).Date.AddDays(-30) (Get-Date)) | Where-Object { $_.RV.Titre -like $env:EVERMIND_FICHE })[0]
+    if ($it) { Show-Fiche $it.RV $it.Prochain }
+    # « Supprimer » dans la fiche, puis « Supprimer » dans la confirmation
+    if ($it -and $env:EVERMIND_FICHE_SUPPRIMER) {
+        $clic = New-Object System.Windows.RoutedEventArgs ([System.Windows.Controls.Button]::ClickEvent)
+        $ui.BtnFicheSupprimer.RaiseEvent($clic); $ui.BtnConfirmationOui.RaiseEvent($clic)
+    }
+}
+if ($env:EVERMIND_FORMULAIRE_RV) { Open-Formulaire -RV (@($script:Agenda | Where-Object { $_.Titre -like $env:EVERMIND_FORMULAIRE_RV })[0]) -Decaler:([bool]$env:EVERMIND_DECALER) }
 if ($env:EVERMIND_TEST_PAROLE) { Invoke-Parole 'Salut ! C''est noté : anniversaire de Jordan, le 12 mars.' $env:EVERMIND_TEST_PAROLE }
 if ($env:EVERMIND_DICTEE_WAV) { Start-Transcription $env:EVERMIND_DICTEE_WAV }
 # Plusieurs phrases séparées par « || » : une conversation, chaque phrase après la réponse à la précédente
