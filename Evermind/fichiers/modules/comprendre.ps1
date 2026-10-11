@@ -886,6 +886,15 @@ function Read-Periode([string]$Texte, $Now) {
     if ($t -match "^(?:cette|la)\s+semaine(?:-ci)?$") { $l = $today.AddDays(-(([int]$today.DayOfWeek + 6) % 7)); return @{ Debut = $today; Fin = $l.AddDays(6) } }
     if ($t -match "^la\s+semaine\s+prochaine$") { $l = $today.AddDays(7 - (([int]$today.DayOfWeek + 6) % 7)); return @{ Debut = $l; Fin = $l.AddDays(6) } }
     if ($t -match "^ce\s+mois(?:-ci)?$") { return @{ Debut = $today; Fin = $today.AddDays(1 - $today.Day).AddMonths(1).AddDays(-1) } }
+    # Plusieurs jours dits un par un (« le 27, le 28 et le 29 octobre », « le 3 et le 5 novembre ») : ces jours-là
+    # seulement (Jours), du premier au dernier
+    if ($t -match '\d.*(?:,|\bet\b).*\d') {
+        $pl = Read-Phrase "x $t" $Now
+        $js = @($pl.Jours | Where-Object { $_ } | ForEach-Object { ([datetime]$_).Date } | Sort-Object -Unique)
+        if ($js.Count -gt 1) { return @{ Debut = $js[0]; Fin = $js[-1]; Jours = $js } }
+        # (des jours qui se suivent sont lus comme « du 27 au 29 »)
+        if ($pl.Quand -and $pl.Fin -and ([datetime]$pl.Fin).Date -gt ([datetime]$pl.Quand).Date) { return @{ Debut = ([datetime]$pl.Quand).Date; Fin = ([datetime]$pl.Fin).Date } }
+    }
     # Un mois entier, ou un seul jour
     $a = & $jour $t $false; $b = & $jour $t $true
     if ($a -and $b) { return @{ Debut = $a; Fin = $b } }

@@ -149,7 +149,7 @@ function Invoke-OuverturesDues([datetime]$Maintenant = (Get-Date)) {
         $nom = Get-TitreAffiche $rv.Titre
         $quoi = if (@($rv.Fichiers).Count -eq 1) { Get-NomFichier $rv.Fichiers[0] } else { "ses $(@($rv.Fichiers).Count) dossiers et fichiers" }
         Write-Log "C'est l'heure : $nom, $n ouvert(s)"
-        Show-Notify "C'est l'heure : $nom" "J'ouvre $quoi."
+        Show-Alerte $nom "J'ouvre $quoi." "C'est l'heure" (Get-TypeRV $rv) $rv $it.Prochain
         Invoke-Parole "C'est l'heure : $nom. J'ouvre $quoi."
         $faits += $rv
     }

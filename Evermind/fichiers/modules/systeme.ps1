@@ -72,10 +72,10 @@ function Get-TrayIcon {
     $script:NotifyIcon
 }
 
+# Notification : l'alerte d'Evermind (alerte.ps1), plus la bulle de Windows
 function Show-Notify([string]$Title, [string]$Text) {
     if ($EnTest) { Write-Log "$Title : $Text"; return }
-    try { (Get-TrayIcon).ShowBalloonTip(8000, $Title, $Text, [System.Windows.Forms.ToolTipIcon]::Info) }
-    catch { Write-Log "Notification impossible : $_" }
+    Show-Alerte $Title $Text
 }
 
 # La croix ne ferme pas Evermind : il reste près de l'horloge pour donner les rappels.

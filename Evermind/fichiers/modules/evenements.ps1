@@ -84,6 +84,7 @@ $ui.BtnDossierRechercheAjouter.Add_Click({ Add-DossierRecherche })
 $ui.BtnThemeDossier.Add_Click({ New-Item -ItemType Directory -Force -Path $PacksDir | Out-Null; Start-Process explorer.exe $PacksDir })
 Add-ThemeDecor
 if (-not $EnTest) { Start-PlanificateurFichiers }   # dossiers ouverts tout seuls à l'heure des rendez-vous
+if (-not $EnTest) { Start-PlanificateurRappels }    # rappels : la veille, le matin même, 1 h avant...
 $ui.CroixDemander.Add_Click({ Set-Setting 'Croix' ''; Update-CroixReglage })
 $ui.CroixReduire.Add_Click({ Set-Setting 'Croix' 'reduire'; Update-CroixReglage })
 $ui.CroixQuitter.Add_Click({ Set-Setting 'Croix' 'quitter'; Update-CroixReglage })
@@ -103,6 +104,12 @@ if ($env:EVERMIND_PHRASE) { $ui.InPhrase.Text = $env:EVERMIND_PHRASE; if ($env:E
 if ($env:EVERMIND_FORMULAIRE) { Open-Formulaire }
 if ($env:EVERMIND_REGLAGES) { Open-Reglages $(if ($env:EVERMIND_REGLAGES -ne '1') { $env:EVERMIND_REGLAGES }) }
 if ($env:EVERMIND_CONFIRMATION) { Confirm-Suppression (@($script:Agenda | Where-Object { $_.Titre -like $env:EVERMIND_CONFIRMATION })[0]).Id; if ($env:EVERMIND_CONFIRMATION_OUI) { $ui.BtnConfirmationOui.RaiseEvent((New-Object System.Windows.RoutedEventArgs ([System.Windows.Controls.Button]::ClickEvent))) } }
+# L'alerte d'Evermind, avec un rappel d'exemple (le dentiste, celui des tests)
+if ($env:EVERMIND_CAPTURE_ALERTE) {
+    $script:AlerteEnCapture = $true   # (la capture de la fenêtre attend celle de l'alerte)
+    $rvA = @($script:Agenda | Where-Object { $_.Titre -like $env:EVERMIND_ALERTE_RV })[0]
+    if ($rvA) { Show-AlerteRappel $rvA ($rvA.Quand) ($rvA.Quand.AddHours(-1)) } else { Show-Alerte 'Evermind n''entend rien' 'Aucun son ne vient du micro (coupé ?). Choisis le bon micro dans les réglages.' }
+}
 if ($env:EVERMIND_JOUR) { Select-JourCalendrier ([datetime]$env:EVERMIND_JOUR) }
 if ($env:EVERMIND_FICHE) {
     $it = @(@(Get-Upcoming) + @(Get-AgendaEntre (Get-Date).Date.AddDays(-30) (Get-Date)) | Where-Object { $_.RV.Titre -like $env:EVERMIND_FICHE })[0]

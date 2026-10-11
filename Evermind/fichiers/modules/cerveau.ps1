@@ -521,7 +521,10 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
         elseif ($a.id) { $code = ([string]$a.id).Trim('[] '); if ($Codes.ContainsKey($code)) { $rv = Get-RendezVous $Codes[$code] } }
         # « crée la réunion et ouvre son dossier au début » : l'IA désigne l'événement qu'elle vient de créer par un
         # numéro inventé (« 1 », « 2 ») ou sans numéro : c'est lui, pas un autre rendez-vous de l'agenda
-        $surCree = $cree -and $a.action -in 'modifier', 'ouvrir' -and -not $rv -and -not $a.Cible
+        # ... ou même avec le numéro d'un AUTRE rendez-vous : si l'utilisateur n'a rien demandé de changer (aucun verbe
+        # « décale », « change »...), une modification qui accompagne la création ne peut viser que le nouvel événement
+        $surCree = $cree -and -not $a.Cible -and (($a.action -in 'modifier', 'ouvrir' -and -not $rv) -or
+            ($a.action -eq 'modifier' -and -not $a.phrase -and -not (Get-IntentionsTexte $Texte).Modif -and -not (Get-IntentionsTexte $Texte).Supp))
         if ($surCree) { $rv = $cree }
         elseif (-not $a.Cible -and $a.action -notin 'creer', 'annuler' -and @($actions | Where-Object { $_.action -notin 'creer', 'annuler' }).Count -eq 1) { $rv = Get-CibleIA $rv $Codes "$Texte $($R.reponse)" }
         # Une note qui redit seulement « ouvrir à l'heure » n'en est pas une
@@ -703,8 +706,9 @@ function Remove-PeriodeRV($rv, [string]$Periode) {
     $per = Read-Periode $Periode
     if (-not $per -and $Periode -match "(?i)\b(?:tous|toutes|tout|toujours|chaque|enti[èe]re?)\b") { $per = @{ Debut = $null; Fin = $null } }   # « tous les mois » : toutes les fois
     if (-not $per) { return @{ Dit = "Je n'ai pas compris quelles dates enlever pour $nom, je n'ai rien touché."; Ecrit = "Rien supprimé : je n'ai pas compris « $Periode »." } }
-    $D = $per.Debut; $F = $per.Fin
-    $dans = { param($d) (-not $D -or $d -ge $D) -and (-not $F -or $d -le $F) }
+    $D = $per.Debut; $F = $per.Fin; $J = @($per.Jours | Where-Object { $_ })
+    # (jours dits un par un : ceux-là seulement, pas ceux d'entre eux)
+    $dans = { param($d) if ($J.Count) { return $J -contains $d.Date }; (-not $D -or $d -ge $D) -and (-not $F -or $d -le $F) }
     $annule = ' (Dis « annule » pour revenir en arrière.)'
     if (-not $rv.Repetition) {
         if (& $dans $rv.Quand.Date) { Remove-RendezVous $rv.Id; return @{ Dit = "J'ai supprimé $nom."; Ecrit = "Supprimé : $nom.$annule" } }

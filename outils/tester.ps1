@@ -26,6 +26,9 @@ $ok = ($LASTEXITCODE -eq 0) -and $ok
 # Dossiers reliés aux rendez-vous, ouverture à l'heure
 & (Join-Path $PSScriptRoot 'tester-fichiers.ps1')
 $ok = ($LASTEXITCODE -eq 0) -and $ok
+# Rappels : la veille, le matin même, N minutes avant, une seule fois
+& (Join-Path $PSScriptRoot 'tester-rappels.ps1')
+$ok = ($LASTEXITCODE -eq 0) -and $ok
 
 # Rendez-vous d'exemple : aujourd'hui, demain (qui revient chaque semaine), dans quelques jours, un passé
 function New-DonneesExemple([string]$Dossier) {
@@ -53,7 +56,7 @@ function Invoke-Scenario([string]$Nom, [hashtable]$Env, [switch]$Exemples) {
     if ($Exemples) { New-DonneesExemple $donnees }
     $capture = Join-Path $test "capture-$Nom.png"
     Remove-Item -LiteralPath $capture -ErrorAction SilentlyContinue
-    foreach ($k in 'EVERMIND_DOSSIERS', 'EVERMIND_PACKS', 'EVERMIND_THEME', 'EVERMIND_FERMER', 'EVERMIND_PHRASE', 'EVERMIND_AJOUTER', 'EVERMIND_FORMULAIRE', 'EVERMIND_REGLAGES', 'EVERMIND_CONFIRMATION', 'EVERMIND_FICHE', 'EVERMIND_FORMULAIRE_RV', 'EVERMIND_JOUR', 'EVERMIND_DECALER', 'EVERMIND_FICHE_SUPPRIMER', 'EVERMIND_CONFIRMATION_OUI', 'EVERMIND_TEST_PAROLE', 'EVERMIND_COMMANDE', 'EVERMIND_EVEIL_WAV', 'EVERMIND_DICTEE_WAV', 'EVERMIND_VOIX') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
+    foreach ($k in 'EVERMIND_DOSSIERS', 'EVERMIND_PACKS', 'EVERMIND_THEME', 'EVERMIND_FERMER', 'EVERMIND_PHRASE', 'EVERMIND_AJOUTER', 'EVERMIND_FORMULAIRE', 'EVERMIND_REGLAGES', 'EVERMIND_CONFIRMATION', 'EVERMIND_FICHE', 'EVERMIND_FORMULAIRE_RV', 'EVERMIND_JOUR', 'EVERMIND_DECALER', 'EVERMIND_FICHE_SUPPRIMER', 'EVERMIND_CONFIRMATION_OUI', 'EVERMIND_CAPTURE_ALERTE', 'EVERMIND_ALERTE_RV', 'EVERMIND_TEST_PAROLE', 'EVERMIND_COMMANDE', 'EVERMIND_EVEIL_WAV', 'EVERMIND_DICTEE_WAV', 'EVERMIND_VOIX') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
     $env:EVERMIND_TEST = '1'; $env:EVERMIND_DONNEES = $donnees; $env:EVERMIND_CAPTURE = $capture
     $env:EVERMIND_VOIX = Join-Path $donnees 'voix-absente'
     foreach ($k in $Env.Keys) { Set-Item "env:$k" $Env[$k] }
@@ -106,6 +109,14 @@ if (Test-Path -LiteralPath $zips) {
 } else { Write-Host '(thèmes personnalisés non testés : pas de dossier Thème-Evermind sur le bureau)' -ForegroundColor DarkGray }
 $ok = (Invoke-Scenario 'fiche' @{ EVERMIND_FICHE = 'Dentiste' } -Exemples) -and $ok
 $ok = (Invoke-Scenario 'fermer' @{ EVERMIND_FERMER = '1' } -Exemples) -and $ok
+# L'alerte d'Evermind (à la place des bulles de Windows) : un rappel, et une alerte simple
+foreach ($s in @(@('alerte-rappel', 'Dentiste'), @('alerte-simple', 'personne'))) {
+    $img = Join-Path $test "capture-$($s[0])-carte.png"; Remove-Item -LiteralPath $img -ErrorAction SilentlyContinue
+    $passe = Invoke-Scenario $s[0] @{ EVERMIND_CAPTURE_ALERTE = $img; EVERMIND_ALERTE_RV = $s[1] } -Exemples
+    if ($passe -and -not (Test-Path -LiteralPath $img)) { Write-Host "ÉCHEC  $($s[0]) : pas d'image de l'alerte" -ForegroundColor Red; $passe = $false }
+    elseif ($passe) { Write-Host "       alerte : $img" -ForegroundColor DarkGray }
+    $ok = $passe -and $ok
+}
 # Rendez-vous passé (le coiffeur, il y a 2 jours) : validé tout seul (✓), et on peut encore le décaler
 $ok = (Invoke-Scenario 'valide-jour' @{ EVERMIND_JOUR = (Get-Date).Date.AddDays(-2).ToString('yyyy-MM-dd') } -Exemples) -and $ok
 $ok = (Invoke-Scenario 'valide-fiche' @{ EVERMIND_FICHE = 'Coiffeur' } -Exemples) -and $ok

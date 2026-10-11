@@ -51,7 +51,7 @@ try {
 # ---------------------------------------------------------------------------
 $AppDir = $PSScriptRoot
 $ModulesDir = Join-Path $AppDir 'modules'
-$missing = @('natif.cs', 'interface.xaml', 'donnees.ps1', 'fichiers.ps1', 'themes.ps1', 'comprendre.ps1', 'systeme.ps1', 'interface.ps1', 'logo.ps1', 'agenda.ps1', 'details.ps1', 'voix.ps1', 'voix-kokoro.cs', 'eveil.ps1', 'cerveau.ps1', 'evenements.ps1' | Where-Object { -not (Test-Path -LiteralPath (Join-Path $ModulesDir $_)) })
+$missing = @('natif.cs', 'interface.xaml', 'donnees.ps1', 'fichiers.ps1', 'themes.ps1', 'comprendre.ps1', 'systeme.ps1', 'interface.ps1', 'logo.ps1', 'agenda.ps1', 'details.ps1', 'alerte.ps1', 'voix.ps1', 'voix-kokoro.cs', 'eveil.ps1', 'cerveau.ps1', 'evenements.ps1' | Where-Object { -not (Test-Path -LiteralPath (Join-Path $ModulesDir $_)) })
 if ($missing) {
     [System.Windows.MessageBox]::Show("Des fichiers d'Evermind sont manquants :`n`n$($missing -join ', ')`n`nRetélécharge Evermind et remplace tout le dossier.", 'Evermind', 'OK', 'Error') | Out-Null
     exit
@@ -63,7 +63,7 @@ Add-Type -TypeDefinition ([IO.File]::ReadAllText((Join-Path $ModulesDir 'natif.c
 $AppId = 'JordanJacquot.Evermind'
 try { [EMNative]::SetAppId($AppId) } catch {}
 
-foreach ($emModule in 'donnees', 'fichiers', 'themes', 'comprendre', 'systeme', 'interface', 'logo', 'agenda', 'details', 'voix', 'eveil', 'cerveau', 'evenements') { . (Join-Path $ModulesDir "$emModule.ps1") }
+foreach ($emModule in 'donnees', 'fichiers', 'themes', 'comprendre', 'systeme', 'interface', 'logo', 'agenda', 'details', 'alerte', 'voix', 'eveil', 'cerveau', 'evenements') { . (Join-Path $ModulesDir "$emModule.ps1") }
 
 # ---------------------------------------------------------------------------
 # Lancement

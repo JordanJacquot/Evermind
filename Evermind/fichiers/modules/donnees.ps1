@@ -106,7 +106,7 @@ function ConvertTo-RendezVous($Raw) {
         Lien       = if ($Raw.Lien -is [string]) { $Raw.Lien } else { '' }
         Notes      = if ($Raw.Notes -is [string]) { $Raw.Notes } else { '' }
         APreparer  = @(foreach ($x in @($Raw.APreparer)) { if ($x -and $x.Texte) { [pscustomobject]@{ Texte = [string]$x.Texte; Fait = [bool]$x.Fait } } })
-        Rappels    = if ($null -ne $Raw.Rappels) { @($Raw.Rappels | Where-Object { $_ -is [string] }) } else { $null }
+        Rappels    = if ($null -ne $Raw.Rappels) { , @($Raw.Rappels | Where-Object { $_ -is [string] }) } else { $null }   # (« , » : « aucun rappel » reste une liste vide)
         Important  = [bool]$Raw.Important
         Fait       = [bool]$Raw.Fait
         Naissance  = if ($Raw.Naissance -is [int] -or $Raw.Naissance -is [long] -or "$($Raw.Naissance)" -match '^\d{4}$') { [int]"$($Raw.Naissance)" } else { $null }
@@ -135,7 +135,7 @@ function Get-AgendaDonnees {
                     Quand = $r.Quand.ToString($DateFormat, $ic); Fin = $(if ($r.Fin) { $r.Fin.ToString($DateFormat, $ic) } else { $null })
                     Repetition = $r.Repetition; Lieu = $r.Lieu; Avec = @($r.Avec); Lien = $r.Lien; Notes = $r.Notes
                     APreparer = @($r.APreparer | ForEach-Object { [ordered]@{ Texte = $_.Texte; Fait = [bool]$_.Fait } })
-                    Rappels = $(if ($null -ne $r.Rappels) { @($r.Rappels) } else { $null })
+                    Rappels = $(if ($null -ne $r.Rappels) { , @($r.Rappels) } else { $null })
                     Important = [bool]$r.Important; Fait = [bool]$r.Fait; Naissance = $r.Naissance
                     Fichiers = @($r.Fichiers); OuvrirAuDebut = [bool]$r.OuvrirAuDebut; Cree = $r.Cree }
     })
@@ -155,7 +155,7 @@ function Set-Details($r, $Detail) {
             'Avec'      { $r.Avec = @($v | Where-Object { $_ }) }
             'Fichiers'  { $r.Fichiers = @($v | Where-Object { $_ } | Select-Object -Unique) }
             'APreparer' { $r.APreparer = @($v | Where-Object { $_ } | ForEach-Object { if ($_ -is [string]) { [pscustomobject]@{ Texte = $_; Fait = $false } } else { [pscustomobject]@{ Texte = [string]$_.Texte; Fait = [bool]$_.Fait } } }) }
-            'Rappels'   { $r.Rappels = if ($null -ne $v) { @($v) } else { $null } }
+            'Rappels'   { if ($null -ne $v) { $r.Rappels = @($v) } else { $r.Rappels = $null } }   # (une liste vide = aucun rappel)
             default     { $r.$k = $v }
         }
     }

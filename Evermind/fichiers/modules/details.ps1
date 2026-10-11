@@ -224,7 +224,7 @@ function Set-FDetails($Source) {
     $ui.FNotes.Text = if ($Source) { [string]$Source.Notes } else { '' }
     $ui.FNaissance.Text = if ($Source -and $Source.Naissance) { [string]$Source.Naissance } else { '' }
     $ui.FImportant.Tag = if ($Source -and $Source.Important) { 'on' } else { $null }
-    $script:FRappels = if ($Source -and $null -ne $Source.Rappels) { @($Source.Rappels) } else { $null }
+    if ($Source -and $null -ne $Source.Rappels) { $script:FRappels = @($Source.Rappels) } else { $script:FRappels = $null }
     $script:FAvant = if ($Source -and $Source.APreparer) { @($Source.APreparer) } else { @() }   # pour garder les cases déjà cochées
     $script:FFichiers = if ($Source -and $Source.Fichiers) { @($Source.Fichiers) } else { @() }
     $ui.FOuvrirDebut.IsChecked = [bool]($Source -and $Source.OuvrirAuDebut)
@@ -272,7 +272,7 @@ function Read-FDetails([datetime]$Quand, [bool]$Journee) {
         Avec = @($ui.FAvec.Text -split '\s*(?:,|;|\bet\b)\s*' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
         APreparer = $prep; Important = ($ui.FImportant.Tag -eq 'on'); Naissance = $naissance
         Fichiers = @($script:FFichiers); OuvrirAuDebut = ([bool]$ui.FOuvrirDebut.IsChecked -and @($script:FFichiers).Count -gt 0)
-        Rappels = $(if ($null -ne $script:FRappels) { @($script:FRappels) } else { $null })
+        Rappels = $(if ($null -ne $script:FRappels) { , @($script:FRappels) } else { $null })
     } }
 }
 
