@@ -1,9 +1,9 @@
 ﻿# Evermind : se réveiller quand on dit « OK Eve », sans toucher au clavier.
 #   1. Vosk (petit, léger, sur le PC) écoute le micro en continu et ne sait reconnaître que « ok ève » ;
 #      tout le reste est oublié aussitôt. Rien n'est enregistré ni envoyé.
-#   2. Un « OK Eve » clair et seul : bip, puis on dit sa demande.
-#      Sinon (pas sûr, ou demande dans la même phrase : « OK Eve, supprime le foot ») : Whisper relit la phrase
-#      pour confirmer. Un faux réveil (« OK, on y va ») est ignoré sans rien montrer ni dire.
+#   2. « OK Eve » tout seul : bip tout de suite, on dit sa demande ; Whisper vérifie en même temps et coupe l'écoute
+#      si ce n'était pas « OK Eve ». Demande dans la même phrase (« OK Eve, supprime le foot ») : Whisper relit la
+#      phrase d'abord, sans bip. Un faux réveil (« OK, on y va ») est ignoré sans rien dire.
 #   L'écoute se met en pause pendant qu'Evermind écoute, réfléchit ou parle (il ne se réveille pas tout seul).
 # Chargé par Evermind.ps1, après voix.ps1.
 
@@ -41,6 +41,7 @@ function Start-Eveil {
     }
     $script:EveilTimer.Start()
     Write-Log 'Écoute « OK Eve » active'
+    try { [void](Start-WhisperServeur) } catch {}   # Whisper prêt d'avance : la réponse arrive plus vite
     Update-RaccourciTexte
     if ($test) {
         # Test automatique : un fichier son passe comme s'il venait du micro
@@ -60,23 +61,59 @@ function Stop-Eveil {
 function Step-Eveil {
     $e = $script:Eveil
     if (-not $e) { $script:EveilTimer.Stop(); return }
-    $occupe = [bool]($script:Ecoute -or $script:Transcription -or $script:Demande -or $script:Piper)
-    $parle = ((Get-Date) -lt $script:EveilReprise) -or ($script:Synth -and [string]$script:Synth.State -eq 'Speaking')
-    $e.Pause = $occupe -or $parle
-    if (-not $e.Detecte) { return }
-    $e.Detecte = $false
-    if ($occupe) { return }
-    # Toujours confirmé par Whisper (Vosk peut prendre « OK, on y va » pour « OK Eve »). En attendant, on enregistre
-    # sans bip ni bulle : si c'est bien « OK Eve », ce qui a été dit juste après n'est pas perdu.
-    $wav = Join-Path $env:TEMP "evermind-$PID-eveil.wav"
-    try { $e.SaveWav($wav) } catch { Write-Log "Écoute « OK Eve » : $_"; return }
-    # Le début de la phrase est gardé à part : si « OK Eve » est confirmé, il sera relu avec la suite enregistrée par le micro
-    $script:EveilDebut = Join-Path $env:TEMP "evermind-$PID-eveil-debut.wav"
-    Copy-Item -LiteralPath $wav -Destination $script:EveilDebut -Force
-    if (-not $EnTest) { Start-Ecoute 'eveil' -Silencieux }
-    Start-Transcription $wav 'eveil'
+    try {
+        # Sécurité : une phrase d'Evermind qui ne finit jamais ne doit pas laisser « OK Eve » sourd pour toujours
+        if ($script:Piper -and $script:Piper.Debut -and $script:Piper.Debut.Elapsed.TotalSeconds -gt 40) { Write-Log 'Voix bloquée : « OK Eve » reprend'; $script:Piper = $null }
+        $occupe = [bool]($script:Ecoute -or $script:Transcription -or $script:Demande -or $script:Piper)
+        $parle = ((Get-Date) -lt $script:EveilReprise) -or ($script:Synth -and [string]$script:Synth.State -eq 'Speaking')
+        $e.Pause = $occupe -or $parle
+        # Diagnostic : ce que l'écoute a cru entendre, et (les 3 premières minutes) si le micro envoie bien du son
+        if ($e.Indices) { $i = $e.Indices; $e.Indices = ''; Write-Log "Écoute : entendu$i" }
+        if (-not $script:EveilDiag -or ((Get-Date) - $script:EveilDiag).TotalSeconds -ge 60) {
+            if ($script:EveilDiag -and ++$script:EveilDiagN -le 3) { Write-Log "Écoute : son max $([math]::Round($e.NiveauMax, 4)), $($e.Paquets) morceaux$(if ($e.Pause) { ', en pause' })" }
+            # Une minute de silence complet (pas même le bruit de la pièce) : le micro est coupé ou ce n'est pas le bon
+            if ($script:EveilDiag -and $e.Paquets -gt 300 -and $e.NiveauMax -lt 0.0008 -and -not $script:MicroMuetDit) {
+                $script:MicroMuetDit = $true
+                $nom = if ([EMMicros]::Choisi -ne [uint32]::MaxValue) { @([EMMicros]::Noms())[[EMMicros]::Choisi] } else { 'le micro de Windows' }
+                Write-Log "Écoute : aucun son ne vient de $nom"
+                Show-Notify 'Evermind n''entend rien' "Aucun son ne vient de « $nom » (coupé ?). Choisis le bon micro dans les réglages d'Evermind."
+            }
+            $e.NiveauMax = 0; $e.Paquets = 0; $script:EveilDiag = Get-Date
+        }
+        if (-not $e.Detecte) { return }
+        $e.Detecte = $false
+        if ($occupe) { Write-Log 'OK Eve entendu, mais Evermind était occupé'; return }
+        $wav = Join-Path $env:TEMP "evermind-$PID-eveil.wav"
+        $e.SaveWav($wav)
+        # Le début de la phrase est gardé à part : il sera relu avec la suite enregistrée par le micro
+        $script:EveilDebut = Join-Path $env:TEMP "evermind-$PID-eveil-debut.wav"
+        Copy-Item -LiteralPath $wav -Destination $script:EveilDebut -Force
+        # Ce qui servira juste après se prépare pendant qu'on parle : la voix qui répondra
+        if (-not $EnTest -and $VoixListe[(Get-VoixChoisie)].Moteur -eq 'kokoro') { try { [void](Start-KokoroServeur) } catch {} }
+        if ($e.AvecCommande) {
+            # « OK Eve, supprime le foot » (ou un faux réveil comme « OK, on y va ») : Whisper confirme d'abord,
+            # sans bip ni bulle ; en attendant, la suite est enregistrée pour ne rien perdre.
+            if (-not $EnTest) { Start-Ecoute 'eveil' -Silencieux }
+            Start-Transcription $wav 'eveil'
+        } else {
+            # « OK Eve » tout seul : bip tout de suite, Whisper vérifie pendant qu'on dit sa demande
+            Write-Log "OK Eve entendu (confiance $([math]::Round($e.ConfMin, 2)))"
+            if (-not $EnTest) { Start-Ecoute 'eveil'; if ($script:Ecoute) { $script:Ecoute.Prefixe = $script:EveilDebut } }
+            Start-Transcription $wav 'verif'
+        }
+    } catch { Write-Log "Écoute « OK Eve » : $_" }
 }
 
+# Vérification d'un « OK Eve » dit tout seul (Evermind écoute déjà)
+function Confirm-Reveil([string]$Texte) {
+    if ($Texte -match "(?i)^\W*(?:ok|okay|o\.\s?k\.?|hey|hé)\W*(?:ève|eve|eva|èv|ev)\b") { return }
+    Write-Log "Faux réveil ignoré : « $($Texte.Trim()) »"
+    $e = $script:Ecoute
+    if ($e -and $e.Source -eq 'eveil') {
+        Stop-EcouteSansSuite
+        Invoke-Bip $false; Hide-Bulle; Set-VoixEtat ''
+    }
+}
 # Ce que Whisper a lu de la phrase qui a peut-être réveillé Evermind
 function Invoke-Reveil([string]$Texte) {
     $m = [regex]::Match($Texte.Trim(), "^\W*(?:ok|okay|o\.\s?k\.?|hey|hé)\W*(?:ève|eve|eva|èv|ev)\b\W*(?<reste>.*)$", 'IgnoreCase')

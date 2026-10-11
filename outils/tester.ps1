@@ -20,6 +20,9 @@ $utf8 = New-Object Text.UTF8Encoding($false)
 # Compréhension des phrases
 & (Join-Path $PSScriptRoot 'tester-phrases.ps1')
 $ok = $LASTEXITCODE -eq 0
+# Le grand catalogue : des milliers de façons de dire un rendez-vous
+& (Join-Path $PSScriptRoot 'catalogue-phrases.ps1') -Exemples 3
+$ok = ($LASTEXITCODE -eq 0) -and $ok
 
 # Rendez-vous d'exemple : aujourd'hui, demain (qui revient chaque semaine), dans quelques jours, un passé
 function New-DonneesExemple([string]$Dossier) {
@@ -74,10 +77,10 @@ if (-not $AssistantSeul) {
 $ok = (Invoke-Scenario 'agenda' @{ EVERMIND_PHRASE = 'tous les mardis à 20 h 30 raid avec les potes' } -Exemples) -and $ok
 $ok = (Invoke-Scenario 'vide' @{}) -and $ok
 $ok = (Invoke-Scenario 'formulaire' @{ EVERMIND_PHRASE = 'demain dentiste'; EVERMIND_FORMULAIRE = '1' } -Exemples) -and $ok
-if (Invoke-Scenario 'reglages' @{ EVERMIND_REGLAGES = '1'; EVERMIND_VOIX = $Voix; EVERMIND_TEST_PAROLE = 'pierre' }) {
-    if (Test-Path -LiteralPath (Join-Path $Voix 'piper\piper.exe')) {
+if (Invoke-Scenario 'reglages' @{ EVERMIND_REGLAGES = '1'; EVERMIND_VOIX = $Voix; EVERMIND_TEST_PAROLE = 'K30' }) {
+    if (Test-Path -LiteralPath (Join-Path $Voix 'kokoro\modele\model.onnx')) {
         $pv = ([regex]::Match($script:Journal, 'Voix naturelle prête : (.*)')).Groups[1].Value
-        if ($pv) { Write-Host "       voix naturelle (Pierre) : $pv" -ForegroundColor DarkGray } else { Write-Host 'ÉCHEC  reglages : la voix naturelle n''a rien produit' -ForegroundColor Red; $ok = $false }
+        if ($pv) { Write-Host "       voix naturelle (Kokoro) : $pv" -ForegroundColor DarkGray } else { Write-Host 'ÉCHEC  reglages : la voix naturelle n''a rien produit' -ForegroundColor Red; $ok = $false }
     }
 } else { $ok = $false }
 $ok = (Invoke-Scenario 'fiche' @{ EVERMIND_FICHE = 'Dentiste' } -Exemples) -and $ok
@@ -134,7 +137,18 @@ if (-not $env:EVERMIND_EVEIL_SEUL -and (Test-Path -LiteralPath (Join-Path $Voix 
     $ok = (Test-Assistant 'ia-creer-puis-effacer' 'J''aimerais que tu me crées un rendez-vous pour le 23 octobre et que tu mettes un anniversaire Jordan.||Finalement, efface-le.' { $script:Journal -match 'Rendez-vous ajouté : Anniversaire de Jordan' -and -not (Get-RV 'Anniversaire de Jordan') -and (Get-RV 'Anniversaire de Léa') }) -and $ok
     $ok = (Test-Assistant 'ia-fait' 'C''est bon, j''ai appelé maman.' { (Get-RV 'Appeler maman')[0].Fait -eq $true }) -and $ok
     $ok = (Test-Assistant 'ia-courses' 'Crée-moi un événement faire les courses samedi, avec la liste : lait, œufs, farine et beurre.' { $r = Get-RV 'Faire les courses'; $r -and $r[0].Journee -and @($r[0].APreparer).Count -eq 4 }) -and $ok
+    $ok = (Test-Assistant 'ia-courses-octobre' 'Mets-moi un événement courses tous les lundis d''octobre 2026.' { $r = Get-RV 'Courses*'; $r -and [string]$r[0].Repetition.Jusqua -eq '2026-10-31' }) -and $ok
+    $ok = (Test-Assistant 'ia-courses-deux-mois' 'Mets un événement course tous les lundis d''octobre 2026 et de novembre 2026.' { $r = Get-RV 'Course*'; @($r).Count -eq 1 -and $r[0].Titre -notmatch 'novembre' -and [string]$r[0].Repetition.Jusqua -eq '2026-11-30' }) -and $ok
+    $ok = (Test-Assistant 'ia-plusieurs-jours' 'Ajoute un événement ElleFest sur le 27, le 28 et le 29 octobre.' { $r = @(Get-RV 'Elle*'); $r.Count -eq 1 -and $r[0].Quand -like '*-10-27T00:00' -and $r[0].Fin -like '*-10-29T00:00' }) -and $ok
+    $ok = (Test-Assistant 'ia-mettre-sur-3-jours' 'Crée un événement ElleFest le 29 octobre.||Supprime le ElleFest du 29 octobre et je t''ai dit qu''il faut mettre l''événement sur 3 jours, le 27, le 28 et le 29 octobre.' { $r = @(Get-RV 'Elle*'); $r.Count -eq 1 -and $r[0].Quand -like '*-10-27T00:00' -and $r[0].Fin -like '*-10-29T00:00' }) -and $ok
+    $ok = (Test-Assistant 'ia-courses-supprimer-mois' 'Mets-moi un événement courses tous les lundis d''octobre 2026.||Supprime tous les événements courses d''octobre 2026.' { -not (Get-RV 'Courses*') }) -and $ok
+    $ok = (Test-Assistant 'ia-raid-sauf-novembre' 'Supprime tous les raids de novembre.' { $r = Get-RV 'Raid avec les potes'; $r -and @($r[0].Repetition.Sauf | Where-Object { $_ -like '2026-11-*' }).Count -ge 4 -and -not $r[0].Repetition.Jusqua }) -and $ok
+    $ok = (Test-Assistant 'ia-raid-apres' 'Enlève le raid à partir de décembre.' { $r = Get-RV 'Raid avec les potes'; $r -and [string]$r[0].Repetition.Jusqua -eq '2026-11-30' }) -and $ok
     $ok = (Test-Assistant 'ia-question' 'Qu''est-ce que j''ai demain ?' { $script:Journal -match 'Raid' -and (@((ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $script:Donnees 'rendez-vous.json'), [Text.Encoding]::UTF8))).RendezVous).Count -eq 8) }) -and $ok
+    # Le grand catalogue de demandes à l'assistant (sans fenêtre, même chemin que dans l'appli)
+    Write-Host 'Catalogue de l''assistant en cours, patiente...'
+    & (Join-Path $PSScriptRoot 'catalogue-assistant.ps1') -Voix $Voix
+    $ok = ($LASTEXITCODE -eq 0) -and $ok
 } else { Write-Host "(assistant non testé : pas d'IA dans $Voix)" -ForegroundColor DarkGray }
 
 # « OK Eve » : une phrase dite par une voix naturelle (Piper) passe par l'écoute, comme si elle venait du micro

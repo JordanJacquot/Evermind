@@ -6,6 +6,106 @@ using System.Text;
 using System.Threading;
 
 // ---------------------------------------------------------------------------
+// Les micros du PC : celui choisi dans les réglages (sinon celui de Windows), et un vumètre pour les comparer
+// ---------------------------------------------------------------------------
+public static class EMMicros
+{
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct CAPS { public ushort mid, pid; public uint ver; [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string name; public uint fmts; public ushort ch, res; }
+    [DllImport("winmm.dll")] static extern uint waveInGetNumDevs();
+    [DllImport("winmm.dll", CharSet = CharSet.Unicode)] static extern int waveInGetDevCapsW(IntPtr id, ref CAPS c, int sz);
+
+    public static uint Choisi = 0xFFFFFFFF;   // 0xFFFFFFFF : le micro par défaut de Windows
+
+    // Noms des micros (Windows les coupe à 31 lettres)
+    public static string[] Noms()
+    {
+        uint n = waveInGetNumDevs();
+        string[] r = new string[n];
+        for (uint d = 0; d < n; d++) { CAPS c = new CAPS(); waveInGetDevCapsW((IntPtr)d, ref c, Marshal.SizeOf(c)); r[d] = c.name ?? ""; }
+        return r;
+    }
+}
+
+// Écoute tous les micros en même temps, juste pour montrer leur niveau (rien n'est gardé)
+public class EMVumetre
+{
+    [StructLayout(LayoutKind.Sequential)]
+    struct WAVEFORMATEX { public ushort wFormatTag, nChannels; public uint nSamplesPerSec, nAvgBytesPerSec; public ushort nBlockAlign, wBitsPerSample, cbSize; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct WAVEHDR { public IntPtr lpData; public uint dwBufferLength, dwBytesRecorded; public IntPtr dwUser; public uint dwFlags, dwLoops; public IntPtr lpNext, reserved; }
+    [DllImport("winmm.dll")] static extern int waveInOpen(out IntPtr h, uint dev, ref WAVEFORMATEX f, IntPtr cb, IntPtr inst, uint flags);
+    [DllImport("winmm.dll")] static extern int waveInPrepareHeader(IntPtr h, IntPtr hdr, uint size);
+    [DllImport("winmm.dll")] static extern int waveInUnprepareHeader(IntPtr h, IntPtr hdr, uint size);
+    [DllImport("winmm.dll")] static extern int waveInAddBuffer(IntPtr h, IntPtr hdr, uint size);
+    [DllImport("winmm.dll")] static extern int waveInStart(IntPtr h);
+    [DllImport("winmm.dll")] static extern int waveInReset(IntPtr h);
+    [DllImport("winmm.dll")] static extern int waveInClose(IntPtr h);
+
+    public float[] Niveaux;
+    volatile bool run;
+    Thread th;
+
+    public void Start(int nombre)
+    {
+        Niveaux = new float[nombre];
+        run = true;
+        th = new Thread(() => Boucle(nombre)) { IsBackground = true, Priority = ThreadPriority.BelowNormal };
+        th.Start();
+    }
+
+    void Boucle(int nombre)
+    {
+        int taille = 3200, hs = Marshal.SizeOf(typeof(WAVEHDR));
+        IntPtr[] h = new IntPtr[nombre], hd = new IntPtr[nombre * 2];
+        for (int d = 0; d < nombre; d++)
+        {
+            WAVEFORMATEX f = new WAVEFORMATEX { wFormatTag = 1, nChannels = 1, nSamplesPerSec = 16000, wBitsPerSample = 16, nBlockAlign = 2, nAvgBytesPerSec = 32000 };
+            if (waveInOpen(out h[d], (uint)d, ref f, IntPtr.Zero, IntPtr.Zero, 0) != 0) { h[d] = IntPtr.Zero; Niveaux[d] = -1; continue; }
+            for (int b = 0; b < 2; b++)
+            {
+                WAVEHDR w = new WAVEHDR { lpData = Marshal.AllocHGlobal(taille), dwBufferLength = (uint)taille };
+                hd[d * 2 + b] = Marshal.AllocHGlobal(hs); Marshal.StructureToPtr(w, hd[d * 2 + b], false);
+                waveInPrepareHeader(h[d], hd[d * 2 + b], (uint)hs); waveInAddBuffer(h[d], hd[d * 2 + b], (uint)hs);
+            }
+            waveInStart(h[d]);
+        }
+        while (run)
+        {
+            Thread.Sleep(30);
+            for (int i = 0; i < hd.Length; i++)
+            {
+                int d = i / 2;
+                if (h[d] == IntPtr.Zero || hd[i] == IntPtr.Zero) continue;
+                WAVEHDR w = (WAVEHDR)Marshal.PtrToStructure(hd[i], typeof(WAVEHDR));
+                if ((w.dwFlags & 1) == 0) continue;
+                double s = 0; int k = (int)w.dwBytesRecorded / 2;
+                for (int j = 0; j < k; j++) { short v = Marshal.ReadInt16(w.lpData, j * 2); s += (double)v * v; }
+                float rms = k > 0 ? (float)(Math.Sqrt(s / k) / 32768.0) : 0;
+                Niveaux[d] = Math.Max(rms, Niveaux[d] * 0.8f);
+                waveInUnprepareHeader(h[d], hd[i], (uint)hs);
+                w.dwFlags = 0; w.dwBytesRecorded = 0; Marshal.StructureToPtr(w, hd[i], false);
+                waveInPrepareHeader(h[d], hd[i], (uint)hs); waveInAddBuffer(h[d], hd[i], (uint)hs);
+            }
+        }
+        for (int d = 0; d < nombre; d++)
+        {
+            if (h[d] == IntPtr.Zero) continue;
+            waveInReset(h[d]);
+            for (int b = 0; b < 2; b++)
+            {
+                IntPtr p = hd[d * 2 + b];
+                WAVEHDR w = (WAVEHDR)Marshal.PtrToStructure(p, typeof(WAVEHDR));
+                waveInUnprepareHeader(h[d], p, (uint)hs); Marshal.FreeHGlobal(w.lpData); Marshal.FreeHGlobal(p);
+            }
+            waveInClose(h[d]);
+        }
+    }
+
+    public void Stop() { run = false; if (th != null) th.Join(1500); }
+}
+
+// ---------------------------------------------------------------------------
 // Micro : enregistrement en 16 kHz mono (le format de Whisper), avec le niveau du son
 // pour savoir quand on parle et quand on s'est tu.
 // ---------------------------------------------------------------------------
@@ -48,7 +148,7 @@ public class EMMicro
     public int Start()
     {
         WAVEFORMATEX f = new WAVEFORMATEX { wFormatTag = 1, nChannels = 1, nSamplesPerSec = Rate, wBitsPerSample = 16, nBlockAlign = 2, nAvgBytesPerSec = Rate * 2, cbSize = 0 };
-        int r = waveInOpen(out h, WAVE_MAPPER, ref f, ev.SafeWaitHandle.DangerousGetHandle(), IntPtr.Zero, CALLBACK_EVENT);
+        int r = waveInOpen(out h, EMMicros.Choisi, ref f, ev.SafeWaitHandle.DangerousGetHandle(), IntPtr.Zero, CALLBACK_EVENT);
         if (r != 0) { h = IntPtr.Zero; return r; }
         for (int i = 0; i < hdrs.Length; i++)
         {
@@ -218,7 +318,7 @@ public class EMEveil
         if (model == IntPtr.Zero) return -1;
         rec = NouveauRecognizer(Rate);
         WAVEFORMATEX f = new WAVEFORMATEX { wFormatTag = 1, nChannels = 1, nSamplesPerSec = Rate, wBitsPerSample = 16, nBlockAlign = 2, nAvgBytesPerSec = Rate * 2, cbSize = 0 };
-        int r = waveInOpen(out h, 0xFFFFFFFF, ref f, ev.SafeWaitHandle.DangerousGetHandle(), IntPtr.Zero, 0x50000);
+        int r = waveInOpen(out h, EMMicros.Choisi, ref f, ev.SafeWaitHandle.DangerousGetHandle(), IntPtr.Zero, 0x50000);
         if (r != 0) { h = IntPtr.Zero; return r; }
         for (int i = 0; i < hdrs.Length; i++)
         {
@@ -262,8 +362,16 @@ public class EMEveil
         }
     }
 
+    public volatile float NiveauMax;     // le son le plus fort entendu depuis la dernière lecture (diagnostic)
+    public volatile int Paquets;         // morceaux de son reçus du micro (diagnostic)
+    public string Indices = "";          // phrases où Vosk a cru entendre « ok » ou « ève », avec leur confiance (diagnostic)
+
     void Traiter(IntPtr r, byte[] b, int n, int rate)
     {
+        double sum = 0; for (int i = 0; i + 1 < n; i += 2) { short s = (short)(b[i] | (b[i + 1] << 8)); sum += (double)s * s; }
+        float rms = (float)(Math.Sqrt(sum / Math.Max(1, n / 2)) / 32768.0);
+        if (rms > NiveauMax) NiveauMax = rms;
+        Paquets++;
         phrase.Write(b, 0, n);
         if (phrase.Length > rate * 2 * 20) phrase.SetLength(0);   // jamais plus de 20 secondes en mémoire
         if (vosk_recognizer_accept_waveform(r, b, n) == 1) Analyser(PtrToString(vosk_recognizer_result(r)), rate);
@@ -276,6 +384,9 @@ public class EMEveil
         Phrases = (Phrases + " | " + System.Text.RegularExpressions.Regex.Match(json, "\"text\"\\s*:\\s*\"([^\"]*)\"").Groups[1].Value);
         if (Phrases.Length > 300) Phrases = Phrases.Substring(Phrases.Length - 300);
         var mots = System.Text.RegularExpressions.Regex.Matches(json, "\"conf\"\\s*:\\s*([0-9.]+)[^}]*?\"word\"\\s*:\\s*\"([^\"]*)\"");
+        string vus = "";
+        foreach (System.Text.RegularExpressions.Match mo in mots) if (mo.Groups[2].Value != "[unk]") vus += " " + mo.Groups[2].Value + " " + mo.Groups[1].Value;
+        if (vus != "") lock (this) Indices += (Indices == "" ? "" : " |") + vus;
         if (mots.Count >= 2)
         {
             double c0 = double.Parse(mots[0].Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
@@ -347,6 +458,28 @@ public class EMEveil
         int n = 0; while (Marshal.ReadByte(p, n) != 0) n++;
         byte[] b = new byte[n]; Marshal.Copy(p, b, 0, n);
         return Encoding.UTF8.GetString(b);
+    }
+}
+
+// Lit les lignes d'un programme lancé à côté (la voix Kokoro) sur un fil à part :
+// la fenêtre vient les chercher quand elle veut, sans jamais attendre.
+public class EMLigneur
+{
+    readonly System.Collections.Concurrent.ConcurrentQueue<string> lignes = new System.Collections.Concurrent.ConcurrentQueue<string>();
+    public EMLigneur(StreamReader lecteur)
+    {
+        Thread t = new Thread(() => { try { string l; while ((l = lecteur.ReadLine()) != null) lignes.Enqueue(l); } catch { } lignes.Enqueue(null); });
+        t.IsBackground = true;
+        t.Start();
+    }
+    public volatile bool Fini;
+    // La prochaine ligne, ou "" s'il n'y en a pas encore ; null quand le programme s'est arrêté
+    public string Suivante()
+    {
+        string l;
+        if (!lignes.TryDequeue(out l)) return "";
+        if (l == null) Fini = true;
+        return l;
     }
 }
 

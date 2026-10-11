@@ -94,8 +94,20 @@ function Update-Apercu {
 }
 
 # Ajoute ce que la phrase a donné (barre rapide ou voix)
+# Des jours séparés (« les 3 et 10 novembre ») : un événement par jour ; le premier est retourné
 function Add-DepuisPhrase($p) {
-    Add-RendezVous (Get-TitreAffiche $p.Titre) $p.Quand $p.Repetition $p.Type $p.Journee (Get-DetailsPhrase $p)
+    $premier = $null
+    foreach ($q in (Get-QuandsPhrase $p)) {
+        $r = Add-RendezVous (Get-TitreAffiche $p.Titre) $q $p.Repetition $p.Type $p.Journee (Get-DetailsPhrase $p)
+        if (-not $premier) { $premier = $r }
+    }
+    $premier
+}
+
+# Les moments où créer l'événement : un seul, ou un par jour séparé (même heure)
+function Get-QuandsPhrase($p) {
+    $j = @($p.Jours | Where-Object { $_ })
+    if ($j.Count -gt 1 -and $p.Quand) { @($j | ForEach-Object { ([datetime]$_).Date + $p.Quand.TimeOfDay }) } else { @($p.Quand) }
 }
 
 function Invoke-Ajouter {
@@ -447,6 +459,7 @@ function Set-FRepet([string]$Type) {
     foreach ($k in @(@('une', 'FRepUne'), @('semaine', 'FRepSemaine'), @('mois', 'FRepMois'), @('an', 'FRepAn'))) {
         $ui[$k[1]].Tag = if ($k[0] -eq $Type) { 'on' } else { $null }
     }
+    if (-not $script:FormOuverture -and $ui.FDernierPanel) { $ui.FDernierPanel.Visibility = if ($script:FJournee -and $script:FType -ne 'anniv' -and $Type -eq 'une') { 'Visible' } else { 'Collapsed' } }
 }
 
 function Update-FHeureInfo {
@@ -464,12 +477,12 @@ function Show-FMessage([string]$Text) {
 # -Jour : jour proposé (sinon le jour choisi, sinon aujourd'hui). -RV : rendez-vous à modifier.
 function Open-Formulaire($Jour, $RV, [switch]$Copie) {
     $script:FormEdition = $RV
-    $titre = ''; $heure = ''; $rep = 'une'; $type = 'rdv'; $journee = $false
+    $titre = ''; $heure = ''; $rep = 'une'; $type = 'rdv'; $journee = $false; $script:FJusqua = $null; $script:FRepPhrase = $null
     $jourForm = if ($Jour) { ([datetime]$Jour).Date } elseif ($script:JourChoisi -and $script:JourChoisi -ge (Get-Date).Date) { $script:JourChoisi } else { (Get-Date).Date }
     if ($RV) {
         $titre = $RV.Titre; $jourForm = $RV.Quand.Date; $type = Get-TypeRV $RV; $journee = [bool]$RV.Journee
         if (-not $journee) { $heure = Format-Heure $RV.Quand }
-        if ($RV.Repetition) { $rep = [string]$RV.Repetition.Type; if ($rep -eq 'jour') { $rep = 'une' } }
+        if ($RV.Repetition) { $rep = [string]$RV.Repetition.Type; if ($rep -eq 'jour') { $rep = 'une' }; $script:FJusqua = [string]$RV.Repetition.Jusqua }
     } elseif ($ui.InPhrase.Text.Trim()) {
         # Ce qui est déjà écrit (ou dit) dans la barre pré-remplit le formulaire
         $p = Read-Phrase $ui.InPhrase.Text
@@ -480,8 +493,9 @@ function Open-Formulaire($Jour, $RV, [switch]$Copie) {
             if ($p.Jour) { $jourForm = $p.Jour }
             if ($null -ne $p.Heure) { $heure = Format-Heure ([datetime]::Today + $p.Heure) }
         }
-        if ($p.Repetition -and $p.Repetition.Type -ne 'jour') { $rep = [string]$p.Repetition.Type }
+        if ($p.Repetition -and $p.Repetition.Type -ne 'jour') { $rep = [string]$p.Repetition.Type; $script:FJusqua = [string]$p.Repetition.Jusqua; $script:FRepPhrase = $p.Repetition }
     }
+    $script:FRepetDepart = $rep
     $ui.FormTitre.Text = if ($Copie) { 'Copie du rendez-vous' } elseif ($RV) { 'Modifier le rendez-vous' } else { 'Nouveau rendez-vous' }
     $ui.BtnFEnregistrer.Content = if ($RV -and -not $Copie) { 'Enregistrer' } else { 'Ajouter' }
     Set-FDetails $(if ($RV) { $RV } elseif ($p -and $ui.InPhrase.Text.Trim()) { $p } else { $null })
@@ -541,6 +555,15 @@ function Save-Formulaire {
         'an'      { [ordered]@{ Type = 'an'; Jour = $quand.Day; Mois = $quand.Month } }
         default   { $null }
     }
+    # Même sorte de répétition qu'avant : elle garde son rythme, ses jours, son rang, sa date de fin et ses jours sautés
+    if ($rep -and $script:FRepetDepart -eq $script:FRepet) {
+        $avant = if ($script:FormEdition) { $script:FormEdition.Repetition } else { $script:FRepPhrase }
+        if ($avant) {
+            foreach ($k in 'Jours', 'Intervalle', 'Rang', 'Sauf') { if ($null -ne $avant.$k) { $rep[$k] = $avant.$k } }
+            if ($avant.Rang) { $rep.Jour = $avant.Jour }
+        }
+        if ($script:FJusqua) { $rep.Jusqua = $script:FJusqua }
+    }
     $edition = $script:FormEdition
     $limite = if ($script:FJournee) { (Get-Date).Date } else { Get-Date }
     if (-not $rep -and $quand -lt $limite -and -not $edition) { Show-FMessage 'Ce moment est déjà passé. Choisis un autre jour ou une autre heure.'; return }
@@ -556,6 +579,7 @@ function Save-Formulaire {
     if (-not $edition) { $ui.InPhrase.Text = '' }
     $depuis = if ($r.Journee) { (Get-Date).Date } else { Get-Date }
     $prochain = Get-NextOccurrence $r.Repetition $r.Quand $depuis
+    if ($prochain -eq [datetime]::MinValue) { $prochain = $r.Quand }   # sa date de fin est passée
     Show-FormMessage $(if ($edition) { "C'est modifié : $($r.Titre), $(Format-QuandRV $r $prochain)." } else { Get-MessageNote $r }) $Colors.ok
     Select-JourCalendrier $prochain
 }

@@ -218,6 +218,14 @@ function Get-Conflits([datetime]$Debut, $Fin, [string]$SaufId) {
 function Get-AgendaEntre([datetime]$Debut, [datetime]$Fin) {
     @(foreach ($r in $script:Agenda) {
         if (-not $r.Repetition) {
+            if (Test-PlusieursJours $r) {
+                # Sur plusieurs jours : il apparaît chaque jour (le premier à son heure, les suivants dès minuit)
+                for ($j = $r.Quand.Date; $j -le $r.Fin.Date; $j = $j.AddDays(1)) {
+                    $q = if ($j -eq $r.Quand.Date) { $r.Quand } else { $j }
+                    if ($q -ge $Debut -and $q -lt $Fin) { [pscustomobject]@{ RV = $r; Prochain = $q } }
+                }
+                continue
+            }
             if ($r.Quand -ge $Debut -and $r.Quand -lt $Fin) { [pscustomobject]@{ RV = $r; Prochain = $r.Quand } }
             continue
         }
@@ -237,6 +245,7 @@ function Get-Upcoming {
     @(foreach ($r in $script:Agenda) {
         $depuis = if ($r.Journee) { $now.Date } else { $now }   # un anniversaire reste « à venir » toute sa journée
         $next = Get-NextOccurrence $r.Repetition $r.Quand $depuis
+        if ($next -lt $depuis -and (Test-PlusieursJours $r) -and $r.Fin -ge $depuis) { $next = $depuis.Date }   # commencé, pas encore fini
         if ($next -ge $depuis -and -not $r.Fait) { [pscustomobject]@{ RV = $r; Prochain = $next } }
     }) | Sort-Object Prochain
 }

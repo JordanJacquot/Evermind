@@ -53,6 +53,8 @@ function Start-LogoLoop($Target, $Property, [double]$From, [double]$To, [int]$Ms
     $a.Duration = [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds($Ms))
     $a.RepeatBehavior = [System.Windows.Media.Animation.RepeatBehavior]::Forever
     if ($Reverse) { $e = New-Object System.Windows.Media.Animation.SineEase; $e.EasingMode = 'EaseInOut'; $a.EasingFunction = $e }
+    # 30 images par seconde suffisent pour un logo qui tourne doucement : deux fois moins de calcul qu'en 60
+    [System.Windows.Media.Animation.Timeline]::SetDesiredFrameRate($a, 30)
     $Target.BeginAnimation($Property, $a)
 }
 

@@ -575,6 +575,14 @@
                   </WrapPanel>
                 </StackPanel>
 
+                <StackPanel x:Name="FDernierPanel" Visibility="Collapsed">
+                  <TextBlock Text="Sur plusieurs jours ? Le dernier jour" Style="{StaticResource Label}"/>
+                  <WrapPanel>
+                    <TextBox x:Name="FDernier" Style="{StaticResource Champ}" Tag="29 octobre" Width="170" MaxLength="40" Margin="0,0,8,0"/>
+                    <TextBlock x:Name="FDernierInfo" Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                  </WrapPanel>
+                </StackPanel>
+
                 <TextBlock Text="Où ?" Style="{StaticResource Label}"/>
                 <TextBox x:Name="FLieu" Style="{StaticResource Champ}" Tag="Adresse ou lieu (ex : 12 rue des Lilas, Zénith de Paris)" MaxLength="200"/>
 
@@ -656,6 +664,9 @@
             <TextBlock Text="Choisis la voix qui te parle (confirmations et rappels). Clique sur une voix pour l'écouter." Style="{StaticResource Sub}" Margin="2,0,0,12"/>
             <StackPanel x:Name="VoixChoix"/>
             <TextBlock x:Name="VoixReglageInfo" Style="{StaticResource Sub}" Margin="2,6,0,0" Visibility="Collapsed"/>
+            <TextBlock Text="Le micro" Style="{StaticResource Label}" FontSize="16" Margin="2,22,0,4"/>
+            <TextBlock Text="Celui qu'Evermind écoute (dictée et « OK Eve »). Parle : la barre qui bouge montre le micro qui t'entend." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
+            <StackPanel x:Name="MicroChoix"/>
             <TextBlock Text="Réveil par la voix" Style="{StaticResource Label}" FontSize="16" Margin="2,22,0,4"/>
             <DockPanel>
               <CheckBox x:Name="ChkEveil" DockPanel.Dock="Left" Style="{StaticResource Switch}" VerticalAlignment="Center" Margin="2,0,14,0"/>

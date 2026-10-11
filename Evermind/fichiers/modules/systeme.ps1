@@ -97,6 +97,8 @@ function Exit-App {
     try { if ($script:Bulle) { $script:Bulle.Win.Close() } } catch {}
     try { if ($script:Synth) { $script:Synth.Dispose() } } catch {}
     try { Stop-Cerveau } catch {}
+    try { Stop-KokoroServeur } catch {}
+    try { Stop-WhisperServeur } catch {}
     try { Stop-Eveil } catch {}
     try { if ($script:LogoTimer) { $script:LogoTimer.Stop() } } catch {}
     try { if ($script:NotifyIcon) { $script:NotifyIcon.Visible = $false; $script:NotifyIcon.Dispose() } } catch {}

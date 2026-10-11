@@ -83,6 +83,7 @@ function Initialize-FDetails {
         })
     }
     $ui.FFin.Add_TextChanged({ Update-FFinInfo })
+    $ui.FDernier.Add_TextChanged({ Update-FDernierInfo })
     $ui.FNaissance.Add_TextChanged({ Update-FAgeInfo })
     $ui.FImportant.Add_Click({ $ui.FImportant.Tag = if ($ui.FImportant.Tag -eq 'on') { $null } else { 'on' } })
 }
@@ -127,6 +128,25 @@ function Update-FFinInfo {
     elseif ($null -ne $fin -and $null -ne $debut) { $ui.FFinInfo.Text = "dure $(Format-Duree ($fin - $debut))"; $ui.FFinInfo.Foreground = Get-Brush $Colors.ok }
 }
 
+# Dernier jour d'un événement sur plusieurs jours (« 29 octobre », « jeudi ») : la date, ou $null si vide ou incompris
+function Read-FDernier {
+    $t = $ui.FDernier.Text.Trim()
+    if (-not $t) { return $null }
+    $p = Read-Periode $t
+    if ($p -and $p.Debut -and $p.Fin -and $p.Debut -eq $p.Fin) { return $p.Debut }
+    $null
+}
+
+function Update-FDernierInfo {
+    $ui.FDernierInfo.Text = ''
+    if (-not $ui.FDernier.Text.Trim()) { return }
+    $f = Read-FDernier
+    if (-not $f) { $ui.FDernierInfo.Text = 'Je ne comprends pas ce jour'; $ui.FDernierInfo.Foreground = Get-Brush $Colors.bad; return }
+    $n = ($f - $script:FChoix.Date).Days + 1
+    if ($n -lt 2) { $ui.FDernierInfo.Text = 'doit être après le premier jour'; $ui.FDernierInfo.Foreground = Get-Brush $Colors.bad }
+    else { $ui.FDernierInfo.Text = "$n jours, jusqu'au $($f.ToString('dddd d MMMM', $Fr))"; $ui.FDernierInfo.Foreground = Get-Brush $Colors.ok }
+}
+
 # Heure de fin du formulaire, en durée depuis minuit (« de 22 h à 1 h » finit le lendemain) ; $null si vide ou incomprise
 function Read-FFin($Debut) {
     $t = $ui.FFin.Text.Trim()
@@ -150,6 +170,9 @@ function Update-FAgeInfo {
 # Remplit les détails du formulaire (depuis un rendez-vous, ou depuis ce que la phrase a compris)
 function Set-FDetails($Source) {
     $ui.FFin.Text = if ($Source -and $Source.Fin -and $Source.Quand -and -not $Source.Journee) { Format-Heure ([datetime]$Source.Fin) } else { '' }
+    $ui.FDernier.Text = if ($Source -and $Source.Journee -and $Source.Fin -and $Source.Quand -and ([datetime]$Source.Fin).Date -gt ([datetime]$Source.Quand).Date) {
+        $f = [datetime]$Source.Fin; $f.ToString('d MMMM', $Fr) + $(if ($f.Year -ne (Get-Date).Year) { " $($f.Year)" })
+    } else { '' }
     $ui.FLieu.Text = if ($Source) { [string]$Source.Lieu } else { '' }
     $ui.FAvec.Text = if ($Source) { @($Source.Avec) -join ', ' } else { '' }
     $ui.FLien.Text = if ($Source) { [string]$Source.Lien } else { '' }
@@ -165,6 +188,7 @@ function Set-FDetails($Source) {
 function Update-FDetailsVisibles {
     $ui.FAnnivPanel.Visibility = if ($script:FType -eq 'anniv') { 'Visible' } else { 'Collapsed' }
     $ui.FFinPanel.Visibility = if ($script:FJournee) { 'Collapsed' } else { 'Visible' }
+    $ui.FDernierPanel.Visibility = if ($script:FJournee -and $script:FType -ne 'anniv' -and $script:FRepet -in $null, '', 'une') { 'Visible' } else { 'Collapsed' }
     Update-FSuggestions
     Update-FRappels
     Update-FAgeInfo
@@ -177,6 +201,11 @@ function Read-FDetails([datetime]$Quand, [bool]$Journee) {
         $f = Read-FFin $Quand.TimeOfDay
         if ($null -eq $f) { return @{ Erreur = 'Je n''ai pas compris l''heure de fin. Écris par exemple 16 h, ou efface-la.' } }
         $fin = $Quand.Date + $f
+    } elseif ($Journee -and $ui.FDernierPanel.Visibility -eq 'Visible' -and $ui.FDernier.Text.Trim()) {
+        $f = Read-FDernier
+        if (-not $f) { return @{ Erreur = 'Je n''ai pas compris le dernier jour. Écris par exemple 29 octobre, ou efface-le.' } }
+        if ($f -le $Quand.Date) { return @{ Erreur = 'Le dernier jour doit être après le premier jour.' } }
+        $fin = $f
     }
     $naissance = $null
     $nt = $ui.FNaissance.Text.Trim()

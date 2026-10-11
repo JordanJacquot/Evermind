@@ -112,13 +112,34 @@ $cas = @(
     , @('aujourd''hui à 8 h dentiste', 'passe', 'dentiste')
     , @('le 31 février à 10 h', 'invalide', '')
     , @('tous les lundis raid', '2026-10-12 journée', 'raid', 'semaine/1')
+    , @("faire les courses tous les lundis d'octobre 2026", '2026-10-12 journée', 'faire les courses', 'semaine/1/2026-10-31', 'rappel')
+    , @('yoga tous les mardis du mois de novembre à 19 h', '2026-11-03 19:00', 'yoga', 'semaine/2/2026-11-30', 'sport')
+    , @("sport tous les mercredis à 19 h jusqu'au 15 décembre", '2026-10-14 19:00', 'sport', 'semaine/3/2026-12-15', 'sport')
+    , @("piscine tous les jeudis à 18 h jusqu'à fin novembre", '2026-10-15 18:00', 'piscine', 'semaine/4/2026-11-30', 'sport')
+    , @('tous les lundis à partir du 2 novembre à 18 h foot', '2026-11-02 18:00', 'foot', 'semaine/1', 'sport')
+    , @("courses tous les lundis d'octobre 2026 et de novembre 2026", '2026-10-12 journée', 'courses', 'semaine/1/2026-11-30', 'rappel')
+    , @("yoga tous les mardis d'octobre à décembre à 19 h", '2026-10-13 19:00', 'yoga', 'semaine/2/2026-12-31', 'sport')
+    , @('piscine tous les jeudis à 18 h en janvier, février et mars 2027', '2027-01-07 18:00', 'piscine', 'semaine/4/2027-03-31', 'sport')
+    , @('ElleFest le 27, le 28 et le 29 octobre', '2026-10-27 journée au 2026-10-29', 'ElleFest', '', 'rdv', 'fin=00:00')
+    , @('ElleFest du 27 au 29 octobre', '2026-10-27 journée au 2026-10-29', 'ElleFest', '', 'rdv', 'fin=00:00')
+    , @('séminaire du 27 au 29 octobre, 2027', '2027-10-27 journée au 2027-10-29', 'séminaire', '', 'rdv', 'fin=00:00')
+    , @('dentiste le 3 mars à 15 h en 2028', '2028-03-03 15:00', 'dentiste', '', 'sante')
+    , @("dentiste le 3 mars de l'année prochaine à 10 h", '2027-03-03 10:00', 'dentiste', '', 'sante')
+    , @('réunion le 5 janvier, 2027 à 9 h', '2027-01-05 09:00', 'réunion')
+    , @('budget 2027 le 3 novembre à 14 h', '2026-11-03 14:00', 'budget 2027')
+    , @('vacances du 20 décembre au 3 janvier', '2026-12-20 journée au 2027-01-03', 'vacances', '', 'voyage', 'fin=00:00')
+    , @('salon pendant 3 jours à partir du 5 novembre', '2026-11-05 journée au 2026-11-07', 'salon', '', 'sortie', 'fin=00:00')
+    , @('séminaire du 12 au 14 novembre de 9 h à 17 h', '2026-11-12 09:00 au 2026-11-14 17:00', 'séminaire', '', 'rdv', 'fin=17:00')
+    , @('cours de guitare les 3 et 10 novembre à 18 h', '2026-11-03 18:00 + 11-10', 'cours de guitare')
 )
 
 $ok = 0; $ko = 0
 foreach ($c in $cas) {
     $p = Read-Phrase $c[0] $now
     $obtenu = if ($p.Manque) { $p.Manque } elseif ($p.Journee) { $p.Quand.ToString('yyyy-MM-dd') + ' journée' } else { $p.Quand.ToString('yyyy-MM-dd HH:mm') }
-    $rep = if ($p.Repetition) { (@($p.Repetition.Type, $p.Repetition.Jour, $p.Repetition.Mois) | Where-Object { $null -ne $_ -and "$_" -ne '' }) -join '/' } else { '' }
+    if (-not $p.Manque -and (Test-PlusieursJours ([pscustomobject]@{ Quand = $p.Quand; Fin = $p.Fin; Journee = $p.Journee; Repetition = $p.Repetition }))) { $obtenu += ' au ' + ([datetime]$p.Fin).ToString($(if ($p.Journee) { 'yyyy-MM-dd' } else { 'yyyy-MM-dd HH:mm' })) }
+    if (@($p.Jours | Where-Object { $_ }).Count -gt 1) { $obtenu += ' + ' + (@($p.Jours | Select-Object -Skip 1 | ForEach-Object { ([datetime]$_).ToString('MM-dd') }) -join ',') }
+    $rep = if ($p.Repetition) { (@($p.Repetition.Type, $p.Repetition.Jour, $p.Repetition.Mois, $p.Repetition.Jusqua) | Where-Object { $null -ne $_ -and "$_" -ne '' }) -join '/' } else { '' }
     $attenduRep = if ($c.Count -gt 3) { $c[3] } else { '' }
     $attenduType = if ($c.Count -gt 4) { $c[4] } else { $p.Type }
     $d = @()
