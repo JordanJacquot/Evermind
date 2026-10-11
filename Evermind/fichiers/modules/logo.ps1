@@ -161,7 +161,7 @@ function Start-LogoAnime($Hote, [double]$S = 84) {
     Start-LogoLoop $hs ([System.Windows.Media.ScaleTransform]::ScaleYProperty) 0.85 1.1 1600 $true
 
     # Anneau de fond, et l'anneau cyan vers violet qui tourne (sur Nevermind, il se remplit avec le chargement)
-    $epais = [math]::Max(2, 6 * $k)
+    $epais = [math]::Max(2.0, 6 * $k)
     [void]$cv.Children.Add((New-LogoArc $C (112 * $k) -90 359.9 (Get-Brush '#16FFFFFF') $epais))
     $tour = New-Object System.Windows.Controls.Canvas
     $tour.Width = $S; $tour.Height = $S

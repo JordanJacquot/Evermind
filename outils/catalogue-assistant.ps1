@@ -92,6 +92,12 @@ $anSuivant = $auj.Year + 1
 # Famille, phrases (une conversation), vérification de l'agenda à la fin
 $cas = @(
     # --- Créer : jours, heures, façons de le dire
+    , @('horaires', @('Je suis du matin lundi et mardi.'), { $r = @(Get-RV 'Travail (matin)'); $r.Count -eq 2 -and @($r | Where-Object { ([datetime]$_.Quand).Hour -eq 6 -and ([datetime]$_.Fin).Hour -eq 14 }).Count -eq 2 })
+    , @('horaires', @('Mets mes horaires de boulot : lundi matin, mardi journée et mercredi soir.'), { @(Get-RV 'Travail (matin)').Count -eq 1 -and @(Get-RV 'Travail (journée)').Count -eq 1 -and @(Get-RV 'Travail (soir)').Count -eq 1 -and ([datetime](Get-RV 'Travail (soir)')[0].Quand).Hour -eq 14 })
+    , @('horaires', @('Je travaille de nuit toute la semaine prochaine.'), { $r = @(Get-RV 'Travail (nuit)'); $r.Count -eq 5 -and @($r | Where-Object { ([datetime]$_.Quand).Hour -eq 22 -and ([datetime]$_.Fin).Date -gt ([datetime]$_.Quand).Date }).Count -eq 5 })
+    , @('horaires', @('Boulot mardi de 6 h à 14 h.'), { $r = @(Get-RV 'Boulot'); $r.Count -eq 1 -and ([datetime]$r[0].Quand).Hour -eq 6 -and ([datetime]$r[0].Fin).Hour -eq 14 })
+    , @('horaires', @('Je suis du soir tous les jeudis.'), { $r = @(Get-RV 'Travail (soir)'); $r.Count -eq 1 -and $r[0].Repetition.Type -eq 'semaine' -and [int]$r[0].Repetition.Jour -eq 4 })
+    , @('créer', @("Mets-moi un appel avec Paul le $($dentiste.Day) $($dentiste.ToString('MMMM', $Fr)) à 15 h."), { @($script:Agenda).Count -eq 9 -and $script:Dit -match 'Attention, tu as déjà Dentiste' })
     , @('créer', @('Ajoute un rendez-vous chez le garagiste vendredi à 10 h.'), { $r = Get-RV '*garag*'; (Test-Jour $r[0] (Get-Prochain 5) '10:00') })
     , @('créer', @('Mets-moi coiffeur mardi à 14 h 30.'), { $r = Get-RV 'Coiffeur'; @($r | Where-Object { Test-Jour $_ (Get-Prochain 2) '14:30' }).Count -eq 1 })
     , @('créer', @('Note que j''ai piscine demain à 18 h.'), { $r = Get-RV '*iscine*'; Test-Jour $r[0] $auj.AddDays(1) '18:00' })

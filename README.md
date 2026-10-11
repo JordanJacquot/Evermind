@@ -18,9 +18,12 @@ Tout reste sur ton PC : la dictée, la voix et l'assistant tournent en local. Ri
    « Installer l'assistant » (2,3 Go : Eve). Téléchargés une seule fois, ensuite tout marche sans Internet.
 
 Il faut Windows 10 ou 11 (64 bits) et au moins 8 Go de mémoire. Avec une carte graphique, Eve répond plus vite.
-Pour mettre à jour : remplace le dossier d'Evermind, tes rendez-vous restent (`%LOCALAPPDATA%\Evermind`).
+**Mettre à jour** : quand une nouvelle version sort, un bandeau apparaît dans Evermind ; « Mettre à jour » et il se
+relance tout seul en quelques secondes (rendez-vous, réglages, voix et assistant restent). Evermind regarde la page
+des versions sur GitHub au démarrage puis toutes les 6 heures, sans rien envoyer de personnel.
+Avant la 0.10.2, il faut le faire une fois à la main : quitter Evermind, remplacer son dossier par le nouveau zip.
 
-## Ce qu'il sait faire (0.10.1)
+## Ce qu'il sait faire (0.10.2)
 
 - **Parler à Eve** : dis « OK Eve » (ou Ctrl + Maj + Espace, même en jeu), puis « décale le dentiste à jeudi »,
   « supprime tous les raids de novembre », « pour le foot prends mes crampons », « qu'est-ce que j'ai demain ? »,

@@ -202,6 +202,55 @@ function Start-VoixInstall([string]$Pack) {
     $script:VoixDlTimer.Start()
 }
 
+# ---------------------------------------------------------------------------
+# Barre d'avancement vivante : elle glisse jusqu'à sa place (au lieu de sauter), un reflet lumineux la parcourt sans
+# arrêt (on voit que ça travaille, même pendant la vérification), et le texte dit le pourcentage, la vitesse et le
+# temps qui reste
+# ---------------------------------------------------------------------------
+function Set-BarreAvance($Barre, $Fond, [double]$Part) {
+    $cible = [math]::Max(10.0, $Fond.ActualWidth * [math]::Min(1.0, [math]::Max(0.0, $Part)))
+    if ([math]::Abs($cible - $Barre.ActualWidth) -ge 1) {
+        $an = New-Object System.Windows.Media.Animation.DoubleAnimation $cible, ([TimeSpan]::FromMilliseconds(450))
+        $an.EasingFunction = New-Object System.Windows.Media.Animation.QuadraticEase
+        $Barre.BeginAnimation([System.Windows.FrameworkElement]::WidthProperty, $an)
+    }
+    if (-not $Barre.Child) {
+        # Le reflet : une tache de lumière qui traverse la barre en boucle
+        $Barre.ClipToBounds = $true
+        $reflet = New-Object System.Windows.Controls.Border
+        $reflet.Width = 90; $reflet.HorizontalAlignment = 'Left'
+        $g = New-Object System.Windows.Media.LinearGradientBrush; $g.StartPoint = '0,0'; $g.EndPoint = '1,0'
+        foreach ($s in @(@('#00FFFFFF', 0), @('#88FFFFFF', 0.5), @('#00FFFFFF', 1))) { $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop ([System.Windows.Media.ColorConverter]::ConvertFromString($s[0])), $s[1])) }
+        $reflet.Background = $g
+        $tr = New-Object System.Windows.Media.TranslateTransform; $reflet.RenderTransform = $tr
+        $Barre.Child = $reflet
+        $an = New-Object System.Windows.Media.Animation.DoubleAnimation -100, 900, ([TimeSpan]::FromMilliseconds(1700))
+        $an.RepeatBehavior = [System.Windows.Media.Animation.RepeatBehavior]::Forever
+        $tr.BeginAnimation([System.Windows.Media.TranslateTransform]::XProperty, $an)
+    }
+}
+
+# « Téléchargement : cerveau de l'assistant... 812 Mo sur 2 382 Mo (34 %) · 6,2 Mo/s · encore 4 min »
+function Get-TexteAvance([string]$Debut, [long]$Recu, [long]$Total, [bool]$SansVitesse) {
+    $maintenant = Get-Date
+    $a = $script:Avance
+    if (-not $a -or $Recu -lt $a.R) { $a = $script:Avance = @{ T = $maintenant; R = $Recu; V = 0.0 } }
+    $dt = ($maintenant - $a.T).TotalSeconds
+    if ($dt -ge 1) {
+        $inst = ($Recu - $a.R) / $dt
+        $a.V = if ($a.V) { 0.75 * $a.V + 0.25 * $inst } else { $inst }
+        $a.T = $maintenant; $a.R = $Recu
+    }
+    $pct = if ($Total) { [math]::Floor(100 * $Recu / $Total) } else { 0 }
+    $t = "$Debut...  $([math]::Round($Recu / 1MB).ToString('N0', $Fr)) Mo sur $([math]::Round($Total / 1MB).ToString('N0', $Fr)) Mo ($pct %)"
+    if (-not $SansVitesse -and $a.V -gt 20KB -and $Total -gt $Recu) {
+        $reste = ($Total - $Recu) / $a.V
+        $duree = if ($reste -lt 60) { 'moins d''une minute' } elseif ($reste -lt 3600) { "$([math]::Ceiling($reste / 60)) min" } else { "$([math]::Floor($reste / 3600)) h $(([math]::Floor(($reste % 3600) / 60)).ToString('00'))" }
+        $t += "  ·  $([math]::Round($a.V / 1MB, 1).ToString($Fr)) Mo/s  ·  encore $duree"
+    }
+    $t
+}
+
 # Panneau d'installation : ce qui manque (la voix d'abord, puis l'assistant), bouton, barre d'avancement
 function Update-VoixInstall {
     $dl = $script:VoixDl
@@ -234,13 +283,14 @@ function Update-VoixInstall {
     $ui.VoixInstall.Visibility = 'Visible'
     $ui.BtnVoixPlusTard.Visibility = 'Collapsed'
     if ($enCours) {
-        $pct = if ($dl.Total) { [math]::Min(1, $dl.Recu / $dl.Total) } else { 0 }
-        $ui.VoixBarre.Width = [math]::Max(4, $ui.VoixBarreFond.ActualWidth * $pct)
+        $pct = if ($dl.Total) { [math]::Min(1.0, $dl.Recu / $dl.Total) } else { 0 }
         $ui.VoixBarreFond.Visibility = 'Visible'
-        $ui.VoixInstallTexte.Text = "Téléchargement : $($dl.Etape)... $([math]::Round($dl.Recu / 1MB)) Mo sur $([math]::Round($dl.Total / 1MB)) Mo"
-        $ui.BtnVoixInstall.IsEnabled = $false
+        Set-BarreAvance $ui.VoixBarre $ui.VoixBarreFond $pct
+        $ui.VoixInstallTexte.Text = Get-TexteAvance "Téléchargement : $($dl.Etape)" $dl.Recu $dl.Total ([string]$dl.Etape -match 'vérification|décompression|reprise')
+        $ui.BtnVoixInstall.IsEnabled = $false; $ui.BtnVoixInstall.Content = 'Téléchargement...'
         return
     }
+    $script:Avance = $null
     $ui.VoixBarreFond.Visibility = 'Collapsed'
     $ui.BtnVoixInstall.IsEnabled = $true
     if ($script:VoixDlTimer) { $script:VoixDlTimer.Stop() }
@@ -484,7 +534,7 @@ function Open-Reglages([string]$Onglet) {
 function Set-OngletReglages([string]$Nom) {
     $script:OngletReglages = $Nom
     if ($Nom -eq 'Theme') { Update-ThemeChoix }
-    if ($Nom -eq 'General') { Update-DossiersReglage }
+    if ($Nom -eq 'General') { Update-DossiersReglage; Update-HorairesReglage }
     foreach ($o in 'Son', 'Voix', 'Assistant', 'Theme', 'General') {
         $ui["Onglet$o"].Tag = if ($o -eq $Nom) { 'on' } else { $null }
         $ui["Pan$o"].Visibility = if ($o -eq $Nom) { 'Visible' } else { 'Collapsed' }
@@ -632,7 +682,7 @@ function Start-Vumetre {
                 if (-not $v -or $ui.Reglages.Visibility -ne 'Visible') { Stop-Vumetre; return }
                 foreach ($i in @($script:MicroBarres.Keys)) {
                     $n = if ($i -lt $v.Niveaux.Length) { $v.Niveaux[$i] } else { 0 }
-                    $script:MicroBarres[$i].Width = [math]::Min(90, [math]::Max(0, 90 * [math]::Sqrt([math]::Max(0, $n) * 12)))
+                    $script:MicroBarres[$i].Width = [math]::Min(90.0, [math]::Max(0.0, 90 * [math]::Sqrt([math]::Max(0.0, $n) * 12)))
                 }
             })
         }
@@ -662,7 +712,7 @@ function Invoke-Bip([bool]$Debut) {
         foreach ($f in $notes) {
             $len = [int]($rate * $ms / 1000)
             for ($i = 0; $i -lt $len; $i++) {
-                $env = [math]::Min(1, [math]::Min($i, $len - $i) / 300.0)
+                $env = [math]::Min(1.0, [math]::Min($i, $len - $i) / 300.0)
                 $w.Write([int16](5000 * $env * [math]::Sin(2 * [math]::PI * $f * $i / $rate)))
             }
         }
@@ -800,7 +850,7 @@ function Step-Ecoute {
     # La pastille de la bulle et le bouton micro suivent la voix
     $s = 1 + 1.2 * $m.Level
     if ($script:Bulle) { $script:Bulle.Dot.RenderTransform.ScaleX = $script:Bulle.Dot.RenderTransform.ScaleY = $s }
-    $ui.MicHalo.Opacity = [math]::Min(1, 0.3 + 2 * $m.Level)
+    $ui.MicHalo.Opacity = [math]::Min(1.0, 0.3 + 2 * $m.Level)
     # Raccourci gardé appuyé : on s'arrête quand Espace est relâché. Appui bref : on attend le silence.
     if ($e.Source -eq 'raccourci' -and $e.Tenu) {
         if (-not [EMNative]::IsKeyDown(0x20)) {
@@ -1027,10 +1077,10 @@ function Invoke-DicteeRegles([string]$Texte) {
         }
         Set-VoixEtat "Tu as dit : « $t »"
         Show-FormMessage (Get-MessageNote $r) $Colors.ok
-        Show-Bulle "$($Types[(Get-TypeRV $r)].Icone)  C'est noté : $ecrit" 5000
+        Show-Bulle "C'est noté : $ecrit" 5000
         if ($r.Lieu) { $dit += ", $($r.Lieu)" }
         if (@($r.Avec).Count) { $dit += ", avec $(@($r.Avec) -join ' et ')" }
-        $conf = if ($r.Journee) { @() } else { @(Get-Conflits $r.Quand $r.Fin $r.Id) }
+        $conf = @(if (-not $r.Journee) { Get-Conflits $r.Quand $r.Fin $r.Id })   # (@ autour : un seul conflit se compte aussi)
         if ($conf.Count) { $dit += ". Attention, tu as déjà $(Get-TitreAffiche $conf[0].RV.Titre) à ce moment-là" }
         Invoke-Parole "C'est noté : $dit.$(Get-TexteFichiers $r)"
         Update-Agenda

@@ -14,6 +14,7 @@ function Show-Alerte {
     try { New-AlerteFenetre $Titre $Texte $Etiquette $Type $RV $Quand $Secondes $Icone ([bool]$Plus) }
     catch {
         Write-Log "Alerte impossible : $_"
+        $script:AlerteEnCapture = $false
         try { (Get-TrayIcon).ShowBalloonTip(8000, $Titre, $Texte, [System.Windows.Forms.ToolTipIcon]::Info) } catch {}
     }
 }
@@ -56,9 +57,13 @@ function New-AlerteFenetre($Titre, $Texte, $Etiquette, $Type, $RV, $Quand, $Seco
     $rond.Width = 50; $rond.Height = 50; $rond.CornerRadius = 25; $rond.VerticalAlignment = 'Top'; $rond.BorderThickness = 2
     $rond.Background = Get-Teinte $couleur 0x30; $rond.BorderBrush = Get-Brush $couleur
     $rond.Effect = New-Object System.Windows.Media.Effects.DropShadowEffect -Property @{ Color = $teinte; BlurRadius = 16; ShadowDepth = 0; Opacity = 0.7 }
-    $ic = New-Object System.Windows.Controls.TextBlock
-    $ic.Text = $Icone; $ic.FontFamily = $PoliceIcone; $ic.FontSize = 23; $ic.Foreground = Get-Brush $couleur
-    $ic.HorizontalAlignment = 'Center'; $ic.VerticalAlignment = 'Center'
+    # L'icône dessinée de la sorte (sinon un signe)
+    if ($Type -and $Types[$Type]) { $ic = New-Icone $Type 24 $couleur }
+    else {
+        $ic = New-Object System.Windows.Controls.TextBlock
+        $ic.Text = $Icone; $ic.FontSize = 23; $ic.Foreground = Get-Brush $couleur
+        $ic.HorizontalAlignment = 'Center'; $ic.VerticalAlignment = 'Center'
+    }
     $rond.Child = $ic
     [void]$g.Children.Add($rond)
 
@@ -142,7 +147,7 @@ function New-AlerteFenetre($Titre, $Texte, $Etiquette, $Type, $RV, $Quand, $Seco
             param($s2) $b = $s2.Tag
             if ($b.Survol) { return }
             $b.Reste -= 0.05
-            $b.Echelle.ScaleX = [math]::Max(0, $b.Reste / $b.Total)
+            $b.Echelle.ScaleX = [math]::Max(0.0, $b.Reste / $b.Total)
             if ($b.Reste -le 0) { Close-Alerte $b }
         })
         $al.Minuteur.Start()

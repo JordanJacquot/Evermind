@@ -261,6 +261,12 @@ function Get-DecisionIA($d, $reponse) {
         if ($id.Count) { $ouv | Add-Member -NotePropertyName id -NotePropertyValue $id[0].id }
         return @{ Reponse = [pscustomobject]@{ actions = @($ouv); reponse = '' } }
     }
+    # « Je suis du matin lundi et mardi, de nuit jeudi » : des postes de travail, lus par les règles d'Evermind
+    $hor = Get-HorairesTravail $d.Texte
+    $inH = Get-IntentionsTexte $d.Texte
+    if ($hor -and -not $inH.Supp -and -not $inH.Modif -and -not $inH.Question) {
+        return @{ Reponse = [pscustomobject]@{ actions = @([pscustomobject]@{ action = 'horaires'; Liste = @($hor) }); reponse = '' } }
+    }
     # « Supprime l'événement » sans dire lequel (ni nom, ni date), et rien dans la conversation qui le dise : on demande
     $q = Get-QuestionVague $d.Texte $d.Codes
     if ($q) { Write-Log 'Assistant : demande trop vague, on demande lequel'; return @{ Reponse = [pscustomobject]@{ actions = @(); reponse = $q } } }
@@ -281,6 +287,16 @@ function Get-DecisionIA($d, $reponse) {
     }
     # Réponse qui dit « c'est fait » sans aucune action : l'IA s'est trompée, on lui redemande une fois en le lui signalant
     $sansAction = -not @($reponse.actions | Where-Object { $_ -and $_.action }).Count
+    # Un rendez-vous dit tel quel, sans verbe (« boulot mardi de 6 h à 14 h », « dentiste jeudi à 15 h ») : comme dans la
+    # barre, il est noté (l'IA demande parfois « tu veux que je le programme ? »)
+    $inS = Get-IntentionsTexte $d.Texte
+    if ($sansAction -and [string]$reponse.reponse -match '\?\s*$' -and -not $inS.Question -and -not $inS.Supp -and -not $inS.Modif) {
+        $p = Read-Phrase $d.Texte
+        if (-not $p.Manque -and $p.Titre -and $p.Quand -and @($p.Titre -split '\s+').Count -le 6 -and (Test-TitreDit $p.Titre $d.Texte)) {
+            Write-Log 'Assistant : rendez-vous dit tel quel, noté par les règles'
+            return @{ Reponse = [pscustomobject]@{ actions = @([pscustomobject]@{ action = 'creer'; phrase = $d.Texte }); reponse = '' } }
+        }
+    }
     if ($sansAction -and [string]$reponse.reponse -match "(?i)\b(c'est (bien )?noté|j'ai (bien |déjà )?(noté|ajouté|créé|mis|supprimé|effacé|enlevé|décalé|déplacé|changé|modifié|annulé|programmé|planifié)|c'est fait|est (bien )?(supprimé|décalé|ajouté|noté|programmé|planifié))") {
         if (-not $d.Relance) {
             Write-Log 'Assistant : réponse sans action, on lui redemande'
@@ -379,7 +395,7 @@ function Test-DesigneExistant([string]$Texte, $Actions, $Codes) {
         $rv = Get-RendezVous $id
         if (-not $rv) { continue }
         foreach ($w in @(Get-MotsTitre $rv.Titre)) {
-            if ($t -match "\b(?:le|la|les|l'|mon|ma|mes|ce|cette|ton|ta|du|au|aux|des)\s*(?:\w+\s+){0,2}$w") { return $true }
+            if ($t -match "(?:\b(?:le|la|les|mon|ma|mes|ce|cette|ton|ta|du|au|aux|des)\s+|\bl')(?:\w+\s+){0,2}$w") { return $true }
         }
     }
     $false
@@ -418,6 +434,8 @@ function Get-EcartAction([string]$Texte, $Actions, $Codes) {
     # Une création demandée (« mets-moi coiffeur mardi ») : l'IA ne doit pas refuser, ni modifier un autre rendez-vous
     if ($creer -and -not $supp -and -not $modif -and -not $in.Question) {
         if (-not $sortes.Count) { return 'L''utilisateur demande de CRÉER un nouvel événement (il n''a pas besoin d''exister déjà). Utilise l''action "creer" avec sa phrase.' }
+        # « crée un rendez-vous avec les dossiers de M. Richard » : créer (et relier), pas seulement ouvrir
+        if ($sortes -notcontains 'creer' -and $sortes -contains 'ouvrir' -and $Texte -notmatch '(?i)\bouvr') { return 'L''utilisateur demande de CRÉER un nouvel événement, il n''a pas demandé d''ouvrir quoi que ce soit : utilise "creer" avec sa phrase (et "dossiers" si un dossier est nommé).' }
         if ($sortes -notcontains 'creer' -and $sortes -contains 'modifier' -and $Codes) {
             # Modifier n'a de sens que si la phrase parle d'un rendez-vous qui existe (« ajoute Paul à la soirée »)
             $t = ' ' + ($Texte.ToLower().Normalize([Text.NormalizationForm]::FormD) -replace '\p{Mn}', '') + ' '
@@ -527,7 +545,7 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
         $surCree = $cree -and -not $a.Cible -and (($a.action -in 'modifier', 'ouvrir' -and -not $rv) -or
             ($a.action -eq 'modifier' -and -not $a.phrase -and -not (Get-IntentionsTexte $Texte).Modif -and -not (Get-IntentionsTexte $Texte).Supp))
         if ($surCree) { $rv = $cree }
-        elseif (-not $a.Cible -and $a.action -notin 'creer', 'annuler' -and @($actions | Where-Object { $_.action -notin 'creer', 'annuler' }).Count -eq 1) { $rv = Get-CibleIA $rv $Codes "$Texte $($R.reponse)" }
+        elseif (-not $a.Cible -and $a.action -notin 'creer', 'annuler', 'horaires' -and @($actions | Where-Object { $_.action -notin 'creer', 'annuler', 'horaires' }).Count -eq 1) { $rv = Get-CibleIA $rv $Codes "$Texte $($R.reponse)" }
         # Une note qui redit seulement « ouvrir à l'heure » n'en est pas une
         if ($a.action -eq 'modifier' -and $a.ouvrir_au_debut -and $a.notes -and [string]$a.notes -match '(?i)\b(dossier|fichier|ouvr)') { $a.notes = $null }
         $nom = if ($rv) { Get-TitreAffiche $rv.Titre } else { '' }
@@ -607,7 +625,7 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
             $tf = Get-TexteSoucisDossiers $doss.Soucis $r; if ($tf) { $n.Ecrit += '.' + $tf; $n.Dit += '.' + $tf }
             [void]$ecrits.Add("C'est noté : $($n.Ecrit).")
             $dit = "C'est noté : $($n.Dit)."
-            $conf = if ($r.Journee) { @() } else { @(Get-Conflits $r.Quand $r.Fin $r.Id) }
+            $conf = @(if (-not $r.Journee) { Get-Conflits $r.Quand $r.Fin $r.Id })   # (@ autour : un seul conflit se compte aussi)
             if ($conf.Count) { $dit += " Attention, tu as déjà $(Get-TitreAffiche $conf[0].RV.Titre) à ce moment-là."; [void]$ecrits.Add("⚠ En même temps que $(Get-TitreAffiche $conf[0].RV.Titre).") }
             # Un mot de date resté dans le titre : une partie de la phrase n'a pas été comprise, on le dit au lieu de faire semblant
             $reste = [regex]::Match(" $($r.Titre) ", "(?i)(?:\b(?:et|de|d'|du|en|à)\s+)*\b(?:$RxMois|$RxJour)s?\b(?:\s+\d{4})?|\b(?:19|20)\d{2}\b")
@@ -617,6 +635,10 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
                 [void]$ecrits.Add("⚠ Pas compris : « $($reste.Value.Trim()) ». Vérifie l'événement.")
             }
             [void]$dits.Add($dit)
+        }
+        elseif ($a.action -eq 'horaires') {
+            $x = Get-TexteHoraires @(Add-HorairesTravail $a.Liste)
+            [void]$dits.Add($x.Dit); [void]$ecrits.Add($x.Ecrit)
         }
         elseif ($a.action -eq 'annuler') {
             if (Restore-Annulation) { [void]$dits.Add('J''ai annulé ma dernière action.'); [void]$ecrits.Add('Dernière action annulée.') }
@@ -794,7 +816,8 @@ function Get-SuppressionsPeriode([string]$Texte) {
     $t = $Texte.Trim()
     $m = [regex]::Match($t, "(?i)\b(?:supprim|suprim|efface|enl[èe]v|vide|annul|retir|vire)\w*\s+(?:moi\s+)?(?:(?<tout>tout|toute)s?\s+)?(?:(?:mes|les)\s+(?<quoi>rendez-vous|rdv|[ée]v[ée]nements?|trucs|activit[ée]s|cr[ée]neaux)|(?<tout2>tout ce que j'ai(?: de pr[ée]vu)?|tout mon agenda|mon agenda))\s+(?<p>.+?)\s*[.!?]?$")
     if (-not $m.Success) { return $null }
-    $per = Read-Periode ($m.Groups['p'].Value -replace "^(?i)(?:de|du|des|d'|pour|pendant)\s*", '')
+    # (« de » seul, pas le début de « demain »)
+    $per = Read-Periode ($m.Groups['p'].Value -replace "^(?i)(?:(?:de|du|des|pour|pendant)\s+|d')", '')
     if (-not $per -or -not $per.Debut -or -not $per.Fin) { return $null }
     $tout = $m.Groups['tout'].Success -or $m.Groups['tout2'].Success -or $m.Groups['quoi'].Value -match '(?i)v[ée]nement|truc|activit'
     $vus = @{}

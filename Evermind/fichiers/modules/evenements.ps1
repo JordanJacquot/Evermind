@@ -85,6 +85,7 @@ $ui.BtnThemeDossier.Add_Click({ New-Item -ItemType Directory -Force -Path $Packs
 Add-ThemeDecor
 if (-not $EnTest) { Start-PlanificateurFichiers }   # dossiers ouverts tout seuls à l'heure des rendez-vous
 if (-not $EnTest) { Start-PlanificateurRappels }    # rappels : la veille, le matin même, 1 h avant...
+Initialize-Maj                                      # nouvelle version d'Evermind : bandeau « Mettre à jour »
 $ui.CroixDemander.Add_Click({ Set-Setting 'Croix' ''; Update-CroixReglage })
 $ui.CroixReduire.Add_Click({ Set-Setting 'Croix' 'reduire'; Update-CroixReglage })
 $ui.CroixQuitter.Add_Click({ Set-Setting 'Croix' 'quitter'; Update-CroixReglage })
@@ -110,7 +111,14 @@ if ($env:EVERMIND_CAPTURE_ALERTE) {
     $rvA = @($script:Agenda | Where-Object { $_.Titre -like $env:EVERMIND_ALERTE_RV })[0]
     if ($rvA) { Show-AlerteRappel $rvA ($rvA.Quand) ($rvA.Quand.AddHours(-1)) } else { Show-Alerte 'Evermind n''entend rien' 'Aucun son ne vient du micro (coupé ?). Choisis le bon micro dans les réglages.' }
 }
-if ($env:EVERMIND_JOUR) { Select-JourCalendrier ([datetime]$env:EVERMIND_JOUR) }
+# Un téléchargement imaginaire en cours (l'assistant, 2,3 Go) : la barre vivante, la vitesse, le temps qui reste
+if ($env:EVERMIND_TEST_TELECHARGEMENT) {
+    $script:VoixDl = [hashtable]::Synchronized(@{ Recu = 812MB; Total = 2382MB; Etape = 'cerveau de l''assistant'; Erreur = ''; Fini = $false; Pack = 'ia'; Test = $true })
+    $script:TestAttente = $true; $script:TestPas = 0
+    $tt = New-Object System.Windows.Threading.DispatcherTimer; $tt.Interval = [TimeSpan]::FromMilliseconds(250)
+    $tt.Add_Tick({ param($s) $script:VoixDl.Recu += 1.6MB; Update-VoixInstall; if (++$script:TestPas -ge 14) { $s.Stop(); $script:TestAttente = $false } })
+    $tt.Start()
+}if ($env:EVERMIND_JOUR) { Select-JourCalendrier ([datetime]$env:EVERMIND_JOUR) }
 if ($env:EVERMIND_FICHE) {
     $it = @(@(Get-Upcoming) + @(Get-AgendaEntre (Get-Date).Date.AddDays(-30) (Get-Date)) | Where-Object { $_.RV.Titre -like $env:EVERMIND_FICHE })[0]
     if ($it) { Show-Fiche $it.RV $it.Prochain }

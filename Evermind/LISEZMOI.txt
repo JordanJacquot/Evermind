@@ -20,6 +20,12 @@ Utiliser
 - Dictée à tout moment : Ctrl + Maj + Espace (même en jeu).
 - Réglages : casque et micro, voix, thèmes, dossiers où chercher les dossiers des personnes.
 
+Mettre à jour
+-------------
+Quand une nouvelle version sort, un bandeau apparaît dans Evermind : appuie sur « Mettre à jour ».
+Evermind se ferme, se met à jour et se rouvre tout seul en quelques secondes. Tes rendez-vous,
+tes réglages, la voix et l'assistant restent.
+
 Bon à savoir
 ------------
 - Tout reste sur ton PC : rien n'est envoyé sur Internet.

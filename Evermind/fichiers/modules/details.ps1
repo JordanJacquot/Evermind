@@ -47,12 +47,13 @@ function Get-AgeTexte($RV, [datetime]$Quand) {
 # Petit résumé pour une ligne de la liste : « Zénith · avec Paul · 1 sur 3 prêt »
 function Get-ResumeDetails($RV) {
     $parts = @()
-    if ($RV.Lieu) { $parts += "📍 $($RV.Lieu)" }
+    # (sans émojis : ils changent d'un Windows à l'autre)
+    if ($RV.Lieu) { $parts += [string]$RV.Lieu }
     if (@($RV.Avec).Count) { $parts += "avec $(@($RV.Avec) -join ', ')" }
     $ap = @($RV.APreparer)
-    if ($ap.Count) { $parts += "☑ $(@($ap | Where-Object { $_.Fait }).Count)/$($ap.Count) prêt" }
-    if ($RV.Lien) { $parts += '🔗 lien' }
-    if ($RV.Notes) { $parts += '📝 notes' }
+    if ($ap.Count) { $parts += "$(@($ap | Where-Object { $_.Fait }).Count)/$($ap.Count) prêt" }
+    if ($RV.Lien) { $parts += 'lien' }
+    if ($RV.Notes) { $parts += 'notes' }
     $parts -join '  ·  '
 }
 
@@ -283,8 +284,9 @@ function New-FicheSection([string]$Icone, [string]$Titre, $Contenu) {
     $g = New-Object System.Windows.Controls.Grid
     $g.Margin = '0,0,0,16'
     foreach ($w in '34', '*') { $c = New-Object System.Windows.Controls.ColumnDefinition; $c.Width = [System.Windows.GridLengthConverter]::new().ConvertFromString($w); $g.ColumnDefinitions.Add($c) }
-    $i = New-Object System.Windows.Controls.TextBlock
-    $i.Text = $Icone; $i.FontFamily = $PoliceIcone; $i.FontSize = 17; $i.Foreground = Get-Brush $Colors.dim; $i.Margin = '0,1,0,0'
+    # L'icône dessinée (« 📍 » : le repère du lieu...), à gauche du titre
+    $i = New-Icone $(if ($IconesEmoji[$Icone]) { $IconesEmoji[$Icone] } else { 'rdv' }) 18 $Colors.dim
+    $i.HorizontalAlignment = 'Left'; $i.VerticalAlignment = 'Top'; $i.Margin = '0,0,0,0'
     [void]$g.Children.Add($i)
     $sp = New-Object System.Windows.Controls.StackPanel
     [System.Windows.Controls.Grid]::SetColumn($sp, 1)
@@ -361,8 +363,7 @@ function New-ListeFichiers($RV) {
         $b = New-Button 'Ouvrir'; $b.Tag = $chemin; $b.Margin = '10,0,0,0'; $b.IsEnabled = $existe
         $b.Add_Click({ param($s) [void](Open-Fichier ([string]$s.Tag)) })
         [System.Windows.Controls.DockPanel]::SetDock($b, 'Right'); [void]$dp.Children.Add($b)
-        $ic = New-Object System.Windows.Controls.TextBlock
-        $ic.Text = if ($dossier) { '📁' } else { '📄' }; $ic.FontFamily = $PoliceIcone; $ic.FontSize = 18; $ic.Margin = '0,0,10,0'; $ic.VerticalAlignment = 'Center'
+        $ic = New-Icone $(if ($dossier) { 'dossier' } else { 'fichier' }) 18 '#C9C3DD'; $ic.Margin = '0,0,10,0'
         [System.Windows.Controls.DockPanel]::SetDock($ic, 'Left'); [void]$dp.Children.Add($ic)
         $txt = New-Object System.Windows.Controls.StackPanel; $txt.VerticalAlignment = 'Center'
         $n = New-Object System.Windows.Controls.TextBlock; $n.Text = (Split-Path $chemin -Leaf); $n.FontSize = 15; $n.Foreground = Get-Brush '#F2EFFA'; $n.TextTrimming = 'CharacterEllipsis'
@@ -422,7 +423,7 @@ function Show-Fiche($RV, [datetime]$Quand) {
     $bg.GradientStops.Add((New-Object System.Windows.Media.GradientStop ((Get-Couleur '#10FFFFFF')), 1))
     $ui.FicheTete.Background = $bg
     $ui.FicheRond.Background = Get-Teinte $t.Couleur 0x30; $ui.FicheRond.BorderBrush = Get-Brush $t.Couleur
-    $ui.FicheIcone.Text = $t.Icone; $ui.FicheIcone.Foreground = Get-Brush $t.Couleur
+    $ui.FicheRond.Child = New-Icone $type 36
     try { $ui.FicheLueur.Color = (Get-Couleur $t.Couleur) } catch {}
     $valide = $type -ne 'rappel' -and (Test-Valide $RV $Quand)
     $ui.FicheSorte.Text = $t.Nom.ToUpper() + $(if ($RV.Important) { '   ★ IMPORTANT' } else { '' }) + $(if ($RV.Fait) { '   ✓ FAIT' } elseif ($valide) { '   ✓ VALIDÉ' } else { '' })
@@ -448,7 +449,7 @@ function Show-Fiche($RV, [datetime]$Quand) {
         $vt.FontSize = 15; $vt.Foreground = Get-Brush '#3DDC97'; $vt.TextWrapping = 'Wrap'; $vt.VerticalAlignment = 'Center'
         [void]$dp.Children.Add($vt)
         [void]$c.Add((New-FicheSection '✓' 'Validé' $dp))
-        $c[$c.Count - 1].Children[0].Foreground = Get-Brush '#3DDC97'
+        Set-IconeCouleur $c[$c.Count - 1].Children[0] '#3DDC97'
     }
     $age = Get-AgeTexte $RV $Quand
     if ($age) { [void]$c.Add((New-FicheSection '🎂' 'Âge' $age)) }

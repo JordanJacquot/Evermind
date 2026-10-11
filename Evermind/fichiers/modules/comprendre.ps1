@@ -570,7 +570,10 @@ function Read-Phrase([string]$Text, $Now) {
     if ($heure) {
         # « 8 h » le soir ou l'après-midi veut dire 20 h ; sans précision, « à 3 h » pour un rendez-vous veut dire 15 h
         if ($moment -match 'soir|midi|aprem' -and $heure.Hours -lt 12) { $heure = $heure.Add([timespan]::FromHours(12)) }
-        elseif (-not $moment -and $heureChiffres -and $heure.Hours -ge 1 -and $heure.Hours -le 6) { $heure = $heure.Add([timespan]::FromHours(12)) }
+        # (sauf dans une plage qui finit après 7 h, « de 6 h à 14 h », et pour le travail : « je commence à 6 h »)
+        elseif (-not $moment -and $heureChiffres -and $heure.Hours -ge 1 -and $heure.Hours -le 6 -and
+                -not ($null -ne $finHeure -and $finHeure.Hours -gt $heure.Hours -and $finHeure.Hours -ge 7) -and
+                $Text -notmatch "(?i)\b(?:travail\w*|bosse\w*|boulot|taf|poste|[ée]quipe|embauche|je commence|je finis|je d[ée]bute|shift)\b") { $heure = $heure.Add([timespan]::FromHours(12)) }
     } elseif ($moment) {
         $heure = switch -Regex ($moment) { 'matin' { [timespan]::new(9, 0, 0) } 'midi|aprem' { [timespan]::new(14, 0, 0) } default { [timespan]::new(20, 0, 0) } }
     }
@@ -936,4 +939,82 @@ function Read-Periode([string]$Texte, $Now) {
     $a = & $jour $t $false; $b = & $jour $t $true
     if ($a -and $b) { return @{ Debut = $a; Fin = $b } }
     $null
+}
+
+# ---------------------------------------------------------------------------
+# Horaires de travail en postes : « je suis du matin lundi et mardi », « boulot lundi matin, mardi journée et mercredi
+# soir », « je travaille de nuit toute la semaine prochaine », « poste du soir tous les jeudis ».
+# Chaque poste a ses heures (réglables : Réglages, Général). Retourne la liste des créneaux à créer
+# (@{ Phrase; Jour; Creneau; Heures }), ou $null si la phrase ne parle pas de postes.
+# Des heures dites (« de 6 h à 14 h ») passent par la lecture habituelle.
+# ---------------------------------------------------------------------------
+$HorairesDefaut = [ordered]@{ matin = '6 h à 14 h'; journee = '8 h à 17 h'; apresmidi = '14 h à 22 h'; soir = '14 h à 22 h'; nuit = '22 h à 6 h' }
+$CreneauxNoms = [ordered]@{ matin = 'matin'; journee = 'journée'; apresmidi = 'après-midi'; soir = 'soir'; nuit = 'nuit' }
+function Get-Horaire([string]$Creneau) {
+    $h = Get-Setting 'Horaires' $null
+    if ($h -and $h.$Creneau) { [string]$h.$Creneau } else { $HorairesDefaut[$Creneau] }
+}
+function Get-CreneauCle([string]$Mot) {
+    switch -Regex ($Mot.ToLower()) { '^mat' { 'matin' } '^jour' { 'journee' } '^ap' { 'apresmidi' } '^soir' { 'soir' } '^nuit' { 'nuit' } }
+}
+
+function Get-HorairesTravail([string]$Texte, $Now) {
+    if (-not $Now) { $Now = Get-Date }
+    $today = ([datetime]$Now).Date
+    $t = ' ' + (($Texte -replace "[’‘`´]", "'").ToLower()) + ' '
+    if ($t -notmatch "\b(?:travail\w*|bosse\w*|boulot|taf|poste|[ée]quipe|service|shift|horaires?|planning)\b|\bje suis (?:du|de|d'|en) ?(?:matin|journ|apr|aprem|soir|nuit)") { return $null }
+    if ($t -match '\b\d{1,2}\s*(?:h\b|heures?\b|h\d{2}\b|:\d{2})') { return $null }
+    $rxC = "(?:(?:du|de|en|le|la|l'|au|d')\s*)?(?<c>matin(?:[ée]e)?s?|journ[ée]es?|apr[èe]s[- ]midis?|aprems?|soir(?:[ée]e)?s?|nuits?)\b"
+    $items = New-Object System.Collections.ArrayList
+    $pris = New-Object System.Collections.ArrayList   # (morceaux déjà lus)
+    $ajoute = {
+        param($m, $Sorte, $Jours)
+        foreach ($p in $pris) { if ($m.Index -lt $p[1] -and $m.Index + $m.Length -gt $p[0]) { return } }
+        [void]$pris.Add(@($m.Index, ($m.Index + $m.Length)))
+        [void]$items.Add([pscustomobject]@{ Pos = $m.Index; Sorte = $Sorte; Jours = $Jours; Valeur = $m.Value })
+    }
+    # Les jours de travail (lundi à vendredi) d'une semaine, à partir d'aujourd'hui
+    $semaine = { param([datetime]$Lundi) @(0..4 | ForEach-Object { $Lundi.AddDays($_) } | Where-Object { $_ -ge $today } | ForEach-Object { 'le ' + $_.ToString('d MMMM yyyy', $Fr) }) }
+    $lundi = $today.AddDays(-((([int]$today.DayOfWeek) + 6) % 7))
+    # 1. Les périodes : la semaine prochaine, cette semaine, du lundi au vendredi
+    foreach ($m in [regex]::Matches($t, "\b(?:toute\s+)?(?:la\s+)?semaine\s+prochaine\b")) { & $ajoute $m 'D' (& $semaine $lundi.AddDays(7)) }
+    foreach ($m in [regex]::Matches($t, "\b(?:toute\s+)?(?:cette|la)\s+semaine\b")) {
+        $j = @(& $semaine $lundi); if (-not $j.Count) { $j = @(& $semaine $lundi.AddDays(7)) }
+        & $ajoute $m 'D' $j
+    }
+    foreach ($m in [regex]::Matches($t, "\bdu\s+(?<a>$RxJour)\s+au\s+(?<b>$RxJour)\b")) {
+        $a = $JoursNoms[$m.Groups['a'].Value]; $b = $JoursNoms[$m.Groups['b'].Value]
+        $d = $today; while ([int]$d.DayOfWeek -ne $a) { $d = $d.AddDays(1) }
+        $j = @(); for ($k = 0; $k -lt 7; $k++) { $j += 'le ' + $d.ToString('d MMMM yyyy', $Fr); if ([int]$d.DayOfWeek -eq $b) { break }; $d = $d.AddDays(1) }
+        & $ajoute $m 'D' $j
+    }
+    # 2. Les jours un par un : « tous les lundis », « lundi », « demain », « le 14 octobre »
+    foreach ($m in [regex]::Matches($t, "\b(?:tous les|chaque)\s+$RxJour\w*")) { & $ajoute $m 'D' @($m.Value) }
+    foreach ($m in [regex]::Matches($t, "\b(?:le\s+)?\d{1,2}(?:er)?\s+(?:$RxMois)(?:\s+\d{4})?\b|\ble\s+\d{1,2}(?:er)?\b")) { & $ajoute $m 'D' @($m.Value.Trim()) }
+    foreach ($m in [regex]::Matches($t, "\b(?:apr[èe]s-demain|demain|aujourd'hui)\b")) { & $ajoute $m 'D' @($m.Value) }
+    foreach ($m in [regex]::Matches($t, "\b$RxJour(?:\s+prochain)?\b")) { & $ajoute $m 'D' @($m.Value) }
+    # 3. Les postes
+    foreach ($m in [regex]::Matches($t, $rxC)) { & $ajoute $m 'C' (Get-CreneauCle $m.Groups['c'].Value) }
+    $items = @($items | Sort-Object Pos)
+    if (-not @($items | Where-Object { $_.Sorte -eq 'C' }).Count -or -not @($items | Where-Object { $_.Sorte -eq 'D' }).Count) { return $null }
+    # Qui va avec quoi : « du matin lundi et mardi » (le poste d'abord, pour les jours qui suivent) ;
+    # « lundi matin, mardi soir » (le jour d'abord, le poste pour les jours d'avant)
+    $res = New-Object System.Collections.ArrayList
+    $attente = New-Object System.Collections.ArrayList; $poste = $null
+    $posteDabord = $items[0].Sorte -eq 'C'
+    foreach ($it in $items) {
+        if ($it.Sorte -eq 'C') {
+            if ($posteDabord) { $poste = $it.Jours }
+            else { foreach ($j in $attente) { [void]$res.Add(@($j, $it.Jours)) }; $attente.Clear(); $poste = $it.Jours }
+        } else {
+            foreach ($j in $it.Jours) { if ($posteDabord) { [void]$res.Add(@($j, $poste)) } else { [void]$attente.Add($j) } }
+        }
+    }
+    foreach ($j in $attente) { if ($poste) { [void]$res.Add(@($j, $poste)) } }
+    if (-not $res.Count) { return $null }
+    @($res | ForEach-Object {
+        $c = $_[1]; $h = Get-Horaire $c
+        # (la phrase sans le nom du poste, qui serait lu comme un moment de la journée ; le titre le reprend)
+        [pscustomobject]@{ Phrase = "Travail $($_[0]) de $h"; Titre = "Travail ($($CreneauxNoms[$c]))"; Jour = $_[0]; Creneau = $c; Heures = $h }
+    })
 }

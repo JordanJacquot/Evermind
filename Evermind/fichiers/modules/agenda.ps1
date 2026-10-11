@@ -30,12 +30,64 @@ function New-Run([string]$Texte, [string]$Couleur, [string]$Poids = 'Normal') {
     $r
 }
 
-function New-Icone([string]$Type, [double]$Taille) {
-    $i = New-Object System.Windows.Controls.TextBlock
-    $i.Text = $Types[$Type].Icone; $i.FontFamily = $PoliceIcone; $i.FontSize = $Taille
-    $i.Foreground = Get-Brush $Types[$Type].Couleur
-    $i.HorizontalAlignment = 'Center'; $i.VerticalAlignment = 'Center'
-    $i
+# Les icônes des sortes, dessinées par Evermind (et non prises dans une police de Windows : les émojis changent d'un
+# Windows à l'autre, et manquaient ou se décalaient sur certains PC). Carré de 24 : T = traits, P = parties pleines.
+$IconesDessin = @{
+    anniv   = @{ T = 'M4,20 H20 M5,20 V13 C5,12 6,11 7,11 H17 C18,11 19,12 19,13 V20 M5,16 C7,17.5 9,14.5 12,16 C15,17.5 17,14.5 19,16 M12,11 V8'; P = 'M12,3.2 C13.4,4.8 13.4,6.4 12,7 C10.6,6.4 10.6,4.8 12,3.2 Z' }
+    sante   = @{ T = 'M9.5,4 H14.5 V9.5 H20 V14.5 H14.5 V20 H9.5 V14.5 H4 V9.5 H9.5 Z' }
+    voyage  = @{ T = 'M12,3 C12.8,3 13.3,3.8 13.3,5 V9.5 L20.5,13.5 V15.5 L13.3,13.3 V18 L15.5,19.7 V21 L12,20 L8.5,21 V19.7 L10.7,18 V13.3 L3.5,15.5 V13.5 L10.7,9.5 V5 C10.7,3.8 11.2,3 12,3 Z' }
+    travail = @{ T = 'M4,8 H20 C20.6,8 21,8.4 21,9 V19 C21,19.6 20.6,20 20,20 H4 C3.4,20 3,19.6 3,19 V9 C3,8.4 3.4,8 4,8 Z M9,8 V6 C9,5.4 9.4,5 10,5 H14 C14.6,5 15,5.4 15,6 V8 M3,13 H21' }
+    sport   = @{ T = 'M12,3 A9,9 0 1 0 12,21 A9,9 0 1 0 12,3 Z M12,8 V3.5 M15.3,10.4 L19.8,9 M14,14.3 L16.8,18.5 M10,14.3 L7.2,18.5 M8.7,10.4 L4.2,9'; P = 'M12,8 L15.3,10.4 L14,14.3 H10 L8.7,10.4 Z' }
+    jeu     = @{ T = 'M7,8 H17 C19.5,8 21,10.5 21,14 C21,16.5 20,18 18.5,18 C17.3,18 16.6,17 15.8,16 H8.2 C7.4,17 6.7,18 5.5,18 C4,18 3,16.5 3,14 C3,10.5 4.5,8 7,8 Z M8,11 V15 M6,13 H10'; P = 'M15.5,10.8 A1.2,1.2 0 1 0 15.5,13.2 A1.2,1.2 0 1 0 15.5,10.8 Z M18,12.8 A1.2,1.2 0 1 0 18,15.2 A1.2,1.2 0 1 0 18,12.8 Z' }
+    sortie  = @{ T = 'M12,3 L14.4,8.9 L20.6,9.3 L15.8,13.3 L17.4,19.4 L12,16 L6.6,19.4 L8.2,13.3 L3.4,9.3 L9.6,8.9 Z' }
+    rappel  = @{ T = 'M18,16 V11 C18,7.7 15.3,5 12,5 C8.7,5 6,7.7 6,11 V16 L4.5,17.5 H19.5 Z M10,20 C10.4,21 11.1,21.5 12,21.5 C12.9,21.5 13.6,21 14,20 M12,5 V3' }
+    rdv     = @{ T = 'M5,5 H19 C20.1,5 21,5.9 21,7 V19 C21,20.1 20.1,21 19,21 H5 C3.9,21 3,20.1 3,19 V7 C3,5.9 3.9,5 5,5 Z M3,10 H21 M8,3 V7 M16,3 V7'; P = 'M7,13 H9 V15 H7 Z M11,13 H13 V15 H11 Z M15,13 H17 V15 H15 Z M7,17 H9 V19 H7 Z M11,17 H13 V19 H11 Z' }
+    # (les détails, dans la fiche)
+    lieu    = @{ T = 'M12,21 C12,21 5,14.5 5,9.5 C5,5.6 8.1,3 12,3 C15.9,3 19,5.6 19,9.5 C19,14.5 12,21 12,21 Z M12,7 A2.5,2.5 0 1 0 12,12 A2.5,2.5 0 1 0 12,7 Z' }
+    avec    = @{ T = 'M9,11 A3.5,3.5 0 1 0 9,4 A3.5,3.5 0 1 0 9,11 Z M3,20 C3,16.5 5.7,14 9,14 C12.3,14 15,16.5 15,20 M16,4.3 A3.5,3.5 0 0 1 16,11 M18,14.3 C20,15 21,17 21,20' }
+    coche   = @{ T = 'M4,12.5 L9.5,18 L20,6.5' }
+    notes   = @{ T = 'M6,3 H15 L19,7 V21 H6 Z M15,3 V7 H19 M9,11 H16 M9,14.5 H16 M9,18 H13' }
+    dossier = @{ T = 'M3,6 C3,5.4 3.4,5 4,5 H9 L11,7 H20 C20.6,7 21,7.4 21,8 V18 C21,18.6 20.6,19 20,19 H4 C3.4,19 3,18.6 3,18 Z' }
+    fichier = @{ T = 'M6,3 H14 L19,8 V21 H6 Z M14,3 V8 H19' }
+    lien    = @{ T = 'M10,14 C11.5,15.5 13.5,15.5 15,14 L18.5,10.5 C20,9 20,6.5 18.5,5 C17,3.5 14.5,3.5 13,5 L11.5,6.5 M14,10 C12.5,8.5 10.5,8.5 9,10 L5.5,13.5 C4,15 4,17.5 5.5,19 C7,20.5 9.5,20.5 11,19 L12.5,17.5' }
+    alerte  = @{ T = 'M12,4 L21,20 H3 Z M12,10 V14'; P = 'M11,16.5 H13 V18.5 H11 Z' }
+}
+# Les émojis encore écrits dans le code, et leur icône dessinée
+$IconesEmoji = @{ '📍' = 'lieu'; '👥' = 'avec'; '🔔' = 'rappel'; '☑' = 'coche'; '✓' = 'coche'; '📝' = 'notes'; '📁' = 'dossier'; '📄' = 'fichier'; '🔗' = 'lien'; '🎂' = 'anniv'; '⚠' = 'alerte' }
+
+# L'icône d'une sorte, à la taille voulue (en pixels), dans sa couleur ou une autre
+function New-Icone([string]$Type, [double]$Taille, [string]$Couleur = '') {
+    $d = $IconesDessin[$Type]; if (-not $d) { $d = $IconesDessin['rdv'] }
+    $c = if ($Couleur) { $Couleur } elseif ($Types[$Type]) { $Types[$Type].Couleur } else { $Colors.dim }
+    $toile = New-Object System.Windows.Controls.Canvas
+    $toile.Width = 24; $toile.Height = 24
+    foreach ($k in 'T', 'P') {
+        if (-not $d[$k]) { continue }
+        $p = New-Object System.Windows.Shapes.Path
+        $p.Data = [System.Windows.Media.Geometry]::Parse($d[$k])
+        if ($k -eq 'T') { $p.StrokeThickness = 2.1; $p.StrokeLineJoin = 'Round'; $p.StrokeStartLineCap = 'Round'; $p.StrokeEndLineCap = 'Round' }
+        $p.Tag = $k
+        [void]$toile.Children.Add($p)
+    }
+    $v = New-Object System.Windows.Controls.Viewbox
+    $v.Width = $Taille; $v.Height = $Taille; $v.Child = $toile
+    $v.HorizontalAlignment = 'Center'; $v.VerticalAlignment = 'Center'; $v.SnapsToDevicePixels = $true
+    Set-IconeCouleur $v $c
+    $v
+}
+
+function Set-IconeCouleur($Icone, [string]$Couleur) {
+    $b = Get-Brush $Couleur
+    foreach ($p in $Icone.Child.Children) { if ($p.Tag -eq 'T') { $p.Stroke = $b } else { $p.Fill = $b } }
+}
+
+# La même, au fil d'un texte (pastilles du calendrier, aperçu de la phrase)
+function New-IconeTexte([string]$Type, [double]$Taille, [string]$Couleur = '') {
+    $i = New-Icone $Type $Taille $Couleur
+    $i.Margin = '0,0,4,-1'
+    $c = New-Object System.Windows.Documents.InlineUIContainer $i
+    $c.BaselineAlignment = 'Center'
+    $c
 }
 
 function Get-MessageNote($r) {
@@ -65,12 +117,22 @@ function Update-Apercu {
         $ui.ApercuLigne.Inlines.Add((New-Run 'Je comprends : une demande pour l''assistant. Appuie sur Entrée.' '#C58CFF' 'SemiBold'))
         $ui.ApercuLigne.Visibility = 'Visible'; return
     }
+    # Des postes de travail : leur liste, avec les heures
+    $hor = Get-HorairesTravail $text
+    if ($hor) {
+        $script:Phrase = $null
+        $l = $ui.ApercuLigne.Inlines
+        $l.Add((New-Run 'Je comprends :  ' $Colors.dim)); $l.Add((New-IconeTexte 'travail' 14))
+        $l.Add((New-Run "$(@($hor).Count) poste$(if (@($hor).Count -gt 1) { 's' }) de travail  " $Types['travail'].Couleur 'SemiBold'))
+        $l.Add((New-Run ((@($hor | ForEach-Object { "$($_.Jour) $($CreneauxNoms[$_.Creneau]) ($($_.Heures -replace ' à ', ' – '))" })) -join ',  ') $Colors.ok 'SemiBold'))
+        $ui.ApercuLigne.Visibility = 'Visible'; return
+    }
     $p = Read-Phrase $text
     $script:Phrase = $p
     $t = $Types[$p.Type]
     $l = $ui.ApercuLigne.Inlines
     $l.Add((New-Run 'Je comprends :  ' $Colors.dim))
-    $ic = New-Run "$($t.Icone) " $t.Couleur; $ic.FontFamily = $PoliceIcone; $l.Add($ic)
+    $l.Add((New-IconeTexte $p.Type 14))
     $l.Add((New-Run "$($t.Nom)  " $t.Couleur 'SemiBold'))
     $l.Add((New-Run (Get-TitreAffiche $p.Titre) '#FFFFFF' 'SemiBold'))
     $l.Add((New-Run '   ' $Colors.dim))
@@ -108,6 +170,62 @@ function Add-DepuisPhrase($p) {
     $premier
 }
 
+# Horaires de travail en postes (Get-HorairesTravail) : un événement par poste, « Travail (matin) » de 6 h à 14 h...
+# Un poste déjà noté au même moment n'est pas recréé. Retourne ce qui a été créé (@{ RV; Quand; Creneau; Heures }).
+function Add-HorairesTravail($Liste) {
+    $faits = @()
+    foreach ($h in @($Liste)) {
+        $p = Read-Phrase $h.Phrase
+        if ($p.Manque -or -not $p.Quand) { Write-Log "Horaires : « $($h.Phrase) » pas compris ($($p.Manque))"; continue }
+        if (@(Get-AgendaEntre $p.Quand $p.Quand.AddMinutes(1) | Where-Object { $_.RV.Titre -eq $h.Titre }).Count) { continue }
+        $det = Get-DetailsPhrase $p; $det.Fin = $p.Fin
+        $r = Add-RendezVous $h.Titre $p.Quand $p.Repetition 'travail' $false $det
+        $faits += [pscustomobject]@{ RV = $r; Quand = $p.Quand; Creneau = $h.Creneau; Heures = $h.Heures }
+    }
+    $faits
+}
+
+# « C'est noté : 3 postes. Lundi 12 matin (6 h – 14 h), mardi 13 journée (8 h – 17 h) et mercredi 14 soir (14 h – 22 h). »
+#   Dit : plus court, sans les heures
+function Get-TexteHoraires($Faits) {
+    $f = @($Faits)
+    if (-not $f.Count) { return @{ Ecrit = 'Ces postes sont déjà dans ton agenda.'; Dit = 'Ces postes sont déjà dans ton agenda.' } }
+    $quand = { param($x) if ($x.RV.Repetition) { Format-Repetition $x.RV.Repetition } else { $x.Quand.ToString('dddd d', $Fr) } }
+    $ecrits = @($f | ForEach-Object { "$(& $quand $_) $($CreneauxNoms[$_.Creneau]) ($($_.Heures -replace ' à ', ' – '))" })
+    $dits = @($f | ForEach-Object { "$(& $quand $_) $($CreneauxNoms[$_.Creneau])" })
+    $liste = { param($l) if ($l.Count -gt 1) { "$(($l | Select-Object -SkipLast 1) -join ', ') et $($l[-1])" } else { $l[0] } }
+    $n = if ($f.Count -gt 1) { "$($f.Count) postes" } else { 'un poste' }
+    @{ Ecrit = "C'est noté : $n. $(Get-Majuscule (& $liste $ecrits))."; Dit = "C'est noté : $n, $(& $liste $dits)." }
+}
+
+# Réglages, Général : les heures de chaque poste (« 6 h à 14 h »), enregistrées dès qu'on quitte la case
+function Update-HorairesReglage {
+    $ui.HorairesTravail.Children.Clear()
+    foreach ($c in $CreneauxNoms.Keys) {
+        $g = New-Object System.Windows.Controls.DockPanel; $g.Margin = '0,0,0,8'
+        $l = New-Object System.Windows.Controls.TextBlock
+        $l.Text = Get-Majuscule $CreneauxNoms[$c]; $l.Width = 110; $l.FontSize = 14; $l.Foreground = Get-Brush '#F2EFFA'; $l.VerticalAlignment = 'Center'
+        [void]$g.Children.Add($l)
+        $b = New-Object System.Windows.Controls.TextBox
+        $b.Style = $Window.FindResource('Champ'); $b.Width = 170; $b.HorizontalAlignment = 'Left'; $b.MaxLength = 30
+        $b.Text = Get-Horaire $c; $b.Tag = $HorairesDefaut[$c]; $b.Name = "Horaire_$c"
+        $b.Add_LostFocus({
+            param($s)
+            $cle = $s.Name -replace '^Horaire_', ''
+            $v = $s.Text.Trim() -replace '^de\s+', ''
+            $p = Read-Phrase "x lundi de $v" ([datetime]'2026-01-01')
+            if (-not $v -or $p.Manque -or -not $p.Fin) { $s.BorderBrush = Get-Brush $Colors.bad; $s.ToolTip = 'Écris par exemple : 6 h à 14 h'; return }
+            $s.BorderBrush = $null; $s.ToolTip = $null
+            $h = [ordered]@{}; $avant = Get-Setting 'Horaires' $null
+            foreach ($k in $CreneauxNoms.Keys) { $h[$k] = if ($avant -and $avant.$k) { [string]$avant.$k } else { $HorairesDefaut[$k] } }
+            $h[$cle] = $v
+            Set-Setting 'Horaires' $h
+        })
+        [void]$g.Children.Add($b)
+        [void]$ui.HorairesTravail.Children.Add($g)
+    }
+}
+
 # Les événements à créer : un seul ; un par jour séparé (« les 3 et 10 novembre », même heure) ;
 # ou un par bloc de jours (« la première semaine des 3 prochains mois »). Chacun : @{ Quand; Fin }
 function Get-CreationsPhrase($p) {
@@ -123,6 +241,15 @@ function Invoke-Ajouter {
     # Une demande (« décale le dentiste à jeudi », « qu'est-ce que j'ai demain ? ») va à l'assistant
     $texte = $ui.InPhrase.Text.Trim()
     if ($texte -and (Test-EstCommande $texte) -and (Test-CerveauInstalle) -and (Invoke-Commande $texte 'barre')) { return }
+    # « je suis du matin lundi et mardi » : des postes de travail
+    $hor = if ($texte) { Get-HorairesTravail $texte } else { $null }
+    if ($hor) {
+        try { $faits = @(Add-HorairesTravail $hor) } catch { Write-Log "Horaires impossibles : $_"; Show-FormMessage "Je n'ai pas réussi à enregistrer ces horaires. ($($_.Exception.Message))" $Colors.bad; return }
+        $ui.InPhrase.Text = ''
+        Show-FormMessage (Get-TexteHoraires $faits).Ecrit $Colors.ok
+        if ($faits.Count) { Select-JourCalendrier $faits[0].Quand } else { Update-Agenda }
+        return
+    }
     Update-Apercu
     $p = $script:Phrase
     if (-not $p) {
@@ -202,7 +329,7 @@ function Update-Calendrier {
                 $pill.BorderBrush = Get-Teinte $c 0x90; $pill.BorderThickness = '2,0,0,0'
                 $pt = New-Object System.Windows.Controls.TextBlock
                 $pt.FontSize = 11; $pt.Foreground = Get-Brush '#F2EFFA'; $pt.TextTrimming = 'CharacterEllipsis'
-                $ic = New-Object System.Windows.Documents.Run "$($Types[$type].Icone) "; $ic.FontFamily = $PoliceIcone; $ic.Foreground = Get-Brush $c
+                $ic = New-IconeTexte $type 11
                 # Passé : une petite coche verte devant, et la pastille s'efface un peu
                 if (Test-Valide $it.RV $it.Prochain) {
                     $ok = New-Object System.Windows.Documents.Run '✓ '; $ok.FontFamily = 'Segoe UI Symbol'; $ok.FontWeight = 'Bold'; $ok.Foreground = Get-Brush '#3DDC97'
@@ -334,7 +461,7 @@ function New-RendezVousRow($Item) {
         $badge.Background = if ($today) { $Window.FindResource('AccentBg') } else { Get-Teinte $t.Couleur 0x26 }
         $badge.BorderBrush = Get-Teinte $t.Couleur 0x70; $badge.BorderThickness = 1
         $bs = New-Object System.Windows.Controls.StackPanel; $bs.VerticalAlignment = 'Center'
-        $ic = New-Icone $type 13; if ($today) { $ic.Foreground = Get-Brush '#08060F' }
+        $ic = New-Icone $type 14; if ($today) { Set-IconeCouleur $ic '#08060F' }
         $num = New-Texte ([string]$quand.Day) 19 $(if ($today) { '#08060F' } else { '#FFFFFF' }) 'Bold'; $num.HorizontalAlignment = 'Center'; $num.Margin = '0,-1,0,0'
         $mon = New-Texte ($quand.ToString('MMM', $Fr).TrimEnd('.')) 11 $(if ($today) { '#08060F' } else { $Colors.dim }); $mon.HorizontalAlignment = 'Center'; $mon.Margin = '0,-3,0,0'
         [void]$bs.Children.Add($ic); [void]$bs.Children.Add($num); [void]$bs.Children.Add($mon)
@@ -374,7 +501,7 @@ function New-RendezVousRow($Item) {
     if ($type -eq 'anniv' -and $rep -match 'ans') { $rel.Inlines.Add((New-Run '   ↻ chaque année' '#C58CFF')) }
     elseif ($rep) { $rel.Inlines.Add((New-Run "   ↻ $rep" '#C58CFF')) }
     $age = if ($type -eq 'anniv') { Get-AgeTexte $r $quand } else { '' }
-    if ($age) { $rel.Inlines.Add((New-Run "   🎂 $age" '#FF7AD0')) }
+    if ($age) { $rel.Inlines.Add((New-Run '   ' '#FF7AD0')); $rel.Inlines.Add((New-IconeTexte 'anniv' 12 '#FF7AD0')); $rel.Inlines.Add((New-Run $age '#FF7AD0')) }
     if ($valide -and $type -ne 'rappel') { $rel.Inlines.Add((New-Run '   ✓ validé' '#3DDC97' 'SemiBold')) }
     [void]$txt.Children.Add($rel)
     $resume = Get-ResumeDetails $r

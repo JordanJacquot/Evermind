@@ -432,6 +432,20 @@
             </StackPanel>
           </DockPanel>
         </Border>
+        <!-- Nouvelle version d'Evermind : mise à jour en un clic -->
+        <Border x:Name="MajBandeau" Visibility="Collapsed" Margin="0,12,0,0" Background="#1AFF2EB5" BorderBrush="#66FF2EB5" BorderThickness="1" CornerRadius="14" Padding="16,12">
+          <DockPanel>
+            <Button x:Name="BtnMaj" DockPanel.Dock="Right" Style="{StaticResource BtnPrimary}" Content="Mettre à jour" VerticalAlignment="Center" Margin="14,0,0,0"/>
+            <Button x:Name="BtnMajPlusTard" DockPanel.Dock="Right" Style="{StaticResource BtnSecondary}" Content="Plus tard" VerticalAlignment="Center" Margin="14,0,0,0"/>
+            <TextBlock DockPanel.Dock="Left" Text="✦" FontSize="22" Foreground="#FF2EB5" VerticalAlignment="Center" Margin="0,0,14,0"/>
+            <StackPanel VerticalAlignment="Center">
+              <TextBlock x:Name="MajTexte" FontSize="14" Foreground="#EEEBF7" TextWrapping="Wrap"/>
+              <Border x:Name="MajBarreFond" Height="6" CornerRadius="3" Background="#22FFFFFF" Margin="0,10,0,0" Visibility="Collapsed">
+                <Border x:Name="MajBarre" HorizontalAlignment="Left" Width="4" CornerRadius="3" Background="{StaticResource AccentBg}"/>
+              </Border>
+            </StackPanel>
+          </DockPanel>
+        </Border>
       </StackPanel>
     </Border>
 
@@ -751,6 +765,9 @@
                 <TextBlock Text="Quand tu notes « réunion avec Monsieur Richard », je cherche ici un dossier à son nom pour le relier au rendez-vous. Je ne regarde que les noms des dossiers, jamais leur contenu, et rien ne sort de ton PC." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,10"/>
                 <StackPanel x:Name="DossiersRecherche"/>
                 <Button x:Name="BtnDossierRechercheAjouter" Style="{StaticResource Chip}" Content="📁  Ajouter un dossier…" HorizontalAlignment="Left"/>
+                <TextBlock Text="Mes horaires de travail" Style="{StaticResource Label}" FontSize="16" Margin="2,24,0,4"/>
+                <TextBlock Text="Quand tu dis « je suis du matin lundi et mardi » ou « boulot lundi matin, mardi journée et mercredi soir », j'utilise ces heures." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,10"/>
+                <StackPanel x:Name="HorairesTravail"/>
               </StackPanel>
             </Grid>
           </ScrollViewer>

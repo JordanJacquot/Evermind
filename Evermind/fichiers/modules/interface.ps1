@@ -86,7 +86,7 @@ function Start-Capture([string]$Path) {
         $script:CaptureTimer = New-Object System.Windows.Threading.DispatcherTimer
         $script:CaptureTimer.Interval = [TimeSpan]::FromMilliseconds(300)
         $script:CaptureTimer.Add_Tick({
-            if ($script:AlerteEnCapture -or $script:Transcription -or $script:Demande -or $script:TestTimer -or ($script:Eveil -and $script:Eveil.Detecte) -or $script:Parle -or ($script:VoixDl -and -not $script:VoixDl.Fini)) { return }
+            if ($script:AlerteEnCapture -or ($script:Maj.Etat -in @('cherche', 'vu', 'telecharge', 'pret')) -or ($env:EVERMIND_MAJ_AUTO -and $script:Maj.Etat -eq 'dispo') -or $script:Transcription -or $script:Demande -or $script:TestTimer -or ($script:Eveil -and $script:Eveil.Detecte) -or $script:Parle -or ($script:VoixDl -and -not $script:VoixDl.Fini -and -not $script:VoixDl.Test) -or $script:TestAttente) { return }
             $script:CaptureTimer.Stop()
             try {
                 $root = $Window.Content

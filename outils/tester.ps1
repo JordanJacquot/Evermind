@@ -29,6 +29,9 @@ $ok = ($LASTEXITCODE -eq 0) -and $ok
 # Rappels : la veille, le matin même, N minutes avant, une seule fois
 & (Join-Path $PSScriptRoot 'tester-rappels.ps1')
 $ok = ($LASTEXITCODE -eq 0) -and $ok
+# Horaires de travail en postes : matin, journée, soir, nuit
+& (Join-Path $PSScriptRoot 'tester-horaires.ps1')
+$ok = ($LASTEXITCODE -eq 0) -and $ok
 
 # Rendez-vous d'exemple : aujourd'hui, demain (qui revient chaque semaine), dans quelques jours, un passé
 function New-DonneesExemple([string]$Dossier) {
@@ -56,7 +59,7 @@ function Invoke-Scenario([string]$Nom, [hashtable]$Env, [switch]$Exemples) {
     if ($Exemples) { New-DonneesExemple $donnees }
     $capture = Join-Path $test "capture-$Nom.png"
     Remove-Item -LiteralPath $capture -ErrorAction SilentlyContinue
-    foreach ($k in 'EVERMIND_DOSSIERS', 'EVERMIND_PACKS', 'EVERMIND_THEME', 'EVERMIND_FERMER', 'EVERMIND_PHRASE', 'EVERMIND_AJOUTER', 'EVERMIND_FORMULAIRE', 'EVERMIND_REGLAGES', 'EVERMIND_CONFIRMATION', 'EVERMIND_FICHE', 'EVERMIND_FORMULAIRE_RV', 'EVERMIND_JOUR', 'EVERMIND_DECALER', 'EVERMIND_FICHE_SUPPRIMER', 'EVERMIND_CONFIRMATION_OUI', 'EVERMIND_CAPTURE_ALERTE', 'EVERMIND_ALERTE_RV', 'EVERMIND_TEST_PAROLE', 'EVERMIND_COMMANDE', 'EVERMIND_EVEIL_WAV', 'EVERMIND_DICTEE_WAV', 'EVERMIND_VOIX') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
+    foreach ($k in 'EVERMIND_DOSSIERS', 'EVERMIND_PACKS', 'EVERMIND_THEME', 'EVERMIND_FERMER', 'EVERMIND_PHRASE', 'EVERMIND_AJOUTER', 'EVERMIND_FORMULAIRE', 'EVERMIND_REGLAGES', 'EVERMIND_CONFIRMATION', 'EVERMIND_FICHE', 'EVERMIND_FORMULAIRE_RV', 'EVERMIND_JOUR', 'EVERMIND_DECALER', 'EVERMIND_FICHE_SUPPRIMER', 'EVERMIND_CONFIRMATION_OUI', 'EVERMIND_CAPTURE_ALERTE', 'EVERMIND_ALERTE_RV', 'EVERMIND_MAJ_VERSION', 'EVERMIND_MAJ_ZIP', 'EVERMIND_MAJ_AUTO', 'EVERMIND_MAJ_INSTALLER', 'EVERMIND_MAJ_PAS_DE_RELANCE', 'EVERMIND_TEST_TELECHARGEMENT', 'EVERMIND_TEST_PAROLE', 'EVERMIND_COMMANDE', 'EVERMIND_EVEIL_WAV', 'EVERMIND_DICTEE_WAV', 'EVERMIND_VOIX') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
     $env:EVERMIND_TEST = '1'; $env:EVERMIND_DONNEES = $donnees; $env:EVERMIND_CAPTURE = $capture
     $env:EVERMIND_VOIX = Join-Path $donnees 'voix-absente'
     foreach ($k in $Env.Keys) { Set-Item "env:$k" $Env[$k] }
@@ -78,6 +81,8 @@ function Invoke-Scenario([string]$Nom, [hashtable]$Env, [switch]$Exemples) {
     $bon
 }
 
+# Les rendez-vous enregistrés par la dernière situation lancée
+function Get-RV([string]$Titre) { @(@((ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $script:Donnees 'rendez-vous.json'), [Text.Encoding]::UTF8))).RendezVous) | Where-Object { $_.Titre -like $Titre }) }
 Write-Host 'Test de la fenêtre en cours, patiente...'
 if (-not $AssistantSeul) {
 $ok = (Invoke-Scenario 'agenda' @{ EVERMIND_PHRASE = 'tous les mardis à 20 h 30 raid avec les potes' } -Exemples) -and $ok
@@ -117,6 +122,17 @@ foreach ($s in @(@('alerte-rappel', 'Dentiste'), @('alerte-simple', 'personne'))
     elseif ($passe) { Write-Host "       alerte : $img" -ForegroundColor DarkGray }
     $ok = $passe -and $ok
 }
+# Nouvelle version disponible : le bandeau « Mettre à jour » (version imaginaire, rien n'est téléchargé)
+$ok = (Invoke-Scenario 'maj-bandeau' @{ EVERMIND_MAJ_VERSION = '9.9.9'; EVERMIND_MAJ_ZIP = (Join-Path $racine 'release\Evermind.zip') } -Exemples) -and $ok
+if ($script:Journal -notmatch 'Mise à jour disponible : 9\.9\.9') { Write-Host 'ÉCHEC  maj-bandeau : la nouvelle version n''a pas été vue' -ForegroundColor Red; $ok = $false }
+# Horaires de travail : l'aperçu « Je comprends », puis l'ajout (un poste par jour)
+$ok = (Invoke-Scenario 'horaires-apercu' @{ EVERMIND_PHRASE = 'boulot lundi matin, mardi journée et mercredi soir' } -Exemples) -and $ok
+if (Invoke-Scenario 'horaires-ajout' @{ EVERMIND_PHRASE = 'je suis du matin lundi et mardi'; EVERMIND_AJOUTER = '1' } -Exemples) {
+    if (@(Get-RV 'Travail (matin)').Count -ne 2) { Write-Host 'ÉCHEC  horaires-ajout : les deux postes du matin ne sont pas notés' -ForegroundColor Red; $ok = $false }
+    else { Write-Host '       deux postes du matin notés' -ForegroundColor DarkGray }
+} else { $ok = $false }
+# Téléchargement en cours : barre qui avance, pourcentage, vitesse, temps restant
+$ok = (Invoke-Scenario 'telechargement' @{ EVERMIND_TEST_TELECHARGEMENT = '1' } -Exemples) -and $ok
 # Rendez-vous passé (le coiffeur, il y a 2 jours) : validé tout seul (✓), et on peut encore le décaler
 $ok = (Invoke-Scenario 'valide-jour' @{ EVERMIND_JOUR = (Get-Date).Date.AddDays(-2).ToString('yyyy-MM-dd') } -Exemples) -and $ok
 $ok = (Invoke-Scenario 'valide-fiche' @{ EVERMIND_FICHE = 'Coiffeur' } -Exemples) -and $ok
