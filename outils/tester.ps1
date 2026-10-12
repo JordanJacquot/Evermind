@@ -59,7 +59,7 @@ function Invoke-Scenario([string]$Nom, [hashtable]$Env, [switch]$Exemples) {
     if ($Exemples) { New-DonneesExemple $donnees }
     $capture = Join-Path $test "capture-$Nom.png"
     Remove-Item -LiteralPath $capture -ErrorAction SilentlyContinue
-    foreach ($k in 'EVERMIND_DOSSIERS', 'EVERMIND_PACKS', 'EVERMIND_THEME', 'EVERMIND_FERMER', 'EVERMIND_PHRASE', 'EVERMIND_AJOUTER', 'EVERMIND_FORMULAIRE', 'EVERMIND_REGLAGES', 'EVERMIND_CONFIRMATION', 'EVERMIND_FICHE', 'EVERMIND_FORMULAIRE_RV', 'EVERMIND_JOUR', 'EVERMIND_DECALER', 'EVERMIND_FICHE_SUPPRIMER', 'EVERMIND_CONFIRMATION_OUI', 'EVERMIND_CAPTURE_ALERTE', 'EVERMIND_ALERTE_RV', 'EVERMIND_MAJ_VERSION', 'EVERMIND_MAJ_ZIP', 'EVERMIND_MAJ_AUTO', 'EVERMIND_MAJ_INSTALLER', 'EVERMIND_MAJ_PAS_DE_RELANCE', 'EVERMIND_TEST_TELECHARGEMENT', 'EVERMIND_TEST_PAROLE', 'EVERMIND_COMMANDE', 'EVERMIND_EVEIL_WAV', 'EVERMIND_DICTEE_WAV', 'EVERMIND_VOIX') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
+    foreach ($k in 'EVERMIND_DOSSIERS', 'EVERMIND_PACKS', 'EVERMIND_THEME', 'EVERMIND_FERMER', 'EVERMIND_PHRASE', 'EVERMIND_AJOUTER', 'EVERMIND_FORMULAIRE', 'EVERMIND_REGLAGES', 'EVERMIND_CONFIRMATION', 'EVERMIND_FICHE', 'EVERMIND_FORMULAIRE_RV', 'EVERMIND_JOUR', 'EVERMIND_DECALER', 'EVERMIND_FICHE_SUPPRIMER', 'EVERMIND_CONFIRMATION_OUI', 'EVERMIND_CAPTURE_ALERTE', 'EVERMIND_ALERTE_RV', 'EVERMIND_MAJ_VERSION', 'EVERMIND_MAJ_ZIP', 'EVERMIND_MAJ_AUTO', 'EVERMIND_MAJ_INSTALLER', 'EVERMIND_MAJ_PAS_DE_RELANCE', 'EVERMIND_TEST_TELECHARGEMENT', 'EVERMIND_COULEURS', 'EVERMIND_VOIR', 'EVERMIND_LOGO', 'EVERMIND_TEST_PAROLE', 'EVERMIND_COMMANDE', 'EVERMIND_EVEIL_WAV', 'EVERMIND_DICTEE_WAV', 'EVERMIND_VOIX') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
     $env:EVERMIND_TEST = '1'; $env:EVERMIND_DONNEES = $donnees; $env:EVERMIND_CAPTURE = $capture
     $env:EVERMIND_VOIX = Join-Path $donnees 'voix-absente'
     foreach ($k in $Env.Keys) { Set-Item "env:$k" $Env[$k] }
@@ -131,6 +131,11 @@ if (Invoke-Scenario 'horaires-ajout' @{ EVERMIND_PHRASE = 'je suis du matin lund
     if (@(Get-RV 'Travail (matin)').Count -ne 2) { Write-Host 'ÉCHEC  horaires-ajout : les deux postes du matin ne sont pas notés' -ForegroundColor Red; $ok = $false }
     else { Write-Host '       deux postes du matin notés' -ForegroundColor DarkGray }
 } else { $ok = $false }
+# Couleurs des sortes au choix : l'onglet Thème, puis l'agenda (une couleur choisie reste la même avec un autre thème)
+$ok = (Invoke-Scenario 'couleurs-reglages' @{ EVERMIND_REGLAGES = 'Theme'; EVERMIND_COULEURS = 'sport=#FF4D6D;sante=#3B82F6'; EVERMIND_VOIR = 'CouleursSortes' } -Exemples) -and $ok
+$ok = (Invoke-Scenario 'couleurs-agenda' @{ EVERMIND_THEME = 'crepuscule'; EVERMIND_COULEURS = 'sport=#FF4D6D;sante=#3B82F6' } -Exemples) -and $ok
+# Le logo déplacé (au milieu de la fenêtre) et agrandi
+$ok = (Invoke-Scenario 'logo-deplace' @{ EVERMIND_LOGO = '0.45;0.5;90' } -Exemples) -and $ok
 # Téléchargement en cours : barre qui avance, pourcentage, vitesse, temps restant
 $ok = (Invoke-Scenario 'telechargement' @{ EVERMIND_TEST_TELECHARGEMENT = '1' } -Exemples) -and $ok
 # Rendez-vous passé (le coiffeur, il y a 2 jours) : validé tout seul (✓), et on peut encore le décaler
@@ -213,7 +218,7 @@ if (-not $env:EVERMIND_EVEIL_SEUL -and (Test-Path -LiteralPath (Join-Path $Voix 
     $ok = (Test-Assistant 'ia-plusieurs-jours' 'Ajoute un événement ElleFest sur le 27, le 28 et le 29 octobre.' { $r = @(Get-RV 'Elle*'); $r.Count -eq 1 -and $r[0].Quand -like '*-10-27T00:00' -and $r[0].Fin -like '*-10-29T00:00' }) -and $ok
     $ok = (Test-Assistant 'ia-mettre-sur-3-jours' 'Crée un événement ElleFest le 29 octobre.||Supprime le ElleFest du 29 octobre et je t''ai dit qu''il faut mettre l''événement sur 3 jours, le 27, le 28 et le 29 octobre.' { $r = @(Get-RV 'Elle*'); $r.Count -eq 1 -and $r[0].Quand -like '*-10-27T00:00' -and $r[0].Fin -like '*-10-29T00:00' }) -and $ok
     $ok = (Test-Assistant 'ia-courses-supprimer-mois' 'Mets-moi un événement courses tous les lundis d''octobre 2026.||Supprime tous les événements courses d''octobre 2026.' { -not (Get-RV 'Courses*') }) -and $ok
-    $ok = (Test-Assistant 'ia-raid-sauf-novembre' 'Supprime tous les raids de novembre.' { $r = Get-RV 'Raid avec les potes'; $r -and @($r[0].Repetition.Sauf | Where-Object { $_ -like '2026-11-*' }).Count -ge 4 -and -not $r[0].Repetition.Jusqua }) -and $ok
+    $ok = (Test-Assistant 'ia-raid-sauf-novembre' 'Supprime tous les raids de novembre.' { $r = Get-RV 'Raid avec les potes'; $r -and @($r[0].Repetition.Sauf | Where-Object { $_ -like '2026-11-*' }).Count -ge 4 -and -not @($r[0].Repetition.Sauf | Where-Object { $_ -notlike '2026-11-*' }).Count -and -not $r[0].Repetition.Jusqua }) -and $ok
     $ok = (Test-Assistant 'ia-raid-apres' 'Enlève le raid à partir de décembre.' { $r = Get-RV 'Raid avec les potes'; $r -and [string]$r[0].Repetition.Jusqua -eq '2026-11-30' }) -and $ok
     $ok = (Test-Assistant 'ia-question' 'Qu''est-ce que j''ai demain ?' { $script:Journal -match 'Raid' -and (@((ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $script:Donnees 'rendez-vous.json'), [Text.Encoding]::UTF8))).RendezVous).Count -eq 8) }) -and $ok
     # Le grand catalogue de demandes à l'assistant (sans fenêtre, même chemin que dans l'appli)
@@ -222,7 +227,7 @@ if (-not $env:EVERMIND_EVEIL_SEUL -and (Test-Path -LiteralPath (Join-Path $Voix 
     $ok = ($LASTEXITCODE -eq 0) -and $ok
 } else { Write-Host "(assistant non testé : pas d'IA dans $Voix)" -ForegroundColor DarkGray }
 
-# « OK Eve » : une phrase dite par une voix de synthèse (Piper, gardé seulement pour les tests dans _test\voix) passe
+# « OK Evermind » : une phrase dite par une voix de synthèse (Piper, gardé seulement pour les tests dans _test\voix) passe
 # par l'écoute, comme si elle venait du micro
 $Piper = Join-Path $test 'voix'
 function New-WavPiper([string]$Texte, [string]$Fichier) {
@@ -232,19 +237,31 @@ function New-WavPiper([string]$Texte, [string]$Fichier) {
     $pr = [Diagnostics.Process]::Start($psi); $w = New-Object IO.StreamWriter($pr.StandardInput.BaseStream, (New-Object Text.UTF8Encoding($false))); $w.WriteLine($Texte); $w.Close(); $pr.WaitForExit()
 }
 if ((Test-Path -LiteralPath (Join-Path $Voix 'eveil\vosk-win64-0.3.45\libvosk.dll')) -and (Test-Path -LiteralPath (Join-Path $Voix 'ia\llama-server.exe'))) {
-    $wav = Join-Path $test 'eveil-demande.wav'; New-WavPiper 'OK Eve, supprime le dentiste.' $wav
+    $wav = Join-Path $test 'eveil-demande.wav'; New-WavPiper 'OK Evermind, supprime le dentiste.' $wav
     $passe = Invoke-Scenario 'eveil-demande' @{ EVERMIND_VOIX = $Voix; EVERMIND_EVEIL_WAV = $wav } -Exemples
-    if ($passe -and (Get-RV 'Dentiste')) { Write-Host '       (mal entendu par la voix de synthèse, nouvel essai)' -ForegroundColor DarkGray; New-WavPiper 'OK Eve, supprime le dentiste.' $wav; $passe = Invoke-Scenario 'eveil-demande' @{ EVERMIND_VOIX = $Voix; EVERMIND_EVEIL_WAV = $wav } -Exemples }
+    if ($passe -and (Get-RV 'Dentiste')) { Write-Host '       (mal entendu par la voix de synthèse, nouvel essai)' -ForegroundColor DarkGray; New-WavPiper 'OK Evermind, supprime le dentiste.' $wav; $passe = Invoke-Scenario 'eveil-demande' @{ EVERMIND_VOIX = $Voix; EVERMIND_EVEIL_WAV = $wav } -Exemples }
     if ($passe) {
-        foreach ($m in [regex]::Matches($script:Journal, '(Écoute de test|OK Eve|Dictée \(|Assistant \(|Faux réveil)[^\r\n]*')) { Write-Host "       $($m.Value)" -ForegroundColor DarkGray }
+        foreach ($m in [regex]::Matches($script:Journal, '(Écoute de test|OK Evermind|Dictée \(|Assistant \(|Faux réveil)[^\r\n]*')) { Write-Host "       $($m.Value)" -ForegroundColor DarkGray }
         if ((Get-RV 'Dentiste') -or -not (Get-RV 'Foot')) { Write-Host 'ÉCHEC  eveil-demande : le dentiste aurait dû être supprimé' -ForegroundColor Red; $ok = $false }
     } else { $ok = $false }
     $wav = Join-Path $test 'eveil-faux.wav'; New-WavPiper 'OK, on y va.' $wav
     if (Invoke-Scenario 'eveil-faux' @{ EVERMIND_VOIX = $Voix; EVERMIND_EVEIL_WAV = $wav } -Exemples) {
-        foreach ($m in [regex]::Matches($script:Journal, '(Écoute de test|OK Eve|Dictée \(|Assistant \(|Faux réveil)[^\r\n]*')) { Write-Host "       $($m.Value)" -ForegroundColor DarkGray }
+        foreach ($m in [regex]::Matches($script:Journal, '(Écoute de test|OK Evermind|Dictée \(|Assistant \(|Faux réveil)[^\r\n]*')) { Write-Host "       $($m.Value)" -ForegroundColor DarkGray }
         if ($script:Journal -match 'Assistant \(|Rendez-vous (ajouté|supprimé)') { Write-Host 'ÉCHEC  eveil-faux : un faux réveil a déclenché quelque chose' -ForegroundColor Red; $ok = $false }
     } else { $ok = $false }
-} else { Write-Host "(« OK Eve » non testé : pas d'écoute ou pas d'IA dans $Voix)" -ForegroundColor DarkGray }
+    # « Evermind » sans « OK » devant (le « OK » se perd souvent) : il se réveille aussi
+    $wav = Join-Path $test 'eveil-sans-ok.wav'; New-WavPiper 'Evermind, supprime le dentiste.' $wav
+    if (Invoke-Scenario 'eveil-sans-ok' @{ EVERMIND_VOIX = $Voix; EVERMIND_EVEIL_WAV = $wav } -Exemples) {
+        foreach ($m in [regex]::Matches($script:Journal, '(Écoute de test|OK Evermind|Dictée \(|Assistant \(|Faux réveil)[^\r\n]*')) { Write-Host "       $($m.Value)" -ForegroundColor DarkGray }
+        if (Get-RV 'Dentiste') { Write-Host 'ÉCHEC  eveil-sans-ok : « Evermind, supprime le dentiste » n''a pas marché' -ForegroundColor Red; $ok = $false }
+    } else { $ok = $false }
+    # « OK Eve » est le mot d'Eve, l'autre assistant : Evermind ne doit pas réagir
+    $wav = Join-Path $test 'eveil-eve.wav'; New-WavPiper 'OK Eve, supprime le dentiste.' $wav
+    if (Invoke-Scenario 'eveil-eve' @{ EVERMIND_VOIX = $Voix; EVERMIND_EVEIL_WAV = $wav } -Exemples) {
+        foreach ($m in [regex]::Matches($script:Journal, '(Écoute de test|OK Evermind|Dictée \(|Assistant \(|Faux réveil)[^\r\n]*')) { Write-Host "       $($m.Value)" -ForegroundColor DarkGray }
+        if ($script:Journal -match 'Assistant \(|Rendez-vous (ajouté|supprimé)' -or -not (Get-RV 'Dentiste')) { Write-Host 'ÉCHEC  eveil-eve : « OK Eve » a réveillé Evermind' -ForegroundColor Red; $ok = $false }
+    } else { $ok = $false }
+} else { Write-Host "(« OK Evermind » non testé : pas d'écoute ou pas d'IA dans $Voix)" -ForegroundColor DarkGray }
 if ($ok) { Write-Host 'Tout est bon.' -ForegroundColor Green; exit 0 }
 Write-Host 'Des tests ont échoué.' -ForegroundColor Red
 exit 1

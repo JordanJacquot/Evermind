@@ -385,8 +385,8 @@
       <Button x:Name="BtnReglages" DockPanel.Dock="Right" Style="{StaticResource BtnSecondary}" Content="Réglages" VerticalAlignment="Center" Margin="0,0,12,0"/>
       <!-- Mascotte d'un thème personnalisé (themes.ps1) -->
       <Border x:Name="Mascotte" DockPanel.Dock="Right" Height="72" Margin="0,-14,22,-14" VerticalAlignment="Center" Visibility="Collapsed" IsHitTestVisible="False"/>
-      <!-- Logo animé en boucle (logo.ps1) : E qui glitche, anneaux qui tournent, halo, balayage -->
-      <Grid x:Name="LogoHote" Width="84" Height="84" Margin="-14,-14,2,-14" VerticalAlignment="Center" Cursor="Hand"/>
+      <!-- La place du logo dans l'en-tête : le logo lui-même est sur un calque au-dessus, on peut le déplacer (logo.ps1) -->
+      <Border x:Name="LogoPlace" Width="54" Height="54" Margin="-4,-6,10,-6" VerticalAlignment="Center"/>
       <StackPanel VerticalAlignment="Center">
         <TextBlock Text="Evermind" Style="{StaticResource H1}"/>
         <TextBlock x:Name="Greeting" Text="Je me souviens de tout pour toi." Style="{StaticResource Sub}" FontSize="15" Margin="1,0,0,0"/>
@@ -516,6 +516,11 @@
         <TextBlock x:Name="RaccourciTexte" Style="{StaticResource Sub}" FontSize="13" Margin="28,0,0,0" VerticalAlignment="Center"/>
       </StackPanel>
     </DockPanel>
+
+    <!-- Le logo animé (logo.ps1) : E qui glitche, anneaux qui tournent, halo, balayage. On le glisse où on veut, molette : sa taille, double-clic : à sa place -->
+    <Canvas x:Name="LogoCalque" Grid.RowSpan="4">
+      <Grid x:Name="LogoHote" Width="84" Height="84" Cursor="SizeAll" ToolTip="Glisse-moi où tu veux · molette : ma taille · double-clic : à ma place"/>
+    </Canvas>
 
     <!-- Formulaire : ajouter ou modifier un rendez-vous à la main. À gauche l'essentiel, à droite les détails (facultatifs). -->
     <Grid x:Name="Formulaire" Grid.RowSpan="4" Visibility="Collapsed">
@@ -710,7 +715,7 @@
                 <TextBlock Text="Là où Evermind te parle (réponses et rappels). Clique sur une sortie pour l'entendre. Ton choix est gardé, même après un redémarrage ; s'il est débranché, Evermind parle sur celle de Windows en attendant." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
                 <StackPanel x:Name="CasqueChoix"/>
                 <TextBlock Text="Le micro" Style="{StaticResource Label}" FontSize="16" Margin="2,22,0,4"/>
-                <TextBlock Text="Celui qu'Evermind écoute (dictée et « OK Eve »). Parle : la barre qui bouge montre le micro qui t'entend. Ton choix est gardé, même après un redémarrage ; s'il est débranché, Evermind y revient dès qu'il est rebranché." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
+                <TextBlock Text="Celui qu'Evermind écoute (dictée et « OK Evermind »). Parle : la barre qui bouge montre le micro qui t'entend. Ton choix est gardé, même après un redémarrage ; s'il est débranché, Evermind y revient dès qu'il est rebranché." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
                 <StackPanel x:Name="MicroChoix"/>
               </StackPanel>
               <!-- Voix -->
@@ -720,13 +725,13 @@
                 <StackPanel x:Name="VoixChoix"/>
                 <TextBlock x:Name="VoixReglageInfo" Style="{StaticResource Sub}" Margin="2,6,0,0" Visibility="Collapsed" TextWrapping="Wrap"/>
               </StackPanel>
-              <!-- Assistant : « OK Eve » et l'IA -->
+              <!-- Assistant : « OK Evermind » et l'IA -->
               <StackPanel x:Name="PanAssistant" Visibility="Collapsed">
                 <TextBlock Text="Réveil par la voix" Style="{StaticResource Label}" FontSize="16" Margin="2,10,0,4"/>
                 <DockPanel>
                   <CheckBox x:Name="ChkEveil" DockPanel.Dock="Left" Style="{StaticResource Switch}" VerticalAlignment="Center" Margin="2,0,14,0"/>
                   <StackPanel VerticalAlignment="Center">
-                    <TextBlock Text="Réagir quand je dis « OK Eve »" Foreground="#EEEBF7" FontSize="14"/>
+                    <TextBlock Text="Réagir quand je dis « OK Evermind »" Foreground="#EEEBF7" FontSize="14"/>
                     <TextBlock x:Name="EveilEtat" Style="{StaticResource Sub}" FontSize="13" Margin="0,2,0,0" TextWrapping="Wrap"/>
                   </StackPanel>
                 </DockPanel>
@@ -745,6 +750,9 @@
                   <Button x:Name="BtnThemeAppliquer" DockPanel.Dock="Right" Style="{StaticResource BtnPrimary}" Content="Appliquer et relancer" Visibility="Collapsed" Margin="12,0,0,0"/>
                   <TextBlock x:Name="ThemeInfo" Style="{StaticResource Sub}" TextWrapping="Wrap" VerticalAlignment="Center"/>
                 </DockPanel>
+                <TextBlock Text="Couleurs des rendez-vous" Style="{StaticResource Label}" FontSize="16" Margin="2,22,0,4"/>
+                <TextBlock Text="La couleur de chaque sorte de rendez-vous, dans le calendrier, la liste, les fiches et les alertes. Elle reste la même avec tous les thèmes." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,10"/>
+                <StackPanel x:Name="CouleursSortes"/>
                 <TextBlock Text="Thèmes personnalisés" Style="{StaticResource Label}" FontSize="16" Margin="2,22,0,4"/>
                 <TextBlock Text="Un thème personnalisé est un zip (avec pack.json, images, police) : il reste sur ton PC, dans le dossier des thèmes d'Evermind." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,10"/>
                 <WrapPanel>

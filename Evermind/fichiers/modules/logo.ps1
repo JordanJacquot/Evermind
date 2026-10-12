@@ -55,7 +55,26 @@ function Start-LogoLoop($Target, $Property, [double]$From, [double]$To, [int]$Ms
     if ($Reverse) { $e = New-Object System.Windows.Media.Animation.SineEase; $e.EasingMode = 'EaseInOut'; $a.EasingFunction = $e }
     # 30 images par seconde suffisent pour un logo qui tourne doucement : deux fois moins de calcul qu'en 60
     [System.Windows.Media.Animation.Timeline]::SetDesiredFrameRate($a, 30)
-    $Target.BeginAnimation($Property, $a)
+    Add-AnimationBoucle $Target $Property $a
+}
+
+# ---------------------------------------------------------------------------
+# Les animations décoratives (logo, mascotte, pied de page...) ne tournent que quand Evermind est au premier plan :
+# derrière un jeu, réduit ou rangé près de l'horloge, plus rien n'est redessiné. Elles reprennent au retour.
+# ---------------------------------------------------------------------------
+if (-not $script:AnimsBoucle) {
+    $script:AnimsBoucle = New-Object System.Collections.ArrayList
+    $script:AnimsPause = -not $EnTest   # (en pause jusqu'à ce que la fenêtre passe au premier plan ; lancé avec Windows, elle reste cachée)
+}
+function Add-AnimationBoucle($Cible, $Propriete, $Anim) {
+    [void]$script:AnimsBoucle.Add(@{ Cible = $Cible; Prop = $Propriete; Anim = $Anim })
+    if (-not $script:AnimsPause) { $Cible.BeginAnimation($Propriete, $Anim) }
+}
+function Set-AnimationsPause([bool]$Pause) {
+    if ([bool]$script:AnimsPause -eq $Pause) { return }
+    $script:AnimsPause = $Pause
+    foreach ($a in $script:AnimsBoucle) { try { $a.Cible.BeginAnimation($a.Prop, $(if ($Pause) { $null } else { $a.Anim })) } catch {} }
+    foreach ($t in @($script:PackTimers)) { try { if ($Pause) { $t.Stop() } else { $t.Start() } } catch {} }
 }
 
 # ---------------------------------------------------------------------------
@@ -193,7 +212,7 @@ function Start-LogoAnime($Hote, [double]$S = 84) {
         [void]$Hote.Children.Add($cv)
         $script:LogoTimer = New-Object System.Windows.Threading.DispatcherTimer
         $script:LogoTimer.Interval = [TimeSpan]::FromSeconds(7)
-        $script:LogoTimer.Add_Tick({ param($s) $s.Interval = [TimeSpan]::FromSeconds((Get-Random -Minimum 6 -Maximum 13)); if ($Window.IsVisible -and $Window.WindowState -ne 'Minimized') { Start-PackLogoShake } })
+        $script:LogoTimer.Add_Tick({ param($s) $s.Interval = [TimeSpan]::FromSeconds((Get-Random -Minimum 6 -Maximum 13)); if (-not $script:AnimsPause -and $Window.IsVisible -and $Window.WindowState -ne 'Minimized') { Start-PackLogoShake } })
         $script:LogoTimer.Start()
         $Hote.Add_MouseEnter({ Start-PackLogoShake })
         return
@@ -223,7 +242,7 @@ function Start-LogoAnime($Hote, [double]$S = 84) {
     # Petits sauts réguliers du E, comme pendant le chargement de Nevermind ; un de plus au survol
     $script:LogoTimer = New-Object System.Windows.Threading.DispatcherTimer
     $script:LogoTimer.Interval = [TimeSpan]::FromMilliseconds(1300)
-    $script:LogoTimer.Add_Tick({ if ($Window.IsVisible -and $Window.WindowState -ne 'Minimized') { Start-EveGlitch $script:LogoMarque 260 } })
+    $script:LogoTimer.Add_Tick({ if (-not $script:AnimsPause -and $Window.IsVisible -and $Window.WindowState -ne 'Minimized') { Start-EveGlitch $script:LogoMarque 260 } })
     $script:LogoTimer.Start()
     $Hote.Add_MouseEnter({ Start-EveGlitch $script:LogoMarque 420 })
 }
@@ -274,4 +293,85 @@ function Start-PackLogoShake {
         [void]$a.KeyFrames.Add((New-Object System.Windows.Media.Animation.EasingDoubleKeyFrame ([double]$k[1]), ([System.Windows.Media.Animation.KeyTime]::FromTimeSpan([TimeSpan]::FromMilliseconds($k[0])))))
     }
     $m.Rot.BeginAnimation([System.Windows.Media.RotateTransform]::AngleProperty, $a)
+}
+
+# ---------------------------------------------------------------------------
+# Le logo se déplace : on le glisse où on veut dans la fenêtre (sa place est gardée, en proportion de la fenêtre,
+# et reste dedans quand on la redimensionne). Molette : sa taille. Double-clic : retour à sa place et sa taille.
+# Il est dessiné en 84 px, puis mis à la taille voulue (60 px par défaut).
+# ---------------------------------------------------------------------------
+$LogoTailleDefaut = 60
+function Get-LogoTaille {
+    $t = [double](Get-Setting 'LogoTaille' 0)
+    if ($t -lt 36 -or $t -gt 140) { $LogoTailleDefaut } else { $t }
+}
+
+function Update-LogoPlace {
+    $taille = Get-LogoTaille
+    $ui.LogoHote.LayoutTransform = New-Object System.Windows.Media.ScaleTransform ($taille / 84.0), ($taille / 84.0)
+    $W = $ui.LogoCalque.ActualWidth; $H = $ui.LogoCalque.ActualHeight
+    if (-not $W -or -not $H) { return }
+    $pos = Get-Setting 'LogoPos' $null
+    if ($pos -and $null -ne $pos.X) {
+        $ui.LogoPlace.Visibility = 'Collapsed'
+        $x = [double]$pos.X * $W; $y = [double]$pos.Y * $H
+    } else {
+        # À sa place dans l'en-tête, centré sur la place gardée pour lui
+        $ui.LogoPlace.Visibility = 'Visible'; $ui.LogoPlace.Width = $taille - 6; $ui.LogoPlace.Height = $taille - 6
+        $ui.LogoPlace.UpdateLayout()
+        $pt = $ui.LogoPlace.TranslatePoint([System.Windows.Point]::new(0, 0), $ui.LogoCalque)
+        $x = $pt.X + $ui.LogoPlace.ActualWidth / 2 - $taille / 2; $y = $pt.Y + $ui.LogoPlace.ActualHeight / 2 - $taille / 2
+    }
+    [System.Windows.Controls.Canvas]::SetLeft($ui.LogoHote, [math]::Min([math]::Max(0.0, $x), [math]::Max(0.0, $W - $taille)))
+    [System.Windows.Controls.Canvas]::SetTop($ui.LogoHote, [math]::Min([math]::Max(0.0, $y), [math]::Max(0.0, $H - $taille)))
+}
+
+function Initialize-LogoDeplacable {
+    $l = $ui.LogoHote
+    $l.Add_MouseLeftButtonDown({
+        param($s, $e)
+        $e.Handled = $true
+        if ($e.ClickCount -ge 2) { Set-Setting 'LogoPos' $null; Set-Setting 'LogoTaille' $LogoTailleDefaut; Update-LogoPlace; return }
+        $script:LogoDrag = @{ Debut = $e.GetPosition($ui.LogoCalque); X = [System.Windows.Controls.Canvas]::GetLeft($s); Y = [System.Windows.Controls.Canvas]::GetTop($s); Bouge = $false }
+        [void]$s.CaptureMouse()
+    })
+    $l.Add_MouseMove({
+        param($s, $e)
+        $d = $script:LogoDrag
+        if (-not $d -or $e.LeftButton -ne 'Pressed') { return }
+        $p = $e.GetPosition($ui.LogoCalque)
+        $dx = $p.X - $d.Debut.X; $dy = $p.Y - $d.Debut.Y
+        if (-not $d.Bouge -and [math]::Abs($dx) + [math]::Abs($dy) -lt 4) { return }
+        $d.Bouge = $true
+        $taille = Get-LogoTaille
+        [System.Windows.Controls.Canvas]::SetLeft($s, [math]::Min([math]::Max(0.0, $d.X + $dx), [math]::Max(0.0, $ui.LogoCalque.ActualWidth - $taille)))
+        [System.Windows.Controls.Canvas]::SetTop($s, [math]::Min([math]::Max(0.0, $d.Y + $dy), [math]::Max(0.0, $ui.LogoCalque.ActualHeight - $taille)))
+    })
+    $l.Add_MouseLeftButtonUp({
+        param($s, $e)
+        $d = $script:LogoDrag; $script:LogoDrag = $null
+        $s.ReleaseMouseCapture()
+        if (-not $d -or -not $d.Bouge) { return }
+        # Sa place, en proportion de la fenêtre
+        Set-Setting 'LogoPos' ([ordered]@{ X = [math]::Round([System.Windows.Controls.Canvas]::GetLeft($s) / $ui.LogoCalque.ActualWidth, 4); Y = [math]::Round([System.Windows.Controls.Canvas]::GetTop($s) / $ui.LogoCalque.ActualHeight, 4) })
+        Update-LogoPlace
+    })
+    $l.Add_MouseWheel({
+        param($s, $e)
+        $e.Handled = $true
+        $avant = Get-LogoTaille
+        $taille = [math]::Min(140.0, [math]::Max(36.0, $avant + $(if ($e.Delta -gt 0) { 6 } else { -6 })))
+        if ($taille -eq $avant) { return }
+        # (déplacé : il grandit autour de son centre)
+        $pos = Get-Setting 'LogoPos' $null
+        if ($pos -and $null -ne $pos.X) {
+            $W = $ui.LogoCalque.ActualWidth; $H = $ui.LogoCalque.ActualHeight
+            Set-Setting 'LogoPos' ([ordered]@{ X = [math]::Round(([double]$pos.X * $W - ($taille - $avant) / 2) / $W, 4); Y = [math]::Round(([double]$pos.Y * $H - ($taille - $avant) / 2) / $H, 4) })
+        }
+        Set-Setting 'LogoTaille' $taille
+        Update-LogoPlace
+    })
+    $Window.Add_SizeChanged({ Update-LogoPlace })
+    $Window.Add_ContentRendered({ Update-LogoPlace })
+    $ui.LogoCalque.Add_Loaded({ Update-LogoPlace })
 }

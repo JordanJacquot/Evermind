@@ -171,6 +171,7 @@ $repetitions = @(
     , @('tous les mois le 28 à 10 h facture', '2026-10-28 10:00', 'facture', 'mois/28')
     , @('tous les ans le 3 mars anniversaire de mariage', '2027-03-03 journée', 'Anniversaire de mariage', 'an/3/3')
     , @('anniversaire de Tom le 14 juillet', '2027-07-14 journée', 'Anniversaire de Tom', 'an/14/7')
+    , @('anniversaire de Lou le 29 février', '2027-02-28 journée', 'Anniversaire de Lou', 'an/29/2')
     , @('toutes les deux semaines le jeudi à 19 h badminton', '2026-10-15 19:00', 'badminton', 'semaine/4/x2')
     , @('tous les deux semaines le jeudi à 19 h badminton', '2026-10-15 19:00', 'badminton', 'semaine/4/x2')
     , @('toutes les trois mois le 28 à 10 h facture', '2026-10-28 10:00', 'facture', 'mois/28/x3')

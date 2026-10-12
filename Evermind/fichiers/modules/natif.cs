@@ -323,9 +323,9 @@ public class EMMicro
 }
 
 // ---------------------------------------------------------------------------
-// Écoute du mot de réveil « OK Eve » : Vosk (reconnaissance vocale locale, petite et légère) écoute le micro
-// en continu sur son propre fil, et ne sait reconnaître que « ok ève » (tout le reste devient « inconnu »).
-// Rien n'est enregistré ni envoyé : chaque phrase est oubliée dès qu'elle est finie, sauf celle qui commence par « OK Eve ».
+// Écoute du mot de réveil « OK Evermind » : Vosk (reconnaissance vocale locale, petite et légère) écoute le micro
+// en continu sur son propre fil, et ne sait reconnaître que « ok ever mind » (tout le reste devient « inconnu »).
+// Rien n'est enregistré ni envoyé : chaque phrase est oubliée dès qu'elle est finie, sauf celle qui commence par « OK Evermind ».
 // ---------------------------------------------------------------------------
 public class EMEveil
 {
@@ -354,19 +354,20 @@ public class EMEveil
     [DllImport("winmm.dll")] static extern int waveInClose(IntPtr h);
 
     const int Rate = 16000, BufBytes = 3200;
-    const string Grammaire = "[\"ok ève\", \"[unk]\"]";
+    // « ok ève » est connu seulement pour être refusé : c'est le mot de réveil d'Eve, l'autre assistant
+    const string Grammaire = "[\"ok ever mind\", \"ever mind\", \"ok ève\", \"[unk]\"]";
     IntPtr model = IntPtr.Zero, rec = IntPtr.Zero, h = IntPtr.Zero;
     readonly IntPtr[] hdrs = new IntPtr[4];
     readonly AutoResetEvent ev = new AutoResetEvent(false);
-    readonly MemoryStream phrase = new MemoryStream();   // la phrase en cours (gardée seulement si elle commence par « OK Eve »)
+    readonly MemoryStream phrase = new MemoryStream();   // la phrase en cours (gardée seulement si elle commence par « OK Evermind »)
     Thread th;
     volatile bool run;
 
     public volatile bool Pause;          // pendant qu'Evermind parle, écoute ou réfléchit
-    public volatile bool Detecte;        // « OK Eve » vient d'être entendu
-    public volatile bool AvecCommande;   // ... suivi d'autres mots dans la même phrase (« OK Eve, supprime le foot »)
+    public volatile bool Detecte;        // « OK Evermind » vient d'être entendu
+    public volatile bool AvecCommande;   // ... suivi d'autres mots dans la même phrase (« OK Evermind, supprime le foot »)
     public double Seuil = 0.3;           // confiance minimale pour être « candidat » (Whisper confirme ensuite chaque fois)
-    public double ConfMin;               // la plus petite confiance de « ok » et « ève » (0.99 et plus : sûr)
+    public double ConfMin;               // la plus petite confiance de « ok », « ever » et « mind » (0.99 et plus : sûr)
     public string Erreur = "";
     public string DernierTexte = "";
     byte[] pcmDetecte;
@@ -447,7 +448,7 @@ public class EMEveil
 
     public volatile float NiveauMax;     // le son le plus fort entendu depuis la dernière lecture (diagnostic)
     public volatile int Paquets;         // morceaux de son reçus du micro (diagnostic)
-    public string Indices = "";          // phrases où Vosk a cru entendre « ok » ou « ève », avec leur confiance (diagnostic)
+    public string Indices = "";          // phrases où Vosk a cru entendre « ok », « ever » ou « mind », avec leur confiance (diagnostic)
 
     void Traiter(IntPtr r, byte[] b, int n, int rate)
     {
@@ -460,7 +461,7 @@ public class EMEveil
         if (vosk_recognizer_accept_waveform(r, b, n) == 1) Analyser(PtrToString(vosk_recognizer_result(r)), rate);
     }
 
-    // Fin d'une phrase : « ok » puis « ève », tout au début et sûrs à coup sûr ? Sinon la phrase est oubliée.
+    // Fin d'une phrase : « ok », « ever », « mind », tout au début et sûrs ? Sinon la phrase est oubliée.
     public string Phrases = "";          // ce que Vosk a compris des dernières phrases (pour les tests)
     void Analyser(string json, int rate)
     {
@@ -470,14 +471,19 @@ public class EMEveil
         string vus = "";
         foreach (System.Text.RegularExpressions.Match mo in mots) if (mo.Groups[2].Value != "[unk]") vus += " " + mo.Groups[2].Value + " " + mo.Groups[1].Value;
         if (vus != "") lock (this) Indices += (Indices == "" ? "" : " |") + vus;
-        if (mots.Count >= 2)
+        // « ok ever mind » ou « ever mind » au début de la phrase (le « ok » se perd souvent, ou arrive à part) ;
+        // « ok ève », le mot d'Eve, ne compte pas ; « ok ève mind » compte (« ever » parfois entendu « ève » : c'est le « mind » qui fait la différence)
+        // (un « ok » ou un bruit indistinct, une respiration, un « euh », peuvent précéder : deux au plus)
+        int d = 0;
+        while (d < 2 && d < mots.Count && (mots[d].Groups[2].Value == "ok" || mots[d].Groups[2].Value == "[unk]") && !(d + 1 < mots.Count && mots[d].Groups[2].Value == "ever")) d++;
+        if (mots.Count >= d + 2 && (mots[d].Groups[2].Value == "ever" || mots[d].Groups[2].Value == "ève") && mots[d + 1].Groups[2].Value == "mind" && !Detecte)
         {
-            double c0 = double.Parse(mots[0].Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
-            double c1 = double.Parse(mots[1].Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
-            if (mots[0].Groups[2].Value == "ok" && mots[1].Groups[2].Value == "ève" && c0 >= Seuil && c1 >= Seuil && !Detecte)
+            double conf = 1;
+            for (int k = 0; k < d + 2; k++) { if (mots[k].Groups[2].Value == "[unk]") continue; conf = Math.Min(conf, double.Parse(mots[k].Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)); }
+            if (conf >= Seuil)
             {
-                AvecCommande = mots.Count > 2;
-                ConfMin = Math.Min(c0, c1);
+                AvecCommande = mots.Count > d + 2;
+                ConfMin = conf;
                 pcmDetecte = phrase.ToArray();
                 RateDetecte = rate;
                 DernierTexte = json;
@@ -660,4 +666,53 @@ public static class EMNative
         }
         finally { Marshal.ReleaseComObject(store); }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Mode jeu : un programme plein écran (jeu, vidéo) est-il au premier plan ? Et rendre la mémoire qui ne sert pas.
+// ---------------------------------------------------------------------------
+public static class EMJeu
+{
+    [StructLayout(LayoutKind.Sequential)] struct RECT { public int L, T, R, B; }
+    [StructLayout(LayoutKind.Sequential)] struct MONITORINFO { public int cbSize; public RECT rcMonitor, rcWork; public uint dwFlags; }
+    [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr h, uint flags);
+    [DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr m, ref MONITORINFO mi);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+    [DllImport("psapi.dll")] static extern bool EmptyWorkingSet(IntPtr hProcess);
+    [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int index);
+    [DllImport("user32.dll")] static extern bool IsZoomed(IntPtr h);
+    [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr h, int index, int value);
+
+    // Une fenêtre qui ne prend jamais le premier plan (les tests : l'utilisateur garde la main pendant qu'ils tournent)
+    public static void SansActivation(IntPtr h) { try { SetWindowLong(h, -20, GetWindowLong(h, -20) | 0x08000000 | 0x80); } catch { } }
+
+    // Le PID du programme plein écran au premier plan (pas le Bureau, pas Evermind), sinon 0
+    public static int PleinEcran()
+    {
+        try
+        {
+            IntPtr h = GetForegroundWindow();
+            if (h == IntPtr.Zero) return 0;
+            StringBuilder c = new StringBuilder(64); GetClassName(h, c, 64);
+            string cls = c.ToString();
+            if (cls == "Progman" || cls == "WorkerW" || cls == "Shell_TrayWnd") return 0;
+            uint pid; GetWindowThreadProcessId(h, out pid);
+            try { if (System.Diagnostics.Process.GetProcessById((int)pid).ProcessName.ToLower() == "explorer") return 0; } catch { }
+            if (pid == 0 || pid == (uint)System.Diagnostics.Process.GetCurrentProcess().Id) return 0;
+            RECT r; if (!GetWindowRect(h, out r)) return 0;
+            MONITORINFO mi = new MONITORINFO(); mi.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+            if (!GetMonitorInfo(MonitorFromWindow(h, 2), ref mi)) return 0;
+            bool couvre = r.L <= mi.rcMonitor.L && r.T <= mi.rcMonitor.T && r.R >= mi.rcMonitor.R && r.B >= mi.rcMonitor.B;
+            // (une fenêtre simplement agrandie, avec ou sans barre de titre : Discord, un navigateur... n'est pas un jeu)
+            if (couvre && IsZoomed(h)) return 0;
+            return couvre ? (int)pid : 0;
+        }
+        catch { return 0; }
+    }
+
+    // La mémoire d'un programme qu'il n'utilise pas en ce moment retourne à Windows (elle revient d'elle-même si besoin)
+    public static void RendreMemoire(IntPtr hProcess) { try { EmptyWorkingSet(hProcess); } catch { } }
 }

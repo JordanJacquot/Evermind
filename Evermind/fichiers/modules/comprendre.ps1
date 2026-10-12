@@ -228,12 +228,12 @@ function Read-Phrase([string]$Text, $Now) {
     $Now = [datetime]$Now
     $today = $Now.Date
     $st = @{ S = ' ' + ($Text -replace "[’‘`´]", "'") + ' ' }
-    # Ce qui est demandé à Eve en plus de l'événement ne fait pas partie de l'événement : « ... et que tu ouvres son
+    # Ce qui est demandé à l'assistant en plus de l'événement ne fait pas partie de l'événement : « ... et que tu ouvres son
     # dossier au début », « ... . Et tu ouvres directement son dossier », « ... et ouvre son dossier » (sauf un autre
     # ordre de création : « ... et que tu mettes un anniversaire Jordan »)
     $st.S = $st.S -replace "(?i)(?:\s*[.;!]\s*(?:et\s+|puis\s+|ensuite\s+)?|\s*,?\s*\b(?:et|puis|ensuite)\s+)(?:(?:je veux|j'aimerais|je voudrais|il faut)\s+)?(?:que\s+|qu')?tu\s+(?>(?:m'|me\s+|lui\s+|les?\s+|l'|nous\s+)?)(?!(?:$RxOrdre|me|m|lui|les?|nous)\b)\p{L}+\b.*$", ' '
     $st.S = $st.S -replace "(?i)(?:\s*[.,;!]\s*|\s+)(?:et|puis|ensuite)\s+(?:m'|me\s+)?ouvr\w*(?:[- ]moi)?\s+(?:son|ses|sa|le|les|mon|mes|leur|leurs)\s.*$", ' '
-    # Une phrase de plus qui s'adresse à Eve : « ... . Si tu pouvais lier ses dossiers », « ... . Je veux juste que les
+    # Une phrase de plus qui s'adresse à l'assistant : « ... . Si tu pouvais lier ses dossiers », « ... . Je veux juste que les
     # dossiers soient liés, c'est tout », « ... . Merci »
     $st.S = $st.S -replace "(?i)\s*[.!?;]\s+(?:et\s+|alors\s+|mais\s+)?(?:si tu (?:pouvais|peux|pourrais)|tu (?:peux|pourrais)|peux-tu|pourrais-tu|je (?:veux|voudrais|souhaite) (?:juste |aussi |seulement )?que|j'aimerais (?:juste |aussi |bien )?que|il faut (?:juste |aussi )?que|n'oublie pas de|pense à|merci|c'est tout)\b.*$", ' '
     $st.S = $st.S -replace "(?i)[\s,]+c'est tout\s*[.!]?\s*$", ' '
@@ -630,6 +630,11 @@ function Read-Phrase([string]$Text, $Now) {
             'mois'    { if (-not $rep.Rang -and -not $rep.Jour) { $rep.Jour = $ref.Day } }
             'an'      { $rep.Jour = $ref.Day; $rep.Mois = $ref.Month }
         }
+        # Chaque année : dès cette année (un 29 février se fête le 28 les autres années, pas seulement en 2028)
+        if ($rep.Type -eq 'an' -and $rep.Mois -and $rep.Jour -and -not $rep.Jusqua) {
+            $ref = [datetime]::new($today.Year, [int]$rep.Mois, [math]::Min([int]$rep.Jour, [datetime]::DaysInMonth($today.Year, [int]$rep.Mois)))
+            $date = $null   # (le premier : la prochaine fois à partir d'aujourd'hui, pas la date lue, « 29 février 2028 »)
+        }
         if ($rep.Type -eq 'mois' -and -not $rep.Rang -and ($rep.Jour -lt 1 -or $rep.Jour -gt 31)) { $res.Manque = 'invalide'; return (Complete-Phrase $res $det $finHeure $dureeMin $ageDit) }
         $depart = if ($date -and $date -gt $today) { $date + $heure } else { $maintenant }
         if ($limDebut -and $limDebut -gt $depart) { $depart = $limDebut + $heure; if (-not $date) { $ref = $limDebut } }
@@ -690,7 +695,7 @@ function Read-Heure([string]$Text) {
 }
 
 # Ce qu'on dit autour du rendez-vous et qui n'en fait pas partie : politesse, demande, ordre
-$RxPolitesse = "(?:(?:ok|okay|o\.?k\.?|hey|h[ée])[\s,]*(?:[èe]ve|eva)\b|euh+|alors|ok|okay|bon|dis|hey|evermind|s'il te pla[îi]t|s'il vous pla[îi]t|stp|svp|merci)"
+$RxPolitesse = "(?:(?:ok|okay|o\.?k\.?|hey|h[ée])[\s,]*(?:[eé]ver\s*-?\s*m[aeiï]+n[de]?|[èe]ve|eva)\b|euh+|alors|ok|okay|bon|dis|hey|evermind|s'il te pla[îi]t|s'il vous pla[îi]t|stp|svp|merci)"
 $RxDemande   = "(?:je dois|il faut que je|faut que je|j'ai besoin de|je ne dois pas oublier de|n'oublie pas que je dois|est-ce que tu (?:peux|pourrais|veux bien)|est-ce que je peux|tu (?:peux|pourrais|veux bien)|peux-tu|pourrais-tu|je (?:voudrais|veux|souhaite)|j'aimerais|il faut que tu|il faut|faut)"
 $RxOrdre     = "(?:cr[ée]{1,2}[rsz]?|ajoute[rsz]?|rajoute[rsz]?|met[st]?|mettes?|mettre|note[rsz]?|programme[rsz]?|planifie[rsz]?|enregistre[rsz]?|cale[rsz]?|rappelle[s]?[- ]moi|fais[- ]moi penser|pr[ée]viens[- ]moi|pense[rsz]? [àa]|n'oublie pas)"
 $RxGenre     = "(?:rendez[- ]vous|rdv|[ée]v[èée]nement|event|rappel|truc)"
@@ -912,7 +917,8 @@ function Read-Periode([string]$Texte, $Now) {
         if ($p.Quand) { return ([datetime]$p.Quand).Date }
         $null
     }
-    if ($t -match "^(?:du|de)\s+(?<a>.+?)\s+(?:au|à|a|jusqu'au|jusqu'à)\s+(?<b>.+)$") {
+    # (« du 27 au 29 », « le 27 au 29 octobre », « le 27 octobre au 29 octobre », « entre le 27 et le 29 octobre »)
+    if ($t -match "^(?:du|de|le)\s+(?<a>.+?)\s+(?:au|à|a|jusqu'au|jusqu'à)\s+(?<b>.+)$" -or $t -match "^entre\s+(?:le\s+)?(?<a>.+?)\s+et\s+(?:le\s+)?(?<b>.+)$") {
         $sa = $Matches['a']; $sb = $Matches['b']
         $a = & $jour $sa $false; $b = & $jour $sb $true
         # « du 3 au 10 novembre » : le mois (et l'année) de la fin vaut aussi pour le début

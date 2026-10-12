@@ -4,6 +4,9 @@
 $ui.VersionText.Text = "Evermind $AppVersion"
 Update-Greeting
 Start-LogoAnime $ui.LogoHote 84
+# (tests : une place et une taille données d'avance, « 0.45;0.5;90 »)
+if ($env:EVERMIND_LOGO) { $v = $env:EVERMIND_LOGO -split ';'; Set-Setting 'LogoPos' ([ordered]@{ X = [double]$v[0]; Y = [double]$v[1] }); Set-Setting 'LogoTaille' ([double]$v[2]) }
+Initialize-LogoDeplacable   # on le glisse où on veut, molette : sa taille
 Update-Agenda
 
 # Barre rapide
@@ -20,7 +23,7 @@ $ui.BtnVoixPlusTard.Add_Click({ Set-Setting 'AssistantPlusTard' $true; Update-Vo
 $ui.BtnAssistant.Add_Click({ Set-Setting 'AssistantPlusTard' $false; Close-Reglages; Start-VoixInstall 'ia' })
 Register-VoixHotkey
 Update-RaccourciTexte
-Start-Eveil   # « OK Eve », si activé dans les réglages
+Start-Eveil   # « OK Evermind », si activé dans les réglages
 $ui.ChkEveil.Add_Click({ Set-EveilReglage ([bool]$ui.ChkEveil.IsChecked) })
 if (Test-DicteeInstallee) { Set-VoixEtat 'Appuie sur le micro ou sur Ctrl + Maj + Espace (même en jeu), puis parle. Je m''arrête tout seul quand tu te tais.' }
 Update-VoixInstall
@@ -86,6 +89,14 @@ Add-ThemeDecor
 if (-not $EnTest) { Start-PlanificateurFichiers }   # dossiers ouverts tout seuls à l'heure des rendez-vous
 if (-not $EnTest) { Start-PlanificateurRappels }    # rappels : la veille, le matin même, 1 h avant...
 Initialize-Maj                                      # nouvelle version d'Evermind : bandeau « Mettre à jour »
+Start-ModeJeu                                       # un jeu plein écran au premier plan : Evermind se fait discret
+# Les animations ne tournent que quand Evermind est au premier plan (et jamais en mode jeu)
+if (-not $EnTest) {
+    $Window.Add_Activated({ if (-not $script:ModeJeu) { Set-AnimationsPause $false } })
+    $Window.Add_Deactivated({ Set-AnimationsPause $true })
+    $Window.Add_StateChanged({ if ($Window.WindowState -eq 'Minimized') { Set-AnimationsPause $true } })
+    $Window.Add_IsVisibleChanged({ if (-not $Window.IsVisible) { Set-AnimationsPause $true } })
+}
 $ui.CroixDemander.Add_Click({ Set-Setting 'Croix' ''; Update-CroixReglage })
 $ui.CroixReduire.Add_Click({ Set-Setting 'Croix' 'reduire'; Update-CroixReglage })
 $ui.CroixQuitter.Add_Click({ Set-Setting 'Croix' 'quitter'; Update-CroixReglage })
@@ -105,6 +116,9 @@ if ($env:EVERMIND_PHRASE) { $ui.InPhrase.Text = $env:EVERMIND_PHRASE; if ($env:E
 if ($env:EVERMIND_FORMULAIRE) { Open-Formulaire }
 if ($env:EVERMIND_REGLAGES) { Open-Reglages $(if ($env:EVERMIND_REGLAGES -ne '1') { $env:EVERMIND_REGLAGES }) }
 if ($env:EVERMIND_CONFIRMATION) { Confirm-Suppression (@($script:Agenda | Where-Object { $_.Titre -like $env:EVERMIND_CONFIRMATION })[0]).Id; if ($env:EVERMIND_CONFIRMATION_OUI) { $ui.BtnConfirmationOui.RaiseEvent((New-Object System.Windows.RoutedEventArgs ([System.Windows.Controls.Button]::ClickEvent))) } }
+# Couleurs des sortes choisies d'avance (« sport=#FF4D6D;sante=#3B82F6 »), et la partie des réglages qui les montre
+if ($env:EVERMIND_COULEURS) { foreach ($x in $env:EVERMIND_COULEURS -split ';') { $kv = $x -split '='; if ($kv.Count -eq 2) { Set-CouleurSorte $kv[0] $kv[1] } } }
+if ($env:EVERMIND_VOIR) { $Window.Dispatcher.BeginInvoke([System.Windows.Threading.DispatcherPriority]::Loaded, [Action]{ $ui[$env:EVERMIND_VOIR].BringIntoView() }) | Out-Null }
 # L'alerte d'Evermind, avec un rappel d'exemple (le dentiste, celui des tests)
 if ($env:EVERMIND_CAPTURE_ALERTE) {
     $script:AlerteEnCapture = $true   # (la capture de la fenêtre attend celle de l'alerte)

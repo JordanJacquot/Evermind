@@ -30,6 +30,70 @@ function New-Run([string]$Texte, [string]$Couleur, [string]$Poids = 'Normal') {
     $r
 }
 
+# ---------------------------------------------------------------------------
+# Couleurs des sortes de rendez-vous, au choix (Réglages, Thème). Une couleur choisie reste exactement la même avec
+# tous les thèmes (le thème ne la traduit pas) ; « par défaut » rend celle d'Evermind, que le thème accorde.
+# ---------------------------------------------------------------------------
+$CouleursPalette = '#FF4D6D', '#FF9F43', '#FFC93C', '#C6F432', '#34D399', '#2DD4BF', '#38BDF8', '#3B82F6', '#818CF8', '#A855F7', '#E879F9', '#F472B6', '#C08457', '#94A3B8'
+if (-not $script:CouleursDefaut) { $script:CouleursDefaut = @{}; foreach ($k in $Types.Keys) { $script:CouleursDefaut[$k] = $Types[$k].Couleur } }
+
+function Update-CouleursSortes {
+    $choix = Get-Setting 'CouleursSortes' $null
+    $script:CouleursFixes = @{}
+    foreach ($k in @($Types.Keys)) {
+        $c = if ($choix -and $choix.$k -and [string]$choix.$k -match '^#[0-9A-Fa-f]{6}$') { ([string]$choix.$k).ToUpper() } else { $null }
+        $Types[$k].Couleur = if ($c) { $c } else { $script:CouleursDefaut[$k] }
+        if ($c) { $script:CouleursFixes[$c.Substring(1)] = $true }
+    }
+    $script:ThemeCache = @{}   # (les couleurs fixes ne passent plus par le thème)
+}
+
+function Set-CouleurSorte([string]$Type, [string]$Couleur) {
+    $h = [ordered]@{}; $avant = Get-Setting 'CouleursSortes' $null
+    foreach ($k in $Types.Keys) { if ($avant -and $avant.$k) { $h[$k] = [string]$avant.$k } }
+    if ($Couleur) { $h[$Type] = $Couleur } else { $h.Remove($Type) }
+    Set-Setting 'CouleursSortes' $h
+    Update-CouleursSortes
+    Write-Log "Couleur de « $($Types[$Type].Nom) » : $(if ($Couleur) { $Couleur } else { 'par défaut' })"
+    # Tout ce qui montre les sortes reprend ses couleurs
+    Update-CouleursReglage
+    $ui.FTypes.Children.Clear(); Initialize-FTypes; if ($script:FType) { Set-FType $script:FType }
+    Update-Agenda
+}
+
+Update-CouleursSortes   # (les couleurs choisies, dès le démarrage)
+
+# Réglages, Thème : une rangée par sorte, son icône, son nom, puis les pastilles (la première : celle par défaut)
+function Update-CouleursReglage {
+    $ui.CouleursSortes.Children.Clear()
+    foreach ($k in $Types.Keys) {
+        $ligne = New-Object System.Windows.Controls.DockPanel; $ligne.Margin = '0,0,0,10'
+        $ic = New-Icone $k 20; $ic.Margin = '2,0,10,0'
+        [System.Windows.Controls.DockPanel]::SetDock($ic, 'Left'); [void]$ligne.Children.Add($ic)
+        $nom = New-Object System.Windows.Controls.TextBlock
+        $nom.Text = $Types[$k].Nom; $nom.Width = 120; $nom.FontSize = 14; $nom.Foreground = Get-Brush '#F2EFFA'; $nom.VerticalAlignment = 'Center'
+        [System.Windows.Controls.DockPanel]::SetDock($nom, 'Left'); [void]$ligne.Children.Add($nom)
+        $pastilles = New-Object System.Windows.Controls.WrapPanel
+        $actuelle = $Types[$k].Couleur.ToUpper()
+        foreach ($c in @($script:CouleursDefaut[$k]) + $CouleursPalette) {
+            $defaut = $c -eq $script:CouleursDefaut[$k]
+            $p = New-Object System.Windows.Controls.Border
+            $p.Width = 20; $p.Height = 20; $p.CornerRadius = 10; $p.Margin = '0,0,5,4'; $p.Cursor = 'Hand'
+            # (la couleur par défaut est montrée comme le thème la rend ; les autres telles quelles)
+            $p.Background = if ($defaut) { Get-Brush $c } else { New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString($c)) }
+            $choisie = ($defaut -and -not $script:CouleursFixes[$actuelle.Substring(1)]) -or (-not $defaut -and $c.ToUpper() -eq $actuelle)
+            $p.BorderThickness = if ($choisie) { 3 } else { 1 }
+            $p.BorderBrush = Get-Brush $(if ($choisie) { '#FFFFFF' } else { '#30FFFFFF' })
+            $p.ToolTip = if ($defaut) { 'Couleur par défaut' } else { $c }
+            $p.Tag = "$k|$(if ($defaut) { '' } else { $c })"
+            $p.Add_MouseLeftButtonUp({ param($s) $x = ([string]$s.Tag).Split('|'); Set-CouleurSorte $x[0] $x[1] })
+            [void]$pastilles.Children.Add($p)
+        }
+        [void]$ligne.Children.Add($pastilles)
+        [void]$ui.CouleursSortes.Children.Add($ligne)
+    }
+}
+
 # Les icônes des sortes, dessinées par Evermind (et non prises dans une police de Windows : les émojis changent d'un
 # Windows à l'autre, et manquaient ou se décalaient sur certains PC). Carré de 24 : T = traits, P = parties pleines.
 $IconesDessin = @{

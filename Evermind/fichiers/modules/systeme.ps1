@@ -45,6 +45,8 @@ function Initialize-AutoStart {
 # Fenêtre et icône près de l'horloge
 # ---------------------------------------------------------------------------
 function Show-MainWindow {
+    # (tests : la fenêtre reste hors de l'écran et ne prend jamais le premier plan, l'utilisateur garde la main)
+    if ($EnTest) { return }
     try {
         if (-not $Window.IsVisible) { $Window.Show() }
         if ($Window.WindowState -eq 'Minimized') { $Window.WindowState = 'Normal' }
@@ -117,6 +119,51 @@ function Update-CroixReglage {
 }
 
 # Relance Evermind (nouveau thème) : il se ferme, puis Evermind.ps1 le relance une fois tout arrêté
+# ---------------------------------------------------------------------------
+# Mode jeu : quand un programme plein écran (un jeu, une vidéo) est au premier plan, Evermind se fait tout petit.
+#   Priorité basse, l'IA et la voix rendues si elles ne servent pas (l'IA garde sinon ~2,5 Go de la carte graphique),
+#   la mémoire inutilisée rendue à Windows. « OK Evermind » et Ctrl + Maj + Espace marchent toujours (l'IA se
+#   recharge en quelques secondes si on lui demande quelque chose). Vérifié toutes les 4 secondes.
+# ---------------------------------------------------------------------------
+function Update-ModeJeu {
+    $jeuPid = [EMJeu]::PleinEcran()
+    $jeu = $jeuPid -ne 0
+    $moi = [Diagnostics.Process]::GetCurrentProcess()
+    if ($jeu -ne [bool]$script:ModeJeu) {
+        $script:ModeJeu = $jeu
+        if ($jeu) {
+            $nom = try { (Get-Process -Id $jeuPid -ErrorAction Stop).ProcessName } catch { '?' }
+            Write-Log "Mode jeu : $nom au premier plan, Evermind se fait discret"
+            try { $moi.PriorityClass = 'BelowNormal' } catch {}
+            Set-AnimationsPause $true
+        } else {
+            Write-Log 'Mode jeu : fini'
+            try { $moi.PriorityClass = 'Normal' } catch {}
+        }
+    }
+    if (-not $jeu) { return }
+    # Pendant le jeu : ce qui ne sert pas est rendu (rien n'est coupé pendant une demande ou une phrase dite)
+    $occupe = $script:Demande -or $script:Transcription -or $script:Parle -or $script:Ecoute
+    if (-not $occupe) {
+        if ($script:Cerveau -and ((Get-Date) - $script:Cerveau.Dernier).TotalSeconds -gt 60) { Stop-Cerveau; Write-Log 'Mode jeu : assistant mis en veille' }
+        if ($script:Kokoro -and ((Get-Date) - $script:Kokoro.Dernier).TotalSeconds -gt 60) { Stop-KokoroServeur; Write-Log 'Mode jeu : voix mise en veille' }
+    }
+    if (-not $script:MemoireRendue -or ((Get-Date) - $script:MemoireRendue).TotalMinutes -ge 2) {
+        $script:MemoireRendue = Get-Date
+        [GC]::Collect()
+        [EMJeu]::RendreMemoire($moi.Handle)
+        if ($script:WhisperSrv -and -not $script:WhisperSrv.Process.HasExited) { try { [EMJeu]::RendreMemoire($script:WhisperSrv.Process.Handle) } catch {} }
+    }
+}
+
+function Start-ModeJeu {
+    if ($script:ModeJeuTimer -or $EnTest) { return }
+    $script:ModeJeuTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $script:ModeJeuTimer.Interval = [TimeSpan]::FromSeconds(4)
+    $script:ModeJeuTimer.Add_Tick({ try { Update-ModeJeu } catch { Write-Log "Mode jeu : $_" } })
+    $script:ModeJeuTimer.Start()
+}
+
 function Restart-App {
     $script:Relancer = $true
     Exit-App

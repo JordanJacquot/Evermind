@@ -15,17 +15,17 @@ Tout reste sur ton PC : la dictée, la voix et l'assistant tournent en local. Ri
 2. Lance `Evermind.exe`. Si Windows affiche « Windows a protégé votre ordinateur », clique sur
    « Informations complémentaires » puis « Exécuter quand même » (Evermind n'est pas signé).
 3. Appuie sur « Installer la voix » (531 Mo : dictée et voix naturelle), puis au même endroit sur
-   « Installer l'assistant » (2,3 Go : Eve). Téléchargés une seule fois, ensuite tout marche sans Internet.
+   « Installer l'assistant » (2,3 Go : l'IA qui comprend tout). Téléchargés une seule fois, ensuite tout marche sans Internet.
 
-Il faut Windows 10 ou 11 (64 bits) et au moins 8 Go de mémoire. Avec une carte graphique, Eve répond plus vite.
+Il faut Windows 10 ou 11 (64 bits) et au moins 8 Go de mémoire. Avec une carte graphique, l'assistant répond plus vite.
 **Mettre à jour** : quand une nouvelle version sort, un bandeau apparaît dans Evermind ; « Mettre à jour » et il se
 relance tout seul en quelques secondes (rendez-vous, réglages, voix et assistant restent). Evermind regarde la page
 des versions sur GitHub au démarrage puis toutes les 6 heures, sans rien envoyer de personnel.
 Avant la 0.10.2, il faut le faire une fois à la main : quitter Evermind, remplacer son dossier par le nouveau zip.
 
-## Ce qu'il sait faire (0.10.2)
+## Ce qu'il sait faire (0.11.0)
 
-- **Parler à Eve** : dis « OK Eve » (ou Ctrl + Maj + Espace, même en jeu), puis « décale le dentiste à jeudi »,
+- **Parler à Evermind** : dis « OK Evermind » (ou Ctrl + Maj + Espace, même en jeu), puis « décale le dentiste à jeudi »,
   « supprime tous les raids de novembre », « pour le foot prends mes crampons », « qu'est-ce que j'ai demain ? »,
   « annule ». Une IA locale (Qwen3 4B avec llama.cpp) comprend, Evermind vérifie tout avant d'agir et garde de quoi
   revenir en arrière. Elle répond avec une voix naturelle (Kokoro, 5 voix françaises).
@@ -38,7 +38,7 @@ Avant la 0.10.2, il faut le faire une fois à la main : quitter Evermind, rempla
 - **Détails** : heure de fin, lieu (itinéraire), avec qui, lien, notes, choses à préparer, important ;
   avertissement si deux rendez-vous tombent en même temps.
 - **Dossiers et fichiers** : « réunion avec Monsieur Richard » relie tout seul son dossier (trouvé sur le Bureau,
-  dans les Documents ou les dossiers choisis) ; Eve peut l'ouvrir tout de suite ou à l'heure de la réunion.
+  dans les Documents ou les dossiers choisis) ; Evermind peut l'ouvrir tout de suite ou à l'heure de la réunion.
 - **Rappels** : la veille, le matin même, 1 h avant... dans une alerte aux couleurs d'Evermind
   (« Voir », « Dans 10 min »).
 - **Réglages** : casque et micro par défaut, voix, assistant, thèmes de couleur et thèmes personnalisés à importer,

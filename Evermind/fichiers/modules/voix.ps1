@@ -24,7 +24,7 @@ if (-not $EnTest) {
         if (Test-Path -LiteralPath $ancien) { try { Remove-Item -LiteralPath $ancien -Recurse -Force -ErrorAction Stop } catch {} }
     }
 }
-#   Pack : « voix » (dictée et voix Kokoro), « ia » (l'assistant qui comprend tout), « eveil » (« OK Eve »)
+#   Pack : « voix » (dictée et voix Kokoro), « ia » (l'assistant qui comprend tout), « eveil » (« OK Evermind »)
 #   Extraire : fichiers gardés d'un zip (tout le reste est ignoré), rangés dans le sous-dossier Vers (Plat : sans leurs dossiers)
 #   Tar : dossiers et fichiers gardés d'une archive .tar.bz2 (extraits par tar.exe de Windows, sans leur premier dossier)
 #   Garder : le fichier qui montre que c'est déjà installé
@@ -258,10 +258,10 @@ function Update-VoixInstall {
     if ($dl -and $dl.Fini -and -not $dl.Annonce -and -not $dl.Erreur) {
         $dl.Annonce = $true
         if ($dl.Pack -eq 'eveil') {
-            Write-Log 'Écoute « OK Eve » installée'
+            Write-Log 'Écoute « OK Evermind » installée'
             Start-Eveil
             try { Update-EveilReglage } catch {}
-            Invoke-Parole 'C''est prêt. Dis OK Eve quand tu veux me parler.'
+            Invoke-Parole 'C''est prêt. Dis OK Evermind quand tu veux me parler.'
         } elseif ($dl.Pack -eq 'ia') {
             Write-Log 'Assistant installé'
             Set-VoixEtat 'L''assistant est prêt : parle-lui comme à quelqu''un (« décale le dentiste à jeudi », « qu''est-ce que j''ai demain ? »).'
@@ -359,6 +359,7 @@ function Start-KokoroServeur {
     $p = [Diagnostics.Process]::Start($psi)
     $in = New-Object IO.StreamWriter($p.StandardInput.BaseStream, (New-Object Text.UTF8Encoding($false)))
     $in.AutoFlush = $true
+    try { $p.PriorityClass = 'BelowNormal' } catch {}   # (un jeu passe avant)
     $script:Kokoro = @{ Process = $p; Entree = $in; Lignes = (New-Object EMLigneur $p.StandardOutput); Remarques = (New-Object EMLigneur $p.StandardError); Pret = $false; Attente = $null; Dernier = (Get-Date) }
     Write-Log 'Voix Kokoro démarrée'
     if (-not $script:KokoroTimer) {
@@ -383,7 +384,7 @@ function Start-KokoroParole([string]$Texte, [string]$Voix) {
     $script:ParoleNum = 1 - [int]$script:ParoleNum
     $wav = Join-Path $env:TEMP "evermind-$PID-parole$($script:ParoleNum).wav"
     $s.Attente = @{ Texte = ($Texte -replace '[\t\r\n]+', ' '); Locuteur = $VoixListe[$Voix].Locuteur; Wav = $wav; Envoye = $false; Debut = [Diagnostics.Stopwatch]::StartNew() }
-    $script:Parle = $s.Attente      # « Evermind parle » : « OK Eve » reste en pause
+    $script:Parle = $s.Attente      # « Evermind parle » : « OK Evermind » reste en pause
     Step-Kokoro
 }
 
@@ -419,7 +420,7 @@ function Step-Kokoro {
     if (-not $s.Attente -and ((Get-Date) - $s.Dernier).TotalMinutes -gt 10) { Stop-KokoroServeur; Write-Log 'Voix Kokoro mise en veille' }
 }
 
-# Joue un fichier son ; « OK Eve » reste en pause le temps qu'il soit dit
+# Joue un fichier son ; « OK Evermind » reste en pause le temps qu'il soit dit
 function Invoke-Son([string]$Wav, $Chrono) {
     if ($EnTest) { Write-Log "Voix naturelle prête : $((Get-Item -LiteralPath $Wav).Length) octets en $([math]::Round($Chrono.Elapsed.TotalSeconds, 2)) s"; return }
     try { Invoke-SonOctets ([IO.File]::ReadAllBytes($Wav)) } catch { Write-Log "Lecture de la voix : $_" }
@@ -533,7 +534,7 @@ function Open-Reglages([string]$Onglet) {
 # Onglets des réglages : Son (casque et micro), Voix, Assistant, Général
 function Set-OngletReglages([string]$Nom) {
     $script:OngletReglages = $Nom
-    if ($Nom -eq 'Theme') { Update-ThemeChoix }
+    if ($Nom -eq 'Theme') { Update-ThemeChoix; Update-CouleursReglage }
     if ($Nom -eq 'General') { Update-DossiersReglage; Update-HorairesReglage }
     foreach ($o in 'Son', 'Voix', 'Assistant', 'Theme', 'General') {
         $ui["Onglet$o"].Tag = if ($o -eq $Nom) { 'on' } else { $null }
@@ -660,7 +661,7 @@ function Update-MicroChoix {
             Set-Setting 'Micro' ([string]$s.Tag)
             [void](Set-MicroActif)
             Write-Log "Micro choisi : $(if ($s.Tag) { $s.Tag } else { 'celui de Windows' })"
-            if (Test-EveilActif) { Stop-Eveil; Start-Eveil; try { Update-EveilReglage } catch {} }   # « OK Eve » écoute le nouveau micro
+            if (Test-EveilActif) { Stop-Eveil; Start-Eveil; try { Update-EveilReglage } catch {} }   # « OK Evermind » écoute le nouveau micro
             Update-MicroChoix
         })
         [void]$ui.MicroChoix.Children.Add($b)
@@ -779,7 +780,7 @@ function Hide-Bulle { if ($script:Bulle) { $script:Bulle.Win.Hide() } }
 # et Evermind s'arrête tout seul quand on se tait.
 function Set-VoixEtat([string]$Texte) { $ui.VoixEtat.Text = $Texte; $ui.VoixEtat.Visibility = if ($Texte) { 'Visible' } else { 'Collapsed' } }
 
-# -Silencieux : après un « OK Eve » pas encore confirmé, on enregistre sans bip ni bulle (rien n'est perdu si on parle tout de suite)
+# -Silencieux : après un « OK Evermind » pas encore confirmé, on enregistre sans bip ni bulle (rien n'est perdu si on parle tout de suite)
 function Start-Ecoute([string]$Source, [switch]$Silencieux) {
     if ($script:Ecoute) { Stop-Ecoute; return }                 # deuxième appui : on arrête d'écouter
     if ($script:Transcription -and -not $Silencieux) { return }   # Evermind réfléchit encore à la phrase d'avant
@@ -818,7 +819,7 @@ function Show-Ecoute {
     Show-Bulle 'Je t''écoute...'
 }
 
-# « OK Eve » confirmé : l'écoute silencieuse devient une écoute normale
+# « OK Evermind » confirmé : l'écoute silencieuse devient une écoute normale
 function Confirm-EcouteEveil {
     $e = $script:Ecoute
     if (-not $e -or -not $e.Silencieux) { return $false }
@@ -840,9 +841,9 @@ function Stop-EcouteSansSuite {
 function Step-Ecoute {
     $e = $script:Ecoute
     if (-not $e) { $script:EcouteTimer.Stop(); return }
-    # En attente de la confirmation de « OK Eve » : on garde tout ce qui est dit (25 secondes au plus)
+    # En attente de la confirmation de « OK Evermind » : on garde tout ce qui est dit (25 secondes au plus)
     if ($e.Silencieux) { if ($e.Mic.Millis -gt 25000) { Stop-EcouteSansSuite }; return }
-    # « OK Eve, supprime le foot » dit d'une traite : rien de plus après la confirmation, ce qui a été compris suffit
+    # « OK Evermind, supprime le foot » dit d'une traite : rien de plus après la confirmation, ce qui a été compris suffit
     if ($e.Reste -and $e.Confirme -and -not $e.Mic.HeardVoice -and $e.Confirme.ElapsedMilliseconds -gt 800) {
         $r = $e.Reste; Stop-EcouteSansSuite; Invoke-Dictee $r; return
     }
@@ -877,7 +878,7 @@ function Stop-Ecoute {
     $e.Mic.Stop()
     Invoke-Bip $false
     if (-not $e.Mic.HeardVoice -and $e.Source -eq 'eveil') {
-        if ($e.Reste) { Invoke-Dictee $e.Reste; return }      # la demande était déjà dans la phrase « OK Eve, ... »
+        if ($e.Reste) { Invoke-Dictee $e.Reste; return }      # la demande était déjà dans la phrase « OK Evermind, ... »
         Hide-Bulle; Set-VoixEtat ''; return                    # réveillé pour rien : on se tait
     }
     if (-not $e.Mic.HeardVoice) {
@@ -888,7 +889,7 @@ function Stop-Ecoute {
     }
     $wav = Join-Path $env:TEMP "evermind-$PID.wav"
     try { $e.Mic.SaveWav($wav) } catch { Write-Log "Enregistrement : $_"; return }
-    # Après « OK Eve » : le début de la phrase (entendu par l'écoute) et la suite (le micro) sont relus ensemble
+    # Après « OK Evermind » : le début de la phrase (entendu par l'écoute) et la suite (le micro) sont relus ensemble
     if ($e.Prefixe -and (Test-Path -LiteralPath $e.Prefixe)) { try { Join-Wav $e.Prefixe $wav } catch { Write-Log "Assemblage de la phrase : $_" } }
     Start-Transcription $wav
 }
@@ -909,13 +910,13 @@ function Join-Wav([string]$Debut, [string]$Fichier) {
 
 # Whisper écrit ce qui a été dit, en arrière plan. whisper-server garde le modèle chargé : une phrase est écrite
 # en une seconde environ, au lieu de deux quand whisper-cli doit tout recharger à chaque fois (gardé en secours).
-# Mode 'eveil' : confirmer un « OK Eve » dit avec une demande, sans rien montrer (un faux réveil doit rester invisible)
-# Mode 'verif' : Evermind écoute déjà (bip tout de suite) ; si ce n'était pas « OK Eve », l'écoute s'arrête sans rien dire
+# Mode 'eveil' : confirmer un « OK Evermind » dit avec une demande, sans rien montrer (un faux réveil doit rester invisible)
+# Mode 'verif' : Evermind écoute déjà (bip tout de suite) ; si ce n'était pas « OK Evermind », l'écoute s'arrête sans rien dire
 function Start-Transcription([string]$Wav, [string]$Mode) {
     if (-not $Mode) { Set-VoixEtat 'Je réfléchis...'; Show-Bulle 'Je réfléchis...' }
     # Les mots attendus aident Whisper : les ordres et les titres de l'agenda (« Jordan » plutôt que « Jordane »)
     $titres = @($script:Agenda | ForEach-Object { $_.Titre -replace '^Anniversaire (?:de |d'')', '' } | Where-Object { $_ } | Select-Object -Unique -First 15) -join ', '
-    $attendu = "OK Eve, supprime, décale, ajoute. $titres." -replace '"', ''
+    $attendu = "OK Evermind, supprime, décale, ajoute. $titres." -replace '"', ''
     $t = @{ Wav = $Wav; Mode = $Mode; Debut = [Diagnostics.Stopwatch]::StartNew(); Attendu = $attendu }
     $srv = $null
     try { $srv = Start-WhisperServeur } catch { Write-Log "Whisper (serveur) : $_" }
@@ -947,7 +948,7 @@ function Start-Transcription([string]$Wav, [string]$Mode) {
 
 function Get-FilsWhisper { [math]::Max(2, [math]::Min(12, [int]([Environment]::ProcessorCount / 2))) }
 
-# whisper-server : lancé à la première phrase (ou quand « OK Eve » est actif), arrêté après 10 minutes sans servir
+# whisper-server : lancé à la première phrase (ou quand « OK Evermind » est actif), arrêté après 10 minutes sans servir
 function Start-WhisperServeur {
     $s = $script:WhisperSrv
     if ($s -and -not $s.Process.HasExited) { $s.Dernier = Get-Date; return $s }
@@ -960,6 +961,7 @@ function Start-WhisperServeur {
     $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.WorkingDirectory = $VoixDir
     $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true   # ses messages sont lus puis jetés
     $p = [Diagnostics.Process]::Start($psi)
+    try { $p.PriorityClass = 'BelowNormal' } catch {}   # (un jeu passe avant)
     $client = New-Object Net.Http.HttpClient
     $client.Timeout = [TimeSpan]::FromSeconds(60)
     $script:WhisperSrv = @{ Process = $p; Port = $port; Client = $client; Pret = $false; Dernier = (Get-Date)
@@ -973,7 +975,7 @@ function Start-WhisperServeur {
             if (-not $s) { $script:WhisperTimer.Stop(); return }
             Read-WhisperServeur $s
             if ($s.Process.HasExited) { $script:WhisperSrv = $null; Write-Log "Whisper arrêté tout seul (code $($s.Process.ExitCode))"; return }
-            # Gardé prêt tant que « OK Eve » écoute ; sinon la mémoire est rendue après 10 minutes
+            # Gardé prêt tant que « OK Evermind » écoute ; sinon la mémoire est rendue après 10 minutes
             if (-not $script:Transcription -and -not $script:Eveil -and ((Get-Date) - $s.Dernier).TotalMinutes -gt 10) { Stop-WhisperServeur; Write-Log 'Whisper mis en veille' }
         })
     }
@@ -1045,7 +1047,7 @@ function Step-Transcription {
 # Ce qui a été dit : l'assistant s'en occupe s'il est installé, sinon les règles d'Evermind
 function Invoke-Dictee([string]$Texte) {
     $t = ($Texte -replace '\[[^\]]*\]|\([^)]*\)', ' ' -replace '\s+', ' ').Trim()
-    $t = ($t -replace '(?i)^\W*(?:ok|okay|hey|hé)\W*(?:ève|eve|eva|èv|ev)\b\W*', '').Trim()   # « OK Eve, ... » : seulement la demande
+    $t = ($t -replace "(?i)^\W*$RxReveil\b\W*", '').Trim()   # « OK Evermind, ... » : seulement la demande
     if ($t -match '\w' -and (Test-CerveauInstalle) -and (Invoke-Commande $t 'voix')) { return }
     Invoke-DicteeRegles $t
 }

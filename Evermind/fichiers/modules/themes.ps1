@@ -193,6 +193,8 @@ function ConvertFrom-Hsl([double]$H, [double]$S, [double]$L) {
 $script:ThemeCache = @{}
 function ConvertTo-ThemeHex([string]$Hex, [string]$Id = $ThemeId) {
     if ($Id -eq 'neon' -or -not $Hex -or $Hex[0] -ne '#' -or ($Hex.Length -ne 7 -and $Hex.Length -ne 9)) { return $Hex }
+    # Une couleur choisie pour une sorte de rendez-vous (Réglages, Thème) reste telle quelle
+    if ($script:CouleursFixes -and $script:CouleursFixes[$Hex.Substring($Hex.Length - 6).ToUpper()]) { return $Hex }
     $key = "$Id|$Hex"
     $hit = $script:ThemeCache[$key]
     if ($hit) { return $hit }
@@ -316,7 +318,7 @@ function Start-Defilement($Img, $Frames, [int]$Delay) {
     $t = New-Object System.Windows.Threading.DispatcherTimer
     $t.Interval = [TimeSpan]::FromMilliseconds($Delay)
     $t.Tag = @{ Img = $Img; Frames = $Frames; Frame = 0 }
-    $t.Add_Tick({ param($s) if (-not $Window.IsVisible -or $Window.WindowState -eq 'Minimized') { return }; $x = $s.Tag; $x.Frame = ($x.Frame + 1) % $x.Frames.Count; $x.Img.Source = $x.Frames[$x.Frame] })
+    $t.Add_Tick({ param($s) if ($script:AnimsPause -or -not $Window.IsVisible -or $Window.WindowState -eq 'Minimized') { return }; $x = $s.Tag; $x.Frame = ($x.Frame + 1) % $x.Frames.Count; $x.Img.Source = $x.Frames[$x.Frame] })
     if ($Frames.Count -gt 1) { $t.Start() }
     $t
 }
@@ -332,7 +334,7 @@ function Start-Sautille($Img, [double]$Haut = 6, [string]$Lueur = '') {
     $up = New-Object System.Windows.Media.Animation.DoubleAnimation 0, (-$Haut), ([System.Windows.Duration]::new([TimeSpan]::FromMilliseconds($(if ($Lueur) { 900 } else { 320 }))))
     $up.AutoReverse = $true; $up.RepeatBehavior = [System.Windows.Media.Animation.RepeatBehavior]::Forever; $up.EasingFunction = $ease
     [System.Windows.Media.Animation.Timeline]::SetDesiredFrameRate($up, 30)
-    $mv.BeginAnimation([System.Windows.Media.TranslateTransform]::YProperty, $up)
+    Add-AnimationBoucle $mv ([System.Windows.Media.TranslateTransform]::YProperty) $up
     if ($Lueur) {
         $fx = New-Object System.Windows.Media.Effects.DropShadowEffect
         $fx.Color = [System.Windows.Media.ColorConverter]::ConvertFromString($Lueur); $fx.ShadowDepth = 0; $fx.Opacity = 0.9; $fx.BlurRadius = 10

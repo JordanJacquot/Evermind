@@ -81,6 +81,8 @@ function Update-Greeting {
 function Start-Capture([string]$Path) {
     $Window.WindowStartupLocation = 'Manual'
     $Window.Left = -10000; $Window.Top = 0; $Window.ShowActivated = $false
+    # (jamais au premier plan, même un instant : on peut utiliser le PC pendant les tests)
+    $Window.Add_SourceInitialized({ [EMJeu]::SansActivation((New-Object System.Windows.Interop.WindowInteropHelper $Window).Handle) })
     # Capture une fois la fenêtre dessinée et la dictée de test (s'il y en a une) terminée
     $Window.Add_ContentRendered({
         $script:CaptureTimer = New-Object System.Windows.Threading.DispatcherTimer

@@ -28,6 +28,7 @@ function Start-Cerveau {
         $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.WorkingDirectory = $IaDir
         $p = [Diagnostics.Process]::Start($psi)
     } catch { Write-Log "Assistant impossible à démarrer : $_"; return $false }
+    try { $p.PriorityClass = 'BelowNormal' } catch {}   # (un jeu passe avant)
     $script:Cerveau = @{ Process = $p; Port = $port; Dernier = Get-Date }
     Write-Log "Assistant démarré (port $port)"
     if (-not $script:CerveauTimer) {
@@ -290,7 +291,7 @@ function Get-DecisionIA($d, $reponse) {
     # Un rendez-vous dit tel quel, sans verbe (« boulot mardi de 6 h à 14 h », « dentiste jeudi à 15 h ») : comme dans la
     # barre, il est noté (l'IA demande parfois « tu veux que je le programme ? »)
     $inS = Get-IntentionsTexte $d.Texte
-    if ($sansAction -and [string]$reponse.reponse -match '\?\s*$' -and -not $inS.Question -and -not $inS.Supp -and -not $inS.Modif) {
+    if ($sansAction -and -not $inS.Question -and -not $inS.Supp -and -not $inS.Modif) {
         $p = Read-Phrase $d.Texte
         if (-not $p.Manque -and $p.Titre -and $p.Quand -and @($p.Titre -split '\s+').Count -le 6 -and (Test-TitreDit $p.Titre $d.Texte)) {
             Write-Log 'Assistant : rendez-vous dit tel quel, noté par les règles'
@@ -510,8 +511,10 @@ function Get-CibleIA($Rv, $Codes, [string]$Dit) {
     $d = ' ' + ($Dit.ToLower().Normalize([Text.NormalizationForm]::FormD) -replace '\p{Mn}', '') + ' '
     $nomme = { param($r) @(Get-MotsTitre $r.Titre | Where-Object { $d -match "\b$_" }).Count -gt 0 }
     if ($Rv -and (& $nomme $Rv)) { return $Rv }
-    if ($Rv -and -not @(Get-MotsTitre $Rv.Titre).Count) { return $Rv }   # (« Anniversaire de Léa » : rien à vérifier)
+    # (un titre sans mot à vérifier, « Anniversaire de Léa », ne gagne pas contre un autre rendez-vous nommé :
+    # « efface-le » → « le tennis est supprimé » avec le numéro de l'anniversaire, c'est le tennis)
     $autres = @($Codes.Values | Select-Object -Unique | ForEach-Object { Get-RendezVous $_ } | Where-Object { $_ -and (& $nomme $_) })
+    if ($Rv -and -not @(Get-MotsTitre $Rv.Titre).Count -and $autres.Count -ne 1) { return $Rv }
     if ($autres.Count -eq 1) {
         if ($Rv) { Write-Log "Assistant : « $($Rv.Titre) » désigné, mais il parlait de « $($autres[0].Titre) »" }
         return $autres[0]
@@ -519,12 +522,13 @@ function Get-CibleIA($Rv, $Codes, [string]$Dit) {
     $Rv
 }
 
-function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
+# ($ReponseIA, pas $R : $r, le rendez-vous créé, est la même variable pour PowerShell)
+function Invoke-ActionsIA($ReponseIA, $Codes, [string]$Texte, [string]$Source) {
     $dits = New-Object System.Collections.ArrayList
     $ecrits = New-Object System.Collections.ArrayList
     $aCorriger = $null
     $cree = $null
-    $actions = @($R.actions | Where-Object { $_ -and $_.action })
+    $actions = @($ReponseIA.actions | Where-Object { $_ -and $_.action })
     # Un même rendez-vous supprimé puis modifié dans la même réponse (« supprime-le et mets-le sur 3 jours ») :
     # c'est un changement, la modification l'emporte (sinon elle n'aurait plus rien à modifier)
     $modifies = @($actions | Where-Object { $_.action -eq 'modifier' -and $_.id } | ForEach-Object { ([string]$_.id).Trim('[] ') })
@@ -545,7 +549,7 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
         $surCree = $cree -and -not $a.Cible -and (($a.action -in 'modifier', 'ouvrir' -and -not $rv) -or
             ($a.action -eq 'modifier' -and -not $a.phrase -and -not (Get-IntentionsTexte $Texte).Modif -and -not (Get-IntentionsTexte $Texte).Supp))
         if ($surCree) { $rv = $cree }
-        elseif (-not $a.Cible -and $a.action -notin 'creer', 'annuler', 'horaires' -and @($actions | Where-Object { $_.action -notin 'creer', 'annuler', 'horaires' }).Count -eq 1) { $rv = Get-CibleIA $rv $Codes "$Texte $($R.reponse)" }
+        elseif (-not $a.Cible -and $a.action -notin 'creer', 'annuler', 'horaires' -and @($actions | Where-Object { $_.action -notin 'creer', 'annuler', 'horaires' }).Count -eq 1) { $rv = Get-CibleIA $rv $Codes "$Texte $($ReponseIA.reponse)" }
         # Une note qui redit seulement « ouvrir à l'heure » n'en est pas une
         if ($a.action -eq 'modifier' -and $a.ouvrir_au_debut -and $a.notes -and [string]$a.notes -match '(?i)\b(dossier|fichier|ouvr)') { $a.notes = $null }
         $nom = if ($rv) { Get-TitreAffiche $rv.Titre } else { '' }
@@ -680,7 +684,8 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
                 # « le raid, c'est fini après novembre » : la série s'arrête (les fois d'après sont enlevées)
                 $x = Remove-PeriodeRV $rv $lu.Arret; [void]$dits.Add($x.Dit); [void]$ecrits.Add($x.Ecrit); continue
             }
-            if ($lu.Decalage) { $a | Add-Member -NotePropertyName phrase -NotePropertyValue $lu.Decalage -Force }
+            if ($lu.Etendre) { Write-Log "Modification : étalé, « $($lu.Etendre) »"; $a | Add-Member -NotePropertyName phrase -NotePropertyValue $lu.Etendre -Force }
+            elseif ($lu.Decalage) { $a | Add-Member -NotePropertyName phrase -NotePropertyValue $lu.Decalage -Force }
             elseif ($lu.Jour -and [string]$a.phrase -notmatch "(?i)\b$(($lu.Jour -split ' ')[0])") { Write-Log "Modification : le jour dit ($($lu.Jour)) remplace « $($a.phrase) »"; $a | Add-Member -NotePropertyName phrase -NotePropertyValue $lu.Jour -Force }
             if ($lu.Retirer.Count) { $a | Add-Member -NotePropertyName retirer_personnes -NotePropertyValue @(@($a.retirer_personnes) + $lu.Retirer | Where-Object { $_ } | Select-Object -Unique) -Force; if ($a.notes -and ([string]$a.notes).Length -lt 40) { $a.notes = $null } }
             if ($lu.AuDebut) { $a | Add-Member -NotePropertyName ouvrir_au_debut -NotePropertyValue $true -Force }
@@ -707,7 +712,7 @@ function Invoke-ActionsIA($R, $Codes, [string]$Texte, [string]$Source) {
         }
     }
     if (-not $actions.Count) {
-        $t = if ($R.reponse) { [string]$R.reponse } else { 'Je n''ai pas compris, tu peux reformuler ?' }
+        $t = if ($ReponseIA.reponse) { [string]$ReponseIA.reponse } else { 'Je n''ai pas compris, tu peux reformuler ?' }
         [void]$dits.Add($t); [void]$ecrits.Add($t)
     }
     $ecrit = (@($ecrits) | Select-Object -Unique) -join ' '
@@ -740,7 +745,8 @@ function Remove-PeriodeRV($rv, [string]$Periode) {
     if (-not $per) { return @{ Dit = "Je n'ai pas compris quelles dates enlever pour $nom, je n'ai rien touché."; Ecrit = "Rien supprimé : je n'ai pas compris « $Periode »." } }
     $D = $per.Debut; $F = $per.Fin; $J = @($per.Jours | Where-Object { $_ })
     # (jours dits un par un : ceux-là seulement, pas ceux d'entre eux)
-    $dans = { param($d) if ($J.Count) { return $J -contains $d.Date }; (-not $D -or $d -ge $D) -and (-not $F -or $d -le $F) }
+    # (« $jour », pas « $d » : PowerShell confond $d et $D, le début de la période)
+    $dans = { param($jour) if ($J.Count) { return $J -contains $jour.Date }; (-not $D -or $jour -ge $D) -and (-not $F -or $jour -le $F) }
     $annule = ' (Dis « annule » pour revenir en arrière.)'
     if (-not $rv.Repetition) {
         if (& $dans $rv.Quand.Date) { Remove-RendezVous $rv.Id; return @{ Dit = "J'ai supprimé $nom."; Ecrit = "Supprimé : $nom.$annule" } }
@@ -769,7 +775,9 @@ function Remove-PeriodeRV($rv, [string]$Periode) {
     if (-not $avant.Count) {
         $quand = $apres[0]; $dit = "J'ai enlevé $nom $n. Il reprend le $($quand.ToString('dddd d MMMM', $Fr))."
     } elseif (-not $apres.Count -and ($fini -or -not $F)) {
-        $rep.Jusqua = $D.AddDays(-1).ToString('yyyy-MM-dd'); $dit = "J'ai enlevé $nom $n. Le dernier est le $($avant[-1].ToString('dddd d MMMM', $Fr))."
+        $rep.Jusqua = $D.AddDays(-1).ToString('yyyy-MM-dd')
+        # (une série qui ne s'arrêtait pas : « s'arrête », plutôt que « enlevé 150 fois »)
+        $dit = if ($F) { "J'ai enlevé $nom $n. Le dernier est le $($avant[-1].ToString('dddd d MMMM', $Fr))." } else { "C'est noté : $nom s'arrête. Le dernier est le $($avant[-1].ToString('dddd d MMMM', $Fr))." }
     } else {
         $rep.Sauf = @(@($rep.Sauf) + @($enlevees | ForEach-Object { $_.ToString('yyyy-MM-dd') }) | Where-Object { $_ } | Select-Object -Unique | Select-Object -Last 300)
         $dit = "J'ai enlevé $nom $n. Les autres fois restent."
@@ -841,6 +849,16 @@ function Get-ModifsTexte([string]$Texte, $rv) {
         $res.Retirer += @($m.Groups['n'].Value -split '\s*(?:,|\bet\b)\s*' | Where-Object { $n = $_; $rv -and @($rv.Avec | Where-Object { $_ -ieq $n }).Count })
     }
     if ($t -match "(?i)\b(?:pr[ée]viens|rappelle|avertis|rappel)") { $res.Rappels = @(Read-RappelsTexte $t) }
+    # « mets la soirée sur deux jours », « étale le séminaire sur une semaine » (sans autre date) : à partir de son jour
+    if ($rv -and $t -match "(?i)\b(?:sur|pendant|durant)\s+(?<n>$RxNombre|une|un)\s+(?<u>jours?|semaines?)\b" -and $t -notmatch "(?i)\b(?:$RxJour|$RxMois|demain|aujourd'hui|apr[èe]s-demain)\b") {
+        $nDit = $Matches['n']; $uDit = $Matches['u']   # (gardés avant tout autre -match, qui écraserait $Matches)
+        $n = ConvertFrom-Nombre $(if ($nDit -match '^une?$') { '1' } else { $nDit })
+        if ($uDit -match '^s') { $n *= 7 }
+        if ($n -ge 2 -and $n -le 366) {
+            $base = Get-NextOccurrence $rv.Repetition $rv.Quand (Get-Date).Date; if ($base -eq [datetime]::MinValue) { $base = $rv.Quand }
+            $res.Etendre = "le $($base.ToString('d MMMM yyyy', $Fr))$(if (-not $rv.Journee) { ' à ' + (Format-Heure $base) }) sur $n jours"
+        }
+    }
     # « déplace le foot à la semaine prochaine (même jour, même heure) »
     if ($rv -and $t -match "(?i)\b(?:d[ée]cal|d[ée]plac|repouss|report|mets|passe)\w*\b.*?\b(?:à|a)\s+la\s+semaine\s+(?:prochaine|d'apr[èe]s|suivante)") {
         $base = Get-NextOccurrence $rv.Repetition $rv.Quand (Get-Date); if ($base -eq [datetime]::MinValue) { $base = $rv.Quand }

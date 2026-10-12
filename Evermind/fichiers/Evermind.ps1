@@ -1,6 +1,6 @@
 ﻿#Requires -Version 5.1
 <#
-    Evermind 0.10.2
+    Evermind 0.11.0
     L'agenda qui se souvient de tout pour toi : tu notes ton rendez-vous, il te le rappelle à voix haute.
 
     Les rendez-vous sont gardés dans %LOCALAPPDATA%\Evermind\rendez-vous.json. Rien n'est envoyé sur Internet.
@@ -9,7 +9,7 @@
 #>
 param([switch]$Demarrage)   # -Demarrage : lancé avec Windows, la fenêtre ne s'ouvre pas
 
-$AppVersion = '0.10.2'
+$AppVersion = '0.11.0'
 $UpdateRepo = 'JordanJacquot/Evermind'   # dépôt GitHub des mises à jour (modules\maj.ps1)
 $MainScript = $PSCommandPath
 $AppExe = Join-Path (Split-Path $PSScriptRoot -Parent) 'Evermind.exe'   # le programme qui exécute ce script
