@@ -6,3 +6,12 @@
 
 # Tests
 /_test/
+
+# Thèmes personnalisés (images de personnages protégées) : jamais sur GitHub. Les tests fabriquent leurs packs dans _test.
+Thème-*/
+Theme-*/
+Thème-*.zip
+Theme-*.zip
+packs/
+pack.json
+pack-*.json
