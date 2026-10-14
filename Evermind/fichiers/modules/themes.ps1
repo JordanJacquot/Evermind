@@ -409,9 +409,16 @@ function Update-ThemeChoix {
     $g.Children.Clear()
     if (-not $script:ThemeChoisi) { $script:ThemeChoisi = $ThemeSetting }
     # Les 5 thèmes de base, puis les thèmes personnalisés installés sur ce PC
-    $choix = @(foreach ($k in @($AppThemes.Keys | Where-Object { -not $AppThemes[$_].Pack })) { @{ Cle = $k; Base = $k; Name = $AppThemes[$k].Name; Desc = $AppThemes[$k].Desc; Pack = $null } })
+    $choix = @(if ($GereParMindset) {
+        # Copie gérée : les 5 thèmes se choisissent dans Mindset ; ici, seulement le thème de la suite (pour quitter un
+        # thème personnalisé) et les thèmes personnalisés
+        $k = if ($script:Suite.Theme) { $script:Suite.Theme } else { $ThemeId }
+        @(@{ Cle = $k; Base = $k; Name = 'Thème de la suite'; Desc = "Celui choisi dans Mindset : $($AppThemes[$k].Name)."; Pack = $null })
+    } else { @(foreach ($k in @($AppThemes.Keys | Where-Object { -not $AppThemes[$_].Pack })) { @{ Cle = $k; Base = $k; Name = $AppThemes[$k].Name; Desc = $AppThemes[$k].Desc; Pack = $null } }) })
     foreach ($pk in @(Get-ThemePacks)) { $choix += @{ Cle = "pack:$($pk.Id)"; Base = $pk.Base; Name = $pk.Name; Desc = $pk.Desc; Pack = $pk } }
-    if (-not @($choix | Where-Object { $_.Cle -eq $script:ThemeChoisi }).Count) { $script:ThemeChoisi = 'neon' }
+    # (copie gérée sans thème personnalisé : rien à choisir ici, tout se fait dans Mindset)
+    $g.Visibility = if ($GereParMindset -and $choix.Count -le 1) { 'Collapsed' } else { 'Visible' }
+    if (-not @($choix | Where-Object { $_.Cle -eq $script:ThemeChoisi }).Count) { $script:ThemeChoisi = $choix[0].Cle }
     foreach ($ch in $choix) {
         $id = $ch.Base
         $th = $AppThemes[$id]
@@ -461,7 +468,8 @@ function Update-ThemeChoix {
     $change = $script:ThemeChoisi -ne $ThemeSetting
     $nomChoisi = @($choix | Where-Object { $_.Cle -eq $script:ThemeChoisi })[0].Name
     $ui.BtnThemeAppliquer.Visibility = if ($change) { 'Visible' } else { 'Collapsed' }
-    $ui.ThemeInfo.Text = if ($change) { "« $nomChoisi » s'applique en relançant Evermind (quelques secondes)." } else { 'Clique sur un thème pour le choisir.' }
+    $ui.ThemeInfo.Text = if ($change) { "« $nomChoisi » s'applique en relançant Evermind (quelques secondes)." } elseif ($g.Visibility -ne 'Visible') { '' } else { 'Clique sur un thème pour le choisir.' }
+    $ui.ThemeInfo.Parent.Visibility = if ($ui.ThemeInfo.Text) { 'Visible' } else { 'Collapsed' }
 }
 
 # « Importer un thème » : un zip choisi sur le PC, copié dans le dossier des thèmes, puis choisi

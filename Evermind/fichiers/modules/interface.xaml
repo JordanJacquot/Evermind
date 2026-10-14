@@ -714,12 +714,20 @@
             <Grid Margin="0,0,14,0">
               <!-- Son : le casque où Evermind parle, le micro qu'il écoute -->
               <StackPanel x:Name="PanSon">
+                <!-- Copie gérée par Mindset (suite.ps1) : le micro et le casque se règlent dans Mindset -->
+                <StackPanel x:Name="SonMindset" Visibility="Collapsed">
+                  <TextBlock Text="Le micro et le casque" Style="{StaticResource Label}" FontSize="16" Margin="2,10,0,4"/>
+                  <TextBlock Text="Le micro et le casque se règlent dans Mindset, pour toute la suite." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
+                  <Button x:Name="BtnSonMindset" Style="{StaticResource BtnSecondary}" Content="Ouvrir les réglages de Mindset" HorizontalAlignment="Left"/>
+                </StackPanel>
+                <StackPanel x:Name="SonChoix">
                 <TextBlock Text="Le casque" Style="{StaticResource Label}" FontSize="16" Margin="2,10,0,4"/>
                 <TextBlock Text="Là où Evermind te parle (réponses et rappels). Clique sur une sortie pour l'entendre. Ton choix est gardé, même après un redémarrage ; s'il est débranché, Evermind parle sur celle de Windows en attendant." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
                 <StackPanel x:Name="CasqueChoix"/>
                 <TextBlock Text="Le micro" Style="{StaticResource Label}" FontSize="16" Margin="2,22,0,4"/>
                 <TextBlock Text="Celui qu'Evermind écoute (dictée et « OK Evermind »). Parle : la barre qui bouge montre le micro qui t'entend. Ton choix est gardé, même après un redémarrage ; s'il est débranché, Evermind y revient dès qu'il est rebranché." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
                 <StackPanel x:Name="MicroChoix"/>
+                </StackPanel>
               </StackPanel>
               <!-- Voix -->
               <StackPanel x:Name="PanVoix" Visibility="Collapsed">
@@ -747,7 +755,12 @@
               <!-- Thème : les couleurs de Nevermind, adaptées -->
               <StackPanel x:Name="PanTheme" Visibility="Collapsed">
                 <TextBlock Text="Le thème" Style="{StaticResource Label}" FontSize="16" Margin="2,10,0,4"/>
-                <TextBlock Text="Les couleurs d'Evermind, les mêmes thèmes que Nevermind. Choisis-en un : Evermind se relance pour l'appliquer (quelques secondes), tes rendez-vous et réglages ne changent pas." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
+                <!-- Copie gérée par Mindset (suite.ps1) : les 5 thèmes se choisissent dans Mindset -->
+                <StackPanel x:Name="ThemeMindset" Visibility="Collapsed" Margin="0,0,0,12">
+                  <TextBlock Text="Le thème se règle dans Mindset, pour toute la suite. Les thèmes personnalisés d'Evermind restent ici." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
+                  <Button x:Name="BtnThemeMindset" Style="{StaticResource BtnSecondary}" Content="Ouvrir les réglages de Mindset" HorizontalAlignment="Left"/>
+                </StackPanel>
+                <TextBlock x:Name="ThemeTexte" Text="Les couleurs d'Evermind, les mêmes thèmes que Nevermind. Choisis-en un : Evermind se relance pour l'appliquer (quelques secondes), tes rendez-vous et réglages ne changent pas." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
                 <UniformGrid x:Name="ThemeChoix" Columns="2"/>
                 <DockPanel Margin="2,6,0,0">
                   <Button x:Name="BtnThemeAppliquer" DockPanel.Dock="Right" Style="{StaticResource BtnPrimary}" Content="Appliquer et relancer" Visibility="Collapsed" Margin="12,0,0,0"/>

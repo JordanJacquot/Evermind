@@ -4,6 +4,8 @@
 #   Copie gérée    elle prend le thème de la suite au démarrage, l'écrit dans suite.json quand on en choisit un dans
 #                  Evermind, et se relance quand il change (choisi dans Mindset ou dans Nevermind). Mindset la met à
 #                  jour et la lance avec Windows : ni recherche de mise à jour ni démarrage avec Windows ici.
+#                  Le micro et le casque viennent aussi de Mindset (pris au démarrage et dès qu'ils changent, sans
+#                  relance) : dans Réglages, Son et Thème, un bouton ouvre les réglages de Mindset à la place des choix.
 #   Copie autonome seulement un dossier de travail (les autres sont arrêtées au lancement, mindset.ps1) : comme avant.
 # Tests : EVERMIND_SUITE (un faux suite.json, voir mindset.ps1).
 # Chargé par Evermind.ps1 juste après donnees.ps1, avant themes.ps1.
@@ -15,6 +17,52 @@ if ($GereParMindset -and $script:Suite.Theme) {
         Set-Setting 'Theme' $script:Suite.Theme
         Write-Log "Thème de la suite (Mindset) : $($script:Suite.Theme)"
     }
+}
+
+# Au démarrage d'une copie gérée : le micro et le casque de la suite remplacent ceux d'Evermind (voix.ps1 les applique)
+if ($GereParMindset) {
+    foreach ($k in 'Micro', 'Casque') {
+        if ($null -ne $script:Suite[$k] -and $script:Suite[$k] -ne [string](Get-Setting $k '')) {
+            Set-Setting $k $script:Suite[$k]
+            Write-Log "$k de la suite (Mindset) : $(if ($script:Suite[$k]) { $script:Suite[$k] } else { 'celui de Windows' })"
+        }
+    }
+}
+
+# Micro ou casque changés dans Mindset : appliqués tout de suite, sans relancer Evermind. « OK Evermind » repart sur le
+# nouveau micro, mais seulement une fois finie la dictée, la demande ou la phrase en cours ($script:EveilARelancer).
+function Set-SuiteAppareils($Suite) {
+    if ($null -ne $Suite.Casque -and $Suite.Casque -ne [string](Get-Setting 'Casque' '')) {
+        Set-Setting 'Casque' $Suite.Casque
+        [void](Set-CasqueActif)
+        Write-Log "Casque de la suite (Mindset) : $(if ($Suite.Casque) { $Suite.Casque } else { 'celui de Windows' })"
+    }
+    if ($null -ne $Suite.Micro -and $Suite.Micro -ne [string](Get-Setting 'Micro' '')) {
+        Set-Setting 'Micro' $Suite.Micro
+        if (Set-MicroActif) { $script:EveilARelancer = $true }
+        Write-Log "Micro de la suite (Mindset) : $(if ($Suite.Micro) { $Suite.Micro } else { 'celui de Windows' })"
+    }
+}
+
+# Ouvre les réglages de Mindset sur une page (« parametres:son », « parametres:apparence ») : la page est écrite dans
+# afficher-page.txt, puis Mindset est lancé (s'il tourne déjà, il se ramène et lit le fichier). Son programme est donné
+# par son installation (HKLM, modifiable seulement par un administrateur), jamais par suite.json.
+function Open-ReglagesMindset([string]$Page) {
+    if ($Page -notin 'parametres:son', 'parametres:apparence') { return }
+    $exe = $null
+    try {
+        $dossier = [string](Get-ItemProperty -LiteralPath 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Mindset' -Name InstallLocation -ErrorAction Stop).InstallLocation
+        if (Get-CheminNormal $dossier) { $exe = Join-Path (Get-CheminNormal $dossier) 'Mindset.exe' }
+    } catch {}
+    Write-Log "Réglages de Mindset demandés ($Page)"
+    if ($EnTest) { return }
+    if (-not $exe -or -not (Test-Path -LiteralPath $exe)) { Show-Notify 'Mindset introuvable' 'Ouvre Mindset pour régler le micro, le casque et le thème de toute la suite.'; return }
+    try {
+        $dir = Join-Path $env:LOCALAPPDATA 'Mindset'
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        [IO.File]::WriteAllText((Join-Path $dir 'afficher-page.txt'), $Page, $Utf8NoBom)
+        Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe -Parent)
+    } catch { Write-Log "Mindset : $($_.Exception.Message)" }
 }
 
 # Le thème choisi dans Evermind devient celui de toute la suite. Seuls « theme » et « modifie » changent : le reste
@@ -53,8 +101,14 @@ function Update-SuiteSurveillance {
         $script:SuiteDate = $date
         # Seulement si cette copie est toujours celle de Mindset, et pas sur un thème personnalisé
         $geree = $s.Evermind -and $s.Evermind -ieq $AppRacine
+        if ($geree) { Set-SuiteAppareils $s }
         $script:SuiteThemeAttente = if ($geree -and $s.Theme -and $s.Theme -ne $ThemeSetting -and $ThemeSetting -notlike 'pack:*') { $s.Theme } else { $null }
         if ($script:SuiteThemeAttente) { Write-Log "Thème de la suite changé : $($script:SuiteThemeAttente)" }
+    }
+    # « OK Evermind » sur le nouveau micro, une fois l'écoute, la dictée, la demande et la phrase en cours finies
+    if ($script:EveilARelancer -and -not ($script:Ecoute -or $script:Transcription -or $script:Demande -or $script:Parle -or ($script:Eveil -and $script:Eveil.Detecte))) {
+        $script:EveilARelancer = $false
+        if (Test-EveilActif) { Stop-Eveil; Start-Eveil; try { Update-EveilReglage } catch {} }
     }
     # Le nouveau thème attend la fin de ce qui est en cours ; après la relance, il est égal à celui de la suite
     if (-not $script:SuiteThemeAttente -or (Test-RelanceGenante)) { return }
@@ -72,6 +126,11 @@ function Initialize-Suite {
     Write-Log 'Géré par Mindset : mises à jour et démarrage avec Windows par Mindset'
     $ui.DemarrageOption.Visibility = 'Collapsed'   # c'est Mindset qui lance Evermind avec Windows
     $ui.ReglagesMindset.Visibility = 'Visible'     # Réglages, Général : « les mises à jour passent par Mindset »
+    # Réglages, Son et Thème : le micro, le casque et le thème se règlent dans Mindset, pour toute la suite
+    $ui.SonChoix.Visibility = 'Collapsed'; $ui.SonMindset.Visibility = 'Visible'
+    $ui.ThemeTexte.Visibility = 'Collapsed'; $ui.ThemeMindset.Visibility = 'Visible'
+    $ui.BtnSonMindset.Add_Click({ Open-ReglagesMindset 'parametres:son' })
+    $ui.BtnThemeMindset.Add_Click({ Open-ReglagesMindset 'parametres:apparence' })
     $script:SuiteDate = [datetime]::MinValue
     $script:SuiteTimer = New-Object System.Windows.Threading.DispatcherTimer
     $script:SuiteTimer.Interval = [TimeSpan]::FromMilliseconds(2500)
