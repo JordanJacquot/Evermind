@@ -784,6 +784,11 @@
                   <TextBlock Text="Mises à jour" Style="{StaticResource Label}" FontSize="16" Margin="2,24,0,4"/>
                   <TextBlock Text="Evermind a été installé par Mindset, le portail de la suite : ses mises à jour passent par Mindset. C'est aussi Mindset qui le lance avec Windows." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,10"/>
                 </StackPanel>
+                <!-- Dossier de travail (maj.ps1) -->
+                <StackPanel x:Name="ReglagesTravail" Visibility="Collapsed">
+                  <TextBlock Text="Mises à jour" Style="{StaticResource Label}" FontSize="16" Margin="2,24,0,4"/>
+                  <TextBlock Text="Dossier de travail : pas de mise à jour automatique (elle écraserait le code source)." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,10"/>
+                </StackPanel>
               </StackPanel>
             </Grid>
           </ScrollViewer>

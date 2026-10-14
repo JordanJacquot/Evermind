@@ -46,14 +46,23 @@ $GereParMindset = [bool]($AppRacine -and $script:Suite.Evermind -and $script:Sui
 # ---------------------------------------------------------------------------
 # Copie hors de Mindset : bloquée
 # ---------------------------------------------------------------------------
-# Bloquée si elle n'est pas gérée par Mindset, sauf un dossier de travail (un dossier .git dans son dossier ou juste
-# au-dessus, comme D:\Projets\Evermind\Evermind). Pendant les tests : seulement si EVERMIND_TEST_BLOCAGE est défini.
+# Dossier de travail (code source) : un dossier .git dans son dossier ou juste au-dessus, comme D:\Projets\Evermind\Evermind.
+# Il n'est jamais bloqué, mais ne se met pas à jour tout seul : la mise à jour écraserait le code source (maj.ps1).
+# Pendant les tests : seulement si EVERMIND_TEST_TRAVAIL est défini (les tests tournent dans le dossier de travail).
+function Test-DossierTravail {
+    if ($EnTest) { return [bool]$env:EVERMIND_TEST_TRAVAIL }
+    if (-not $AppRacine) { return $false }
+    foreach ($d in $AppRacine, (Split-Path $AppRacine -Parent)) { if ($d -and (Test-Path -LiteralPath (Join-Path $d '.git'))) { return $true } }
+    $false
+}
+$DossierTravail = (-not $GereParMindset) -and (Test-DossierTravail)
+
+# Bloquée si elle n'est pas gérée par Mindset, sauf un dossier de travail. Pendant les tests : seulement si
+# EVERMIND_TEST_BLOCAGE est défini.
 function Test-BlocageMindset {
     if ($GereParMindset) { return $false }
     if ($EnTest) { return [bool]$env:EVERMIND_TEST_BLOCAGE }
-    if (-not $AppRacine) { return $false }
-    foreach ($d in $AppRacine, (Split-Path $AppRacine -Parent)) { if ($d -and (Test-Path -LiteralPath (Join-Path $d '.git'))) { return $false } }
-    $true
+    -not $DossierTravail
 }
 
 # La fenêtre qui l'explique, aux couleurs d'Evermind : « Ouvrir Mindset » (s'il est installé) ou « Télécharger Mindset »

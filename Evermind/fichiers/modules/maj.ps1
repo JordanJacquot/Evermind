@@ -116,7 +116,7 @@ function Show-MajBandeau([string]$Texte, [string]$Bouton, [bool]$PlusTard) {
 # « Mettre à jour » : téléchargement, empreinte, dézippage à part (rien n'est encore remplacé)
 function Start-MajTelechargement {
     $m = $script:Maj
-    if ($m.Etat -in 'telecharge', 'pret') { return }
+    if ($m.Etat -in 'telecharge', 'pret' -or $DossierTravail -or $GereParMindset) { return }   # (jamais dans un dossier de travail ni une copie de Mindset)
     $script:MajDemandee = $true
     $m.Etat = 'telecharge'; $m.Erreur = ''; $m.Refus = $false; $m.Recu = 0L; $m.Total = 0L
     $ui.MajTexte.Text = "Téléchargement d'Evermind $($m.Version)..."
@@ -214,6 +214,8 @@ function Initialize-Maj {
         if ($faite -eq $AppVersion) { Write-Log "Mise à jour installée : $AppVersion"; Show-Notify "Evermind est à jour" "Tu as maintenant la version $AppVersion." }
     }
     if ($GereParMindset) { return }   # copie installée par Mindset : c'est lui qui la met à jour (Réglages, Général)
+    # Dossier de travail (mindset.ps1) : la mise à jour écraserait le code source ; c'est dit dans Réglages, Général
+    if ($DossierTravail) { $ui.ReglagesTravail.Visibility = 'Visible'; Write-Log 'Dossier de travail : pas de mise à jour automatique'; return }
     if ($EnTest -and -not $env:EVERMIND_MAJ_VERSION) { return }
     Start-MajRecherche
     $script:MajToutes = New-Object System.Windows.Threading.DispatcherTimer

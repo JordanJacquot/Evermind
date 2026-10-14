@@ -60,7 +60,7 @@ function Invoke-Scenario([string]$Nom, [hashtable]$Env, [switch]$Exemples) {
     if ($Exemples) { New-DonneesExemple $donnees }
     $capture = Join-Path $test "capture-$Nom.png"
     Remove-Item -LiteralPath $capture -ErrorAction SilentlyContinue
-    foreach ($k in 'EVERMIND_DOSSIERS', 'EVERMIND_PACKS', 'EVERMIND_THEME', 'EVERMIND_FERMER', 'EVERMIND_PHRASE', 'EVERMIND_AJOUTER', 'EVERMIND_FORMULAIRE', 'EVERMIND_REGLAGES', 'EVERMIND_CONFIRMATION', 'EVERMIND_FICHE', 'EVERMIND_FORMULAIRE_RV', 'EVERMIND_JOUR', 'EVERMIND_DECALER', 'EVERMIND_FICHE_SUPPRIMER', 'EVERMIND_CONFIRMATION_OUI', 'EVERMIND_CAPTURE_ALERTE', 'EVERMIND_ALERTE_RV', 'EVERMIND_MAJ_VERSION', 'EVERMIND_MAJ_ZIP', 'EVERMIND_MAJ_AUTO', 'EVERMIND_MAJ_INSTALLER', 'EVERMIND_MAJ_PAS_DE_RELANCE', 'EVERMIND_TEST_TELECHARGEMENT', 'EVERMIND_COULEURS', 'EVERMIND_VOIR', 'EVERMIND_LOGO', 'EVERMIND_TEST_PAROLE', 'EVERMIND_COMMANDE', 'EVERMIND_EVEIL_WAV', 'EVERMIND_DICTEE_WAV', 'EVERMIND_VOIX', 'EVERMIND_SUITE', 'EVERMIND_TEST_BLOCAGE') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
+    foreach ($k in 'EVERMIND_DOSSIERS', 'EVERMIND_PACKS', 'EVERMIND_THEME', 'EVERMIND_FERMER', 'EVERMIND_PHRASE', 'EVERMIND_AJOUTER', 'EVERMIND_FORMULAIRE', 'EVERMIND_REGLAGES', 'EVERMIND_CONFIRMATION', 'EVERMIND_FICHE', 'EVERMIND_FORMULAIRE_RV', 'EVERMIND_JOUR', 'EVERMIND_DECALER', 'EVERMIND_FICHE_SUPPRIMER', 'EVERMIND_CONFIRMATION_OUI', 'EVERMIND_CAPTURE_ALERTE', 'EVERMIND_ALERTE_RV', 'EVERMIND_MAJ_VERSION', 'EVERMIND_MAJ_ZIP', 'EVERMIND_MAJ_AUTO', 'EVERMIND_MAJ_INSTALLER', 'EVERMIND_MAJ_PAS_DE_RELANCE', 'EVERMIND_TEST_TELECHARGEMENT', 'EVERMIND_COULEURS', 'EVERMIND_VOIR', 'EVERMIND_LOGO', 'EVERMIND_TEST_PAROLE', 'EVERMIND_COMMANDE', 'EVERMIND_EVEIL_WAV', 'EVERMIND_DICTEE_WAV', 'EVERMIND_VOIX', 'EVERMIND_SUITE', 'EVERMIND_TEST_BLOCAGE', 'EVERMIND_TEST_TRAVAIL') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
     $env:EVERMIND_TEST = '1'; $env:EVERMIND_DONNEES = $donnees; $env:EVERMIND_CAPTURE = $capture
     $env:EVERMIND_VOIX = Join-Path $donnees 'voix-absente'
     foreach ($k in $Env.Keys) { Set-Item "env:$k" $Env[$k] }
@@ -129,6 +129,11 @@ $zipTest = Join-Path $test 'maj-evermind.zip'
 Compress-Archive -Path (Join-Path $racine 'Evermind') -DestinationPath $zipTest -Force
 $ok = (Invoke-Scenario 'maj-bandeau' @{ EVERMIND_MAJ_VERSION = '9.9.9'; EVERMIND_MAJ_ZIP = $zipTest } -Exemples) -and $ok
 if ($script:Journal -notmatch 'Mise à jour disponible : 9\.9\.9') { Write-Host 'ÉCHEC  maj-bandeau : la nouvelle version n''a pas été vue' -ForegroundColor Red; $ok = $false }
+# Dossier de travail : pas de mise à jour automatique (elle écraserait le code source), et Réglages qui le disent
+if (Invoke-Scenario 'travail' @{ EVERMIND_TEST_TRAVAIL = '1'; EVERMIND_MAJ_VERSION = '9.9.9'; EVERMIND_MAJ_ZIP = $zipTest; EVERMIND_REGLAGES = 'General'; EVERMIND_VOIR = 'ReglagesTravail' } -Exemples) {
+    if ($script:Journal -match 'Mise à jour disponible' -or $script:Journal -notmatch 'Dossier de travail : pas de mise à jour') { Write-Host 'ÉCHEC  travail : la mise à jour n''est pas coupée' -ForegroundColor Red; $ok = $false }
+    else { Write-Host '       pas de mise à jour dans un dossier de travail' -ForegroundColor DarkGray }
+} else { $ok = $false }
 # Signature des mises à jour : un zip sans signature, puis avec une fausse, est refusé et rien n'est installé
 $nonSigne = Join-Path $test 'maj-non-signee.zip'
 Copy-Item -LiteralPath $zipTest -Destination $nonSigne -Force
