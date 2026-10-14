@@ -243,11 +243,53 @@ function Start-DansMindsetSurveillance {
 $QuitterFichier = Join-Path $DataDir 'quitter.demande'
 try { if ([IO.File]::Exists($QuitterFichier)) { [IO.File]::Delete($QuitterFichier) } } catch {}   # (un vieux fichier refermerait Evermind tout de suite)
 
+# ---------------------------------------------------------------------------
+# Carte d'Evermind dans l'accueil de Mindset : les prochains rendez-vous (etat.json, dans le dossier de données), et un
+# clic sur l'un d'eux dans Mindset ouvre sa fiche ici (afficher-rdv.demande : son identifiant, et la date de cette fois).
+# etat.json : les 10 prochaines fois (un rendez-vous qui revient compte pour chaque fois), que du texte et des dates ;
+# Mindset écarte celles qui sont passées et n'exécute jamais rien qui en vient. La demande, elle, n'est qu'un identifiant
+# cherché dans l'agenda.
+# ---------------------------------------------------------------------------
+$EtatFichier = Join-Path $DataDir 'etat.json'
+$RdvFichier = Join-Path $DataDir 'afficher-rdv.demande'
+try { if ([IO.File]::Exists($RdvFichier) -and ((Get-Date) - [IO.File]::GetLastWriteTime($RdvFichier)).TotalMinutes -gt 2) { [IO.File]::Delete($RdvFichier) } } catch {}   # (une vieille demande n'ouvre rien)
+
+function Write-EtatMindset {
+    if (-not $GereParMindset) { return }
+    $ic = [Globalization.CultureInfo]::InvariantCulture
+    $prochains = @(Get-Upcoming | Select-Object -First 10 | ForEach-Object {
+        $t = [string]$_.RV.Titre; if ($t.Length -gt 80) { $t = $t.Substring(0, 80) }
+        [ordered]@{ Id = [string]$_.RV.Id; Titre = $t; Quand = $_.Prochain.ToString('s', $ic); Journee = [bool]$_.RV.Journee; Type = [string](Get-TypeRV $_.RV) }
+    })
+    $cle = ConvertTo-Json -InputObject $prochains -Depth 4 -Compress
+    if ($cle -eq $script:EtatMindsetEcrit) { return }   # (rien de neuf : pas d'écriture)
+    try { Save-JsonFile $EtatFichier ([ordered]@{ Version = 1; Maj = (Get-Date -Format s); Prochains = $prochains }); $script:EtatMindsetEcrit = $cle }
+    catch { Write-Log "etat.json pour Mindset : $($_.Exception.Message)" }
+}
+
+function Show-RdvDemande([string]$Texte) {
+    if ($Texte -notmatch '^([0-9a-f]{32})(\|(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d))?$') { return }
+    $rv = Get-RendezVous $Matches[1]
+    if (-not $rv) { return }
+    $quand = $rv.Quand
+    if ($Matches[3]) { try { $quand = [datetime]::ParseExact($Matches[3], 's', [Globalization.CultureInfo]::InvariantCulture) } catch {} }
+    Write-Log "Fiche ouverte depuis Mindset : $($rv.Titre)"
+    Show-Fiche $rv $quand
+}
+
 function Start-QuitterSurveillance {
     if ($script:QuitterTimer) { return }
     $script:QuitterTimer = New-Object System.Windows.Threading.DispatcherTimer
     $script:QuitterTimer.Interval = [TimeSpan]::FromSeconds(1)
     $script:QuitterTimer.Add_Tick({
+        # Mindset demande la fiche d'un rendez-vous (clic sur sa carte)
+        if ([IO.File]::Exists($RdvFichier)) {
+            $t = ''; try { $t = ([IO.File]::ReadAllText($RdvFichier)).Trim(); [IO.File]::Delete($RdvFichier) } catch {}
+            try { Show-RdvDemande $t } catch { Write-Log "Fiche demandée par Mindset : $_" }
+        }
+        # Les prochains rendez-vous pour Mindset : au démarrage, puis toutes les 10 minutes (une fois passée, une fois suivante)
+        $script:EtatTicks++
+        if ($script:EtatTicks % 600 -eq 1) { try { Write-EtatMindset } catch {} }
         if (-not [IO.File]::Exists($QuitterFichier)) { return }
         $script:QuitterTimer.Stop()
         try { [IO.File]::Delete($QuitterFichier) } catch {}

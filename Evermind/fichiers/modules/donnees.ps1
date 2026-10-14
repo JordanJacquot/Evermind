@@ -186,6 +186,7 @@ function Get-AgendaDonnees {
 
 function Save-Agenda {
     Save-JsonFile $AgendaFile ([ordered]@{ Version = 2; RendezVous = @(Get-AgendaDonnees) })
+    if (Get-Command Write-EtatMindset -ErrorAction SilentlyContinue) { try { Write-EtatMindset } catch {} }   # (carte de Mindset, systeme.ps1)
 }
 
 # $Detail : table avec les détails à mettre (Fin, Lieu, Avec...) ; ceux qui manquent restent vides
