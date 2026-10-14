@@ -755,9 +755,9 @@
               <!-- Thème : les couleurs de Nevermind, adaptées -->
               <StackPanel x:Name="PanTheme" Visibility="Collapsed">
                 <TextBlock Text="Le thème" Style="{StaticResource Label}" FontSize="16" Margin="2,10,0,4"/>
-                <!-- Copie gérée par Mindset (suite.ps1) : les 5 thèmes se choisissent dans Mindset -->
+                <!-- Copie gérée par Mindset (suite.ps1) : le thème se choisit dans Mindset, thèmes personnalisés compris -->
                 <StackPanel x:Name="ThemeMindset" Visibility="Collapsed" Margin="0,0,0,12">
-                  <TextBlock Text="Le thème se règle dans Mindset, pour toute la suite. Les thèmes personnalisés d'Evermind restent ici." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
+                  <TextBlock Text="Le thème se règle dans Mindset, pour toute la suite (thèmes personnalisés compris)." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
                   <Button x:Name="BtnThemeMindset" Style="{StaticResource BtnSecondary}" Content="Ouvrir les réglages de Mindset" HorizontalAlignment="Left"/>
                 </StackPanel>
                 <TextBlock x:Name="ThemeTexte" Text="Les couleurs d'Evermind, les mêmes thèmes que Nevermind. Choisis-en un : Evermind se relance pour l'appliquer (quelques secondes), tes rendez-vous et réglages ne changent pas." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
@@ -769,12 +769,15 @@
                 <TextBlock Text="Couleurs des rendez-vous" Style="{StaticResource Label}" FontSize="16" Margin="2,22,0,4"/>
                 <TextBlock Text="La couleur de chaque sorte de rendez-vous, dans le calendrier, la liste, les fiches et les alertes. Elle reste la même avec tous les thèmes." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,10"/>
                 <StackPanel x:Name="CouleursSortes"/>
+                <!-- Caché pour une copie gérée par Mindset (suite.ps1) -->
+                <StackPanel x:Name="ThemesPerso">
                 <TextBlock Text="Thèmes personnalisés" Style="{StaticResource Label}" FontSize="16" Margin="2,22,0,4"/>
                 <TextBlock Text="Un thème personnalisé est un zip (avec pack.json, images, police) : il reste sur ton PC, dans le dossier des thèmes d'Evermind." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,10"/>
                 <WrapPanel>
                   <Button x:Name="BtnThemeImporter" Style="{StaticResource BtnSecondary}" Content="Importer un thème (.zip)" Margin="0,0,10,0"/>
                   <Button x:Name="BtnThemeDossier" Style="{StaticResource BtnSecondary}" Content="Ouvrir le dossier"/>
                 </WrapPanel>
+                </StackPanel>
               </StackPanel>
               <!-- Général -->
               <StackPanel x:Name="PanGeneral" Visibility="Collapsed">

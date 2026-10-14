@@ -156,6 +156,23 @@ foreach ($s in @(@('mindset-gere', 'Son'), @('mindset-gere-theme', 'Theme'))) {
         else { Write-Host '       thème (arcade), micro et casque de la suite pris, mises à jour par Mindset' -ForegroundColor DarkGray }
     } else { $ok = $false }
 }
+# Mindset : thème personnalisé de la suite (« pack:<id> » dans suite.json), installé par Mindset dans nos packs : il est
+# appliqué ; absent, le thème actuel reste
+$packsSuite = Join-Path $test 'packs-suite'
+Remove-Item -LiteralPath $packsSuite -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path (Join-Path $packsSuite 'suite-test') | Out-Null
+[IO.File]::WriteAllText((Join-Path $packsSuite 'suite-test\pack.json'), (ConvertTo-Json -InputObject ([ordered]@{ Name = 'Pack de la suite (test)'; Desc = 'Thème personnalisé installé par Mindset'; Base = 'rubis'; Hello = '{0} ! Thème de la suite.' })), $utf8)
+foreach ($s in @(@('mindset-gere-pack', 'pack:suite-test'), @('mindset-gere-pack-absent', 'pack:absent'))) {
+    [IO.File]::WriteAllText($suite, (ConvertTo-Json -InputObject ([ordered]@{ theme = $s[1]; applis = [ordered]@{ evermind = (Join-Path $racine 'Evermind\') }; modifie = '2026-10-14T16:00:00' })), $utf8)
+    if (Invoke-Scenario $s[0] @{ EVERMIND_SUITE = $suite; EVERMIND_PACKS = $packsSuite; EVERMIND_REGLAGES = 'Theme' } -Exemples) {
+        $fr = Join-Path $script:Donnees 'reglages.json'
+        $reg = if (Test-Path -LiteralPath $fr) { ConvertFrom-Json ([IO.File]::ReadAllText($fr, [Text.Encoding]::UTF8)) } else { [pscustomobject]@{ Theme = $null } }
+        $bon = if ($s[0] -eq 'mindset-gere-pack') { $script:Journal -match 'Thème de la suite \(Mindset\) : pack:suite-test' -and $reg.Theme -eq 'pack:suite-test' }
+               else { $script:Journal -match 'pack:absent introuvable' -and $reg.Theme -ne 'pack:absent' }
+        if (-not $bon) { Write-Host "ÉCHEC  $($s[0]) : thème de la suite mal pris (Theme = $($reg.Theme))" -ForegroundColor Red; $ok = $false }
+        else { Write-Host "       thème de la suite : $(if ($s[0] -eq 'mindset-gere-pack') { 'pack appliqué' } else { 'pack absent, thème actuel gardé' })" -ForegroundColor DarkGray }
+    } else { $ok = $false }
+}
 # Copie hors de Mindset (pas un dossier de travail) : la fenêtre « Evermind s'utilise maintenant avec Mindset », et rien ne démarre
 if (Invoke-Scenario 'blocage' @{ EVERMIND_TEST_BLOCAGE = '1' } -Exemples) {
     if ($script:Journal) { Write-Host 'ÉCHEC  blocage : Evermind a démarré quand même' -ForegroundColor Red; $ok = $false }

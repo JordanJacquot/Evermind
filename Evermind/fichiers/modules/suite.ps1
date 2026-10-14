@@ -6,17 +6,27 @@
 #                  jour et la lance avec Windows : ni recherche de mise à jour ni démarrage avec Windows ici.
 #                  Le micro et le casque viennent aussi de Mindset (pris au démarrage et dès qu'ils changent, sans
 #                  relance) : dans Réglages, Son et Thème, un bouton ouvre les réglages de Mindset à la place des choix.
+#                  Les thèmes personnalisés aussi : « pack:<id> » dans suite.json, installé par Mindset dans nos packs.
 #   Copie autonome seulement un dossier de travail (les autres sont arrêtées au lancement, mindset.ps1) : comme avant.
 # Tests : EVERMIND_SUITE (un faux suite.json, voir mindset.ps1).
 # Chargé par Evermind.ps1 juste après donnees.ps1, avant themes.ps1.
 
-# Au démarrage d'une copie gérée : le thème de la suite devient celui d'Evermind (sauf un thème personnalisé, qui reste)
-if ($GereParMindset -and $script:Suite.Theme) {
-    $themeApp = [string](Get-Setting 'Theme' 'neon')
-    if ($themeApp -notlike 'pack:*' -and $themeApp -ne $script:Suite.Theme) {
-        Set-Setting 'Theme' $script:Suite.Theme
-        Write-Log "Thème de la suite (Mindset) : $($script:Suite.Theme)"
-    }
+# Le thème de la suite est-il utilisable ici ? Un des 5 thèmes, ou un thème personnalisé de la suite que Mindset a
+# installé dans nos packs (<données>\packs\<id>\pack.json, lisible). Sinon le thème actuel reste, et c'est noté.
+function Test-ThemeSuite([string]$Id) {
+    if ($Id -in $ThemesSuite) { return $true }
+    if ($Id -cmatch '^pack:[a-z0-9-]{1,40}$' -and (Get-ThemePack $Id.Substring(5))) { return $true }
+    Write-Log "Thème de la suite $Id introuvable ou illisible dans $PacksDir : le thème actuel reste"
+    $false
+}
+
+# Au démarrage d'une copie gérée (appelé par themes.ps1, avant de choisir les couleurs) : le thème de la suite,
+# thèmes personnalisés compris, devient celui d'Evermind
+function Sync-SuiteThemeDemarrage {
+    $t = $script:Suite.Theme
+    if (-not $GereParMindset -or -not $t -or $t -eq [string](Get-Setting 'Theme' 'neon') -or -not (Test-ThemeSuite $t)) { return }
+    Set-Setting 'Theme' $t
+    Write-Log "Thème de la suite (Mindset) : $t"
 }
 
 # Au démarrage d'une copie gérée : le micro et le casque de la suite remplacent ceux d'Evermind (voix.ps1 les applique)
@@ -99,10 +109,10 @@ function Update-SuiteSurveillance {
         $s = Read-Suite
         if ($s.Existe -and -not $s.Lisible) { return }   # en train d'être remplacé : relu au prochain tour
         $script:SuiteDate = $date
-        # Seulement si cette copie est toujours celle de Mindset, et pas sur un thème personnalisé
+        # Seulement si cette copie est toujours celle de Mindset (thème personnalisé de la suite : seulement s'il est installé)
         $geree = $s.Evermind -and $s.Evermind -ieq $AppRacine
         if ($geree) { Set-SuiteAppareils $s }
-        $script:SuiteThemeAttente = if ($geree -and $s.Theme -and $s.Theme -ne $ThemeSetting -and $ThemeSetting -notlike 'pack:*') { $s.Theme } else { $null }
+        $script:SuiteThemeAttente = if ($geree -and $s.Theme -and $s.Theme -ne $ThemeSetting -and (Test-ThemeSuite $s.Theme)) { $s.Theme } else { $null }
         if ($script:SuiteThemeAttente) { Write-Log "Thème de la suite changé : $($script:SuiteThemeAttente)" }
     }
     # « OK Evermind » sur le nouveau micro, une fois l'écoute, la dictée, la demande et la phrase en cours finies
@@ -126,9 +136,9 @@ function Initialize-Suite {
     Write-Log 'Géré par Mindset : mises à jour et démarrage avec Windows par Mindset'
     $ui.DemarrageOption.Visibility = 'Collapsed'   # c'est Mindset qui lance Evermind avec Windows
     $ui.ReglagesMindset.Visibility = 'Visible'     # Réglages, Général : « les mises à jour passent par Mindset »
-    # Réglages, Son et Thème : le micro, le casque et le thème se règlent dans Mindset, pour toute la suite
+    # Réglages, Son et Thème : le micro, le casque et le thème (thèmes personnalisés compris) se règlent dans Mindset
     $ui.SonChoix.Visibility = 'Collapsed'; $ui.SonMindset.Visibility = 'Visible'
-    $ui.ThemeTexte.Visibility = 'Collapsed'; $ui.ThemeMindset.Visibility = 'Visible'
+    $ui.ThemeTexte.Visibility = 'Collapsed'; $ui.ThemeMindset.Visibility = 'Visible'; $ui.ThemesPerso.Visibility = 'Collapsed'
     $ui.BtnSonMindset.Add_Click({ Open-ReglagesMindset 'parametres:son' })
     $ui.BtnThemeMindset.Add_Click({ Open-ReglagesMindset 'parametres:apparence' })
     $script:SuiteDate = [datetime]::MinValue

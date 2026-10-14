@@ -26,7 +26,7 @@ function Get-CheminNormal([string]$Chemin) {
     try { [IO.Path]::GetFullPath($Chemin).TrimEnd('\') } catch { $null }
 }
 
-# Ce qu'on garde de suite.json : le thème (s'il est connu), le micro et le casque ($null si absents ou pas valables),
+# Ce qu'on garde de suite.json : le thème (s'il est connu, ou « pack:<id> » au nom valable), le micro et le casque ($null si absents ou pas valables),
 # et le dossier d'Evermind (seulement pour comparer)
 function Read-Suite {
     $s = @{ Existe = $false; Lisible = $false; Theme = $null; Evermind = $null; Micro = $null; Casque = $null }
@@ -34,7 +34,9 @@ function Read-Suite {
     $s.Existe = $true
     try {
         $j = [IO.File]::ReadAllText($SuiteFile, [Text.Encoding]::UTF8) | ConvertFrom-Json
+        # Thème : un des 5 thèmes, ou « pack:<id> », un thème personnalisé de la suite installé par Mindset dans nos packs
         if ($j.theme -is [string] -and $j.theme -in $ThemesSuite) { $s.Theme = $j.theme.ToLowerInvariant() }
+        elseif ($j.theme -is [string] -and $j.theme -cmatch '^pack:[a-z0-9-]{1,40}$') { $s.Theme = $j.theme }
         if ($j.applis -and $j.applis.evermind -is [string]) { $s.Evermind = Get-CheminNormal $j.applis.evermind }
         foreach ($k in @(@('micro', 'Micro'), @('casque', 'Casque'))) {   # (une chaîne de 64 caractères au plus, sans caractère de contrôle)
             $v = if ($j.PSObject.Properties[$k[0]]) { $j.($k[0]) } else { $null }
