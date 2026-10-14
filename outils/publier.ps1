@@ -1,5 +1,5 @@
 ﻿# Publie une nouvelle version d'Evermind sur GitHub, avec sa signature.
-# Les Evermind déjà installés la proposent ensuite (bandeau « Mettre à jour », modules\maj.ps1), et Mindset aussi.
+# Mindset la propose ensuite (il installe et met à jour Evermind à partir du zip signé de la Release).
 #
 #   .\outils\publier.ps1 -Version 0.12.0 -Notes "Ce qui change dans cette version"
 #
@@ -81,7 +81,8 @@ Remove-Item -LiteralPath "$zip.sig" -ErrorAction SilentlyContinue   # jamais l'a
 & (Join-Path (Split-Path $racine -Parent) 'Mindset\outils\signer.ps1') -Fichier $zip
 if (-not (Test-Path -LiteralPath "$zip.sig")) { throw 'Publication annulée : le zip n''a pas pu être signé.' }
 
-# 3. Envoi sur GitHub et création de la version (le zip et sa signature)
+# 3. Envoi sur GitHub et création de la version. Le zip et sa signature ne sont pas dans le dépôt (release\ est ignoré par git) :
+#    ils sont seulement joints à la Release.
 Push-Location $racine
 try {
     Invoke-Native git @('add', '-A')

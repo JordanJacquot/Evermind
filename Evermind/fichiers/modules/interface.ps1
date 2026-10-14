@@ -12,7 +12,7 @@ catch {
     $e = $_.Exception; while ($e.InnerException) { $e = $e.InnerException }
     Write-Log "Fenêtre impossible à charger : $($e.Message)"
     [Console]::Error.WriteLine("Fenêtre impossible à charger : $($e.Message)")
-    if (-not $EnTest) { [System.Windows.MessageBox]::Show("Evermind n'a pas pu s'ouvrir :`n`n$($e.Message)`n`nRetélécharge Evermind et remplace tout le dossier.", 'Evermind', 'OK', 'Error') | Out-Null }
+    if (-not $EnTest) { [System.Windows.MessageBox]::Show("Evermind n'a pas pu s'ouvrir :`n`n$($e.Message)`n`nRéinstalle Evermind depuis Mindset.", 'Evermind', 'OK', 'Error') | Out-Null }
     exit 1
 }
 $ui = @{}

@@ -1,7 +1,8 @@
-# Fichiers générés par outils/construire.ps1
+# Fichiers générés par outils/construire.ps1 (le zip n'est publié que dans les Releases, avec sa signature)
 /Evermind.zip
 /Evermind/*.exe
 /outils/icones/
+/release/
 
 # Tests
 /_test/

@@ -446,15 +446,6 @@
             </StackPanel>
           </DockPanel>
         </Border>
-        <!-- Evermind fait partie de Mindset (copie autonome, Mindset pas encore installé) : suite.ps1 -->
-        <Border x:Name="MindsetBandeau" Visibility="Collapsed" Margin="0,12,0,0" Background="#1000E5FF" BorderBrush="#4400E5FF" BorderThickness="1" CornerRadius="14" Padding="16,10">
-          <DockPanel>
-            <Button x:Name="BtnMindset" DockPanel.Dock="Right" Style="{StaticResource BtnSecondary}" Content="Télécharger Mindset" VerticalAlignment="Center" Margin="14,0,0,0"/>
-            <Button x:Name="BtnMindsetPlusTard" DockPanel.Dock="Right" Style="{StaticResource BtnSecondary}" Content="Plus tard" VerticalAlignment="Center" Margin="14,0,0,0"/>
-            <TextBlock DockPanel.Dock="Left" Text="✦" FontSize="18" Foreground="#00E5FF" VerticalAlignment="Center" Margin="0,0,14,0"/>
-            <TextBlock FontSize="13.5" Foreground="#EEEBF7" TextWrapping="Wrap" VerticalAlignment="Center" Text="Evermind fait maintenant partie de Mindset, le portail de la suite. Installe Mindset pour tout retrouver au même endroit."/>
-          </DockPanel>
-        </Border>
       </StackPanel>
     </Border>
 

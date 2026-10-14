@@ -1,14 +1,12 @@
 ﻿# Evermind : la suite Mindset (le portail qui installe, met à jour et lance Nevermind et Evermind).
-# suite.json est lu par donnees.ps1, qui décide aussi si cette copie est gérée par Mindset ($GereParMindset).
+# suite.json est lu par mindset.ps1, qui décide aussi si cette copie est gérée par Mindset ($GereParMindset).
 #
 #   Copie gérée    elle prend le thème de la suite au démarrage, l'écrit dans suite.json quand on en choisit un dans
 #                  Evermind, et se relance quand il change (choisi dans Mindset ou dans Nevermind). Mindset la met à
 #                  jour et la lance avec Windows : ni recherche de mise à jour ni démarrage avec Windows ici.
-#   Copie autonome comme avant, plus un bandeau discret qui présente Mindset (tant que Mindset n'est pas installé).
-# Tests : EVERMIND_SUITE (un faux suite.json, voir donnees.ps1), EVERMIND_BANDEAU_MINDSET (le bandeau de Mindset).
+#   Copie autonome seulement un dossier de travail (les autres sont arrêtées au lancement, mindset.ps1) : comme avant.
+# Tests : EVERMIND_SUITE (un faux suite.json, voir mindset.ps1).
 # Chargé par Evermind.ps1 juste après donnees.ps1, avant themes.ps1.
-
-$MindsetPage = 'https://github.com/JordanJacquot/Mindset/releases/latest'
 
 # Au démarrage d'une copie gérée : le thème de la suite devient celui d'Evermind (sauf un thème personnalisé, qui reste)
 if ($GereParMindset -and $script:Suite.Theme) {
@@ -68,25 +66,8 @@ function Update-SuiteSurveillance {
     Restart-App
 }
 
-# Bandeau « Evermind fait maintenant partie de Mindset » : copie autonome, Mindset pas installé (pas de suite.json),
-# et pas repoussé avec « Plus tard » ces 7 derniers jours
-function Initialize-BandeauMindset {
-    if ($GereParMindset -or $script:Suite.Existe) { return }
-    if ($EnTest -and -not $env:EVERMIND_BANDEAU_MINDSET) { return }
-    $quand = [datetime]::MinValue
-    if ([datetime]::TryParse([string](Get-Setting 'MindsetPlusTard' ''), [Globalization.CultureInfo]::InvariantCulture, 'None', [ref]$quand) -and ((Get-Date) - $quand).TotalDays -lt 7) { return }
-    $ui.BtnMindset.Add_Click({
-        Write-Log 'Mindset : page de téléchargement ouverte'
-        if (-not $EnTest) { try { Start-Process $MindsetPage } catch { Write-Log "Mindset : $_" } }
-        $ui.MindsetBandeau.Visibility = 'Collapsed'
-    })
-    $ui.BtnMindsetPlusTard.Add_Click({ Set-Setting 'MindsetPlusTard' (Get-Date).ToString('s'); $ui.MindsetBandeau.Visibility = 'Collapsed' })
-    $ui.MindsetBandeau.Visibility = 'Visible'
-}
-
 # Au démarrage (evenements.ps1)
 function Initialize-Suite {
-    Initialize-BandeauMindset
     if (-not $GereParMindset) { return }
     Write-Log 'Géré par Mindset : mises à jour et démarrage avec Windows par Mindset'
     $ui.DemarrageOption.Visibility = 'Collapsed'   # c'est Mindset qui lance Evermind avec Windows

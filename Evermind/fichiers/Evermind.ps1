@@ -19,6 +19,17 @@ $EnTest = [bool]$env:EVERMIND_TEST      # test automatique (outils\tester.ps1) :
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Drawing, System.Windows.Forms
 
 # ---------------------------------------------------------------------------
+# Evermind s'utilise avec Mindset : une copie qui n'est pas la sienne (ni un dossier de travail) explique comment
+# faire, puis s'arrête sans rien démarrer. Vérifié avant tout le reste, pour ne jamais gêner l'Evermind de Mindset.
+# ---------------------------------------------------------------------------
+$AppDir = $PSScriptRoot
+$ModulesDir = Join-Path $AppDir 'modules'
+if (Test-Path -LiteralPath (Join-Path $ModulesDir 'mindset.ps1')) {
+    . (Join-Path $ModulesDir 'mindset.ps1')
+    if (Test-BlocageMindset) { Show-BlocageMindset; exit }
+}
+
+# ---------------------------------------------------------------------------
 # Une seule Evermind à la fois : un nouveau lancement ramène simplement la fenêtre
 # ---------------------------------------------------------------------------
 if (-not $EnTest) {
@@ -41,11 +52,9 @@ if (-not $EnTest) {
 # ---------------------------------------------------------------------------
 # Chargement des modules (dossier « modules » à côté de ce fichier)
 # ---------------------------------------------------------------------------
-$AppDir = $PSScriptRoot
-$ModulesDir = Join-Path $AppDir 'modules'
-$missing = @('natif.cs', 'interface.xaml', 'donnees.ps1', 'suite.ps1', 'fichiers.ps1', 'themes.ps1', 'comprendre.ps1', 'systeme.ps1', 'interface.ps1', 'logo.ps1', 'agenda.ps1', 'details.ps1', 'alerte.ps1', 'voix.ps1', 'maj.ps1', 'voix-kokoro.cs', 'eveil.ps1', 'cerveau.ps1', 'evenements.ps1' | Where-Object { -not (Test-Path -LiteralPath (Join-Path $ModulesDir $_)) })
+$missing = @('natif.cs', 'interface.xaml', 'mindset.ps1', 'donnees.ps1', 'suite.ps1', 'fichiers.ps1', 'themes.ps1', 'comprendre.ps1', 'systeme.ps1', 'interface.ps1', 'logo.ps1', 'agenda.ps1', 'details.ps1', 'alerte.ps1', 'voix.ps1', 'maj.ps1', 'voix-kokoro.cs', 'eveil.ps1', 'cerveau.ps1', 'evenements.ps1' | Where-Object { -not (Test-Path -LiteralPath (Join-Path $ModulesDir $_)) })
 if ($missing) {
-    [System.Windows.MessageBox]::Show("Des fichiers d'Evermind sont manquants :`n`n$($missing -join ', ')`n`nRetélécharge Evermind et remplace tout le dossier.", 'Evermind', 'OK', 'Error') | Out-Null
+    [System.Windows.MessageBox]::Show("Des fichiers d'Evermind sont manquants :`n`n$($missing -join ', ')`n`nRéinstalle Evermind depuis Mindset.", 'Evermind', 'OK', 'Error') | Out-Null
     exit
 }
 

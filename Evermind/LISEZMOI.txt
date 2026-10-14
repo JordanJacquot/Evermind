@@ -3,13 +3,13 @@
 
 Installer
 ---------
-1. Dézippe Evermind.zip où tu veux (par exemple dans tes Documents). Garde le dossier entier.
-2. Lance Evermind.exe.
-   Windows peut afficher « Windows a protégé votre ordinateur » : clique sur « Informations
-   complémentaires », puis « Exécuter quand même ». C'est normal, Evermind n'est pas signé.
+1. Installe Mindset, le portail de la suite : https://github.com/JordanJacquot/Mindset/releases/latest
+2. Dans Mindset, installe Evermind. Mindset le garde à jour et le lance avec Windows.
 3. Dans Evermind, appuie sur « Installer la voix » (531 Mo : dictée et voix naturelle), puis, au même
    endroit, sur « Installer l'assistant » (2,3 Go : l'assistant, qui comprend tout ce que tu dis).
    Téléchargés une seule fois, ensuite tout marche sans Internet.
+Tu avais déjà un Evermind ? Mindset le reprend sans rien perdre : rendez-vous, réglages, voix et
+assistant restent.
 
 Utiliser
 --------
@@ -20,20 +20,10 @@ Utiliser
 - Dictée à tout moment : Ctrl + Maj + Espace (même en jeu).
 - Réglages : casque et micro, voix, thèmes, dossiers où chercher les dossiers des personnes.
 
-Mettre à jour
--------------
-Quand une nouvelle version sort, un bandeau apparaît dans Evermind : appuie sur « Mettre à jour ».
-Evermind se ferme, se met à jour et se rouvre tout seul en quelques secondes. Tes rendez-vous,
-tes réglages, la voix et l'assistant restent. Chaque mise à jour est signée : Evermind refuse
-celle dont la signature n'est pas bonne. Si Evermind a été installé par Mindset (le portail de la
-suite), c'est Mindset qui le met à jour.
-
 Bon à savoir
 ------------
 - Tout reste sur ton PC : rien n'est envoyé sur Internet.
-- Tes rendez-vous sont dans %LOCALAPPDATA%\Evermind (ils restent si tu remplaces le dossier
-  d'Evermind par une nouvelle version), ou dans %LOCALAPPDATA%\Mindset\Evermind si Evermind a été
-  installé par Mindset.
+- Tes rendez-vous sont dans %LOCALAPPDATA%\Mindset\Evermind.
 - Il faut Windows 10 ou 11 (64 bits) et au moins 8 Go de mémoire pour l'assistant.
   Avec une carte graphique, l'assistant répond plus vite.
 - La croix rouge peut réduire Evermind près de l'horloge : il continue de te donner tes rappels.

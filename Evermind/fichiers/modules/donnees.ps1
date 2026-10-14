@@ -1,42 +1,7 @@
 ﻿# Evermind : journal, réglages et fichier des rendez-vous.
 # Chargé par Evermind.ps1, qui définit $AppDir et $ModulesDir.
 
-# ---------------------------------------------------------------------------
-# Mindset, le portail de la suite : %LOCALAPPDATA%\Mindset\suite.json, écrit par Mindset
-#   { "theme": "neon", "applis": { "evermind": "<dossier d'Evermind.exe>", ... }, "modifie": "..." }
-# Evermind est « géré par Mindset » si applis.evermind est le dossier de cette copie : ses données vont alors dans
-# %LOCALAPPDATA%\Mindset\Evermind, il suit le thème de la suite, et c'est Mindset qui le met à jour et le lance avec
-# Windows (suite.ps1). Sinon (copie autonome), il fait tout lui-même, comme avant.
-# Sécurité : n'importe quel programme de l'utilisateur peut modifier ce fichier. On n'y accepte qu'un nom de thème
-# connu, et le dossier n'y sert qu'à comparer avec le nôtre : rien n'y est jamais lancé ni ouvert.
-# ---------------------------------------------------------------------------
-$SuiteFile   = if ($EnTest) { $env:EVERMIND_SUITE } else { Join-Path $env:LOCALAPPDATA 'Mindset\suite.json' }   # (tests : un fichier à part, ou aucun)
-$ThemesSuite = @('neon', 'crepuscule', 'terminal', 'arcade', 'rubis')
-
-# Chemin complet, sans « \ » à la fin (pour comparer deux dossiers), ou $null s'il n'est pas valable
-function Get-CheminNormal([string]$Chemin) {
-    if ($Chemin -notmatch '^[A-Za-z]:\\') { return $null }
-    try { [IO.Path]::GetFullPath($Chemin).TrimEnd('\') } catch { $null }
-}
-
-# Ce qu'on garde de suite.json : le thème (s'il est connu) et le dossier d'Evermind (seulement pour comparer)
-function Read-Suite {
-    $s = @{ Existe = $false; Lisible = $false; Theme = $null; Evermind = $null }
-    if (-not $SuiteFile -or -not [IO.File]::Exists($SuiteFile)) { return $s }
-    $s.Existe = $true
-    try {
-        $j = [IO.File]::ReadAllText($SuiteFile, [Text.Encoding]::UTF8) | ConvertFrom-Json
-        if ($j.theme -is [string] -and $j.theme -in $ThemesSuite) { $s.Theme = $j.theme.ToLowerInvariant() }
-        if ($j.applis -and $j.applis.evermind -is [string]) { $s.Evermind = Get-CheminNormal $j.applis.evermind }
-        $s.Lisible = $true
-    } catch {}   # (illisible, ou en train d'être remplacé par Mindset : la copie reste autonome)
-    $s
-}
-
-# Le dossier de cette copie (celui d'Evermind.exe, parent de « fichiers ») ; les outils de test n'en ont pas
-$AppRacine = if ($AppDir) { Get-CheminNormal (Split-Path $AppDir -Parent) } else { $null }
-$script:Suite = Read-Suite
-$GereParMindset = [bool]($AppRacine -and $script:Suite.Evermind -and $script:Suite.Evermind -ieq $AppRacine)
+# (Copie gérée par Mindset ou non : $GereParMindset, décidé par mindset.ps1, chargé avant tout le reste.)
 
 # ---------------------------------------------------------------------------
 # Dossier de données : %LOCALAPPDATA%\Evermind, ou %LOCALAPPDATA%\Mindset\Evermind pour une copie gérée par Mindset

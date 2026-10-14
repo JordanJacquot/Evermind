@@ -6,22 +6,14 @@ l'heure de tes réunions et te rappelle tes rendez-vous.
 
 Tout reste sur ton PC : la dictée, la voix et l'assistant tournent en local. Rien n'est envoyé sur Internet.
 
-## Télécharger
+## Installer
 
-**[⬇ Télécharger Evermind.zip](https://github.com/JordanJacquot/Evermind/raw/main/release/Evermind.zip)**
-(aussi dans le dossier [`release`](release) et dans les [Releases](https://github.com/JordanJacquot/Evermind/releases))
-
-1. Dézippe `Evermind.zip` où tu veux et garde le dossier entier.
-2. Lance `Evermind.exe`. Si Windows affiche « Windows a protégé votre ordinateur », clique sur
-   « Informations complémentaires » puis « Exécuter quand même » (Evermind n'est pas signé).
-3. Appuie sur « Installer la voix » (531 Mo : dictée et voix naturelle), puis au même endroit sur
-   « Installer l'assistant » (2,3 Go : l'IA qui comprend tout). Téléchargés une seule fois, ensuite tout marche sans Internet.
+Evermind s'installe avec **[Mindset](https://github.com/JordanJacquot/Mindset/releases/latest)**, le portail de la suite :
+installe Mindset, puis Evermind depuis Mindset, qui le garde ensuite à jour et le lance avec Windows. La voix et l'assistant
+s'installent ensuite dans Evermind, comme avant (un clic, téléchargés une seule fois, puis tout marche sans Internet).
+Tu avais déjà un Evermind ? Mindset le reprend sans rien perdre : rendez-vous, réglages, voix et assistant restent.
 
 Il faut Windows 10 ou 11 (64 bits) et au moins 8 Go de mémoire. Avec une carte graphique, l'assistant répond plus vite.
-**Mettre à jour** : quand une nouvelle version sort, un bandeau apparaît dans Evermind ; « Mettre à jour » et il se
-relance tout seul en quelques secondes (rendez-vous, réglages, voix et assistant restent). Evermind regarde la page
-des versions sur GitHub au démarrage puis toutes les 6 heures, sans rien envoyer de personnel.
-Avant la 0.10.2, il faut le faire une fois à la main : quitter Evermind, remplacer son dossier par le nouveau zip.
 
 ## Ce qu'il sait faire (0.11.0)
 
@@ -42,11 +34,12 @@ Avant la 0.10.2, il faut le faire une fois à la main : quitter Evermind, rempla
 - **Rappels** : la veille, le matin même, 1 h avant... dans une alerte aux couleurs d'Evermind
   (« Voir », « Dans 10 min »).
 - **Réglages** : casque et micro par défaut, voix, assistant, thèmes de couleur et thèmes personnalisés à importer,
-  dossiers où chercher, ce que fait la croix (réduire près de l'horloge ou quitter), démarrage avec Windows.
+  dossiers où chercher, ce que fait la croix (réduire près de l'horloge ou quitter).
 
 ## Pour les développeurs
 
-- `outils\construire.ps1` : crée l'icône, `Evermind\Evermind.exe` et `release\Evermind.zip` (Evermind fermé).
+- `outils\construire.ps1` : crée l'icône, `Evermind\Evermind.exe` et `release\Evermind.zip` (Evermind fermé ; le zip n'est pas
+  dans le dépôt). `outils\publier.ps1 -Version x.y.z` le signe et le publie dans une Release, où Mindset le prend.
 - `outils\tester.ps1 [-Voix <dossier>]` : tous les tests. Les phrases (`catalogue-phrases.ps1`, près de 3 000),
   les demandes à l'assistant (`catalogue-assistant.ps1`), les dossiers et les rappels, puis l'app lancée hors de
   l'écran dans une cinquantaine de situations (captures dans `_test`).

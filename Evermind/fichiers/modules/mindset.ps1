@@ -1,0 +1,142 @@
+﻿# Evermind : Mindset, le portail de la suite. Evermind s'utilise maintenant avec Mindset, qui l'installe, le met à
+# jour et le lance avec Windows.
+# Chargé par Evermind.ps1 tout au début, avant même de vérifier qu'aucun autre Evermind ne tourne : une copie qui
+# n'est pas celle de Mindset s'arrête tout de suite (Test-BlocageMindset), sans rien démarrer ni rien déplacer, et ne
+# gêne donc jamais l'Evermind de Mindset.
+
+# ---------------------------------------------------------------------------
+# %LOCALAPPDATA%\Mindset\suite.json, écrit par Mindset
+#   { "theme": "neon", "applis": { "evermind": "<dossier d'Evermind.exe>", ... }, "modifie": "..." }
+# Evermind est « géré par Mindset » si applis.evermind est le dossier de cette copie : ses données vont alors dans
+# %LOCALAPPDATA%\Mindset\Evermind (donnees.ps1), il suit le thème de la suite (suite.ps1), et c'est Mindset qui le
+# met à jour et le lance avec Windows.
+# Sécurité : n'importe quel programme de l'utilisateur peut modifier ce fichier. On n'y accepte qu'un nom de thème
+# connu, et le dossier n'y sert qu'à comparer avec le nôtre : rien n'y est jamais lancé ni ouvert.
+# ---------------------------------------------------------------------------
+$SuiteFile   = if ($EnTest) { $env:EVERMIND_SUITE } else { Join-Path $env:LOCALAPPDATA 'Mindset\suite.json' }   # (tests : un fichier à part, ou aucun)
+$ThemesSuite = @('neon', 'crepuscule', 'terminal', 'arcade', 'rubis')
+$MindsetPage = 'https://github.com/JordanJacquot/Mindset/releases/latest'
+$MindsetExe  = Join-Path $env:ProgramFiles 'Mindset\Mindset\Mindset.exe'
+
+# Chemin complet, sans « \ » à la fin (pour comparer deux dossiers), ou $null s'il n'est pas valable
+function Get-CheminNormal([string]$Chemin) {
+    if ($Chemin -notmatch '^[A-Za-z]:\\') { return $null }
+    try { [IO.Path]::GetFullPath($Chemin).TrimEnd('\') } catch { $null }
+}
+
+# Ce qu'on garde de suite.json : le thème (s'il est connu) et le dossier d'Evermind (seulement pour comparer)
+function Read-Suite {
+    $s = @{ Existe = $false; Lisible = $false; Theme = $null; Evermind = $null }
+    if (-not $SuiteFile -or -not [IO.File]::Exists($SuiteFile)) { return $s }
+    $s.Existe = $true
+    try {
+        $j = [IO.File]::ReadAllText($SuiteFile, [Text.Encoding]::UTF8) | ConvertFrom-Json
+        if ($j.theme -is [string] -and $j.theme -in $ThemesSuite) { $s.Theme = $j.theme.ToLowerInvariant() }
+        if ($j.applis -and $j.applis.evermind -is [string]) { $s.Evermind = Get-CheminNormal $j.applis.evermind }
+        $s.Lisible = $true
+    } catch {}   # (illisible, ou en train d'être remplacé par Mindset : la copie n'est pas gérée)
+    $s
+}
+
+# Le dossier de cette copie (celui d'Evermind.exe, parent de « fichiers »)
+$AppRacine = if ($AppDir) { Get-CheminNormal (Split-Path $AppDir -Parent) } else { $null }
+$script:Suite = Read-Suite
+$GereParMindset = [bool]($AppRacine -and $script:Suite.Evermind -and $script:Suite.Evermind -ieq $AppRacine)
+
+# ---------------------------------------------------------------------------
+# Copie hors de Mindset : bloquée
+# ---------------------------------------------------------------------------
+# Bloquée si elle n'est pas gérée par Mindset, sauf un dossier de travail (un dossier .git dans son dossier ou juste
+# au-dessus, comme D:\Projets\Evermind\Evermind). Pendant les tests : seulement si EVERMIND_TEST_BLOCAGE est défini.
+function Test-BlocageMindset {
+    if ($GereParMindset) { return $false }
+    if ($EnTest) { return [bool]$env:EVERMIND_TEST_BLOCAGE }
+    if (-not $AppRacine) { return $false }
+    foreach ($d in $AppRacine, (Split-Path $AppRacine -Parent)) { if ($d -and (Test-Path -LiteralPath (Join-Path $d '.git'))) { return $false } }
+    $true
+}
+
+# La fenêtre qui l'explique, aux couleurs d'Evermind : « Ouvrir Mindset » (s'il est installé) ou « Télécharger Mindset »
+# (tests : hors de l'écran, enregistrée en image dans EVERMIND_CAPTURE, puis fermée)
+function Show-BlocageMindset {
+    $ouvrir = Test-Path -LiteralPath $MindsetExe
+    $xaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Evermind" Width="520" SizeToContent="Height" ResizeMode="NoResize" WindowStartupLocation="CenterScreen"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent" FontFamily="Segoe UI Variable Text, Segoe UI">
+  <Window.Resources>
+    <Style x:Key="Btn" TargetType="Button">
+      <Setter Property="Foreground" Value="#EEEBF7"/><Setter Property="FontSize" Value="14"/><Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Cursor" Value="Hand"/><Setter Property="Margin" Value="10,0,0,0"/>
+      <Setter Property="Template"><Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Fond" CornerRadius="18" Padding="20,9" Background="#1CFFFFFF" BorderBrush="#33FFFFFF" BorderThickness="1">
+            <ContentPresenter HorizontalAlignment="Center"/>
+          </Border>
+          <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Fond" Property="Background" Value="#2CFFFFFF"/></Trigger></ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value></Setter>
+    </Style>
+    <Style x:Key="BtnPrincipal" TargetType="Button" BasedOn="{StaticResource Btn}">
+      <Setter Property="Foreground" Value="#0C0920"/>
+      <Setter Property="Template"><Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Fond" CornerRadius="18" Padding="20,9">
+            <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#00E5FF" Offset="0"/><GradientStop Color="#B04BFF" Offset="1"/></LinearGradientBrush></Border.Background>
+            <ContentPresenter HorizontalAlignment="Center"/>
+          </Border>
+          <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Fond" Property="Opacity" Value="0.88"/></Trigger></ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value></Setter>
+    </Style>
+  </Window.Resources>
+  <Grid>
+  <Border x:Name="Cadre" CornerRadius="20" Margin="16" Padding="30,26" BorderThickness="1">
+    <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#0C0920" Offset="0"/><GradientStop Color="#06050F" Offset="1"/></LinearGradientBrush></Border.Background>
+    <Border.BorderBrush><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#9900E5FF" Offset="0"/><GradientStop Color="#99FF2EB5" Offset="1"/></LinearGradientBrush></Border.BorderBrush>
+    <Border.Effect><DropShadowEffect Color="#B04BFF" BlurRadius="24" ShadowDepth="0" Opacity="0.5"/></Border.Effect>
+    <StackPanel>
+      <StackPanel Orientation="Horizontal">
+        <Grid Width="40" Height="40" VerticalAlignment="Center">
+          <Ellipse StrokeThickness="3"><Ellipse.Stroke><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#00E5FF" Offset="0"/><GradientStop Color="#B04BFF" Offset="0.5"/><GradientStop Color="#FF2EB5" Offset="1"/></LinearGradientBrush></Ellipse.Stroke></Ellipse>
+          <TextBlock Text="E" FontSize="19" FontWeight="Black" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        </Grid>
+        <TextBlock Text="Evermind" FontSize="15" Foreground="#A6A1BC" VerticalAlignment="Center" Margin="12,0,0,0"/>
+      </StackPanel>
+      <TextBlock Text="Evermind s'utilise maintenant avec Mindset" FontSize="21" FontWeight="Bold" Foreground="White" TextWrapping="Wrap" Margin="0,18,0,0" FontFamily="Segoe UI Variable Display, Segoe UI"/>
+      <TextBlock Text="Installe Mindset, le portail de la suite : il reprend cette copie avec tes rendez-vous, tes réglages et ta voix, rien n'est perdu." FontSize="14.5" Foreground="#C9C4DD" TextWrapping="Wrap" LineHeight="21" Margin="0,10,0,0"/>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,24,0,0">
+        <Button x:Name="BtnFermer" Style="{StaticResource Btn}" Content="Fermer"/>
+        <Button x:Name="BtnMindset" Style="{StaticResource BtnPrincipal}" Content="$(if ($ouvrir) { 'Ouvrir Mindset' } else { 'Télécharger Mindset' })" IsDefault="True"/>
+      </StackPanel>
+    </StackPanel>
+  </Border>
+  </Grid>
+</Window>
+"@
+    $w = [Windows.Markup.XamlReader]::Parse($xaml)
+    $w.FindName('Cadre').Add_MouseLeftButtonDown({ try { $w.DragMove() } catch {} })
+    $w.FindName('BtnFermer').Add_Click({ $w.Close() })
+    $w.FindName('BtnMindset').Add_Click({
+        if (-not $EnTest) {
+            try { if ($ouvrir) { Start-Process -FilePath $MindsetExe } else { Start-Process $MindsetPage } } catch {}
+        }
+        $w.Close()
+    })
+    $w.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'Escape') { $w.Close() } })
+    if ($EnTest) {
+        $w.WindowStartupLocation = 'Manual'; $w.Left = -10000; $w.Top = 0; $w.ShowActivated = $false; $w.ShowInTaskbar = $false
+        $w.Add_ContentRendered({
+            try {
+                $root = $w.Content   # (la grille entière, ombre comprise)
+                $bmp = New-Object System.Windows.Media.Imaging.RenderTargetBitmap([int]$root.ActualWidth, [int]$root.ActualHeight, 96, 96, [System.Windows.Media.PixelFormats]::Pbgra32)
+                $bmp.Render($root)
+                $enc = New-Object System.Windows.Media.Imaging.PngBitmapEncoder
+                $enc.Frames.Add([System.Windows.Media.Imaging.BitmapFrame]::Create($bmp))
+                if ($env:EVERMIND_CAPTURE) { $fs = [IO.File]::Create($env:EVERMIND_CAPTURE); try { $enc.Save($fs) } finally { $fs.Dispose() } }
+            } catch { [Console]::Error.WriteLine("Capture : $_") }
+            $w.Close()
+        })
+    } else { $w.Topmost = $true; $w.Add_ContentRendered({ $w.Topmost = $false; [void]$w.Activate() }) }
+    [void]$w.ShowDialog()
+}

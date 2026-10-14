@@ -26,7 +26,8 @@ $sma = [psobject].Assembly.Location
 & $csc /nologo /target:winexe /optimize+ /platform:anycpu "/win32icon:$(Join-Path $icones 'Evermind.ico')" "/win32manifest:$manif" /reference:System.Windows.Forms.dll "/reference:$sma" "/out:$exe" $source
 if ($LASTEXITCODE) { throw "Échec de compilation de $exe" }
 
-# Le zip à télécharger, dans release\ (suivi par git : c'est lui que les amis récupèrent)
+# Le zip, dans release\ (pas suivi par git : outils\publier.ps1 le signe et le publie dans la Release GitHub,
+# où Mindset le prend pour installer et mettre à jour Evermind)
 $release = Join-Path $racine 'release'
 New-Item -ItemType Directory -Force -Path $release | Out-Null
 $zip = Join-Path $release 'Evermind.zip'

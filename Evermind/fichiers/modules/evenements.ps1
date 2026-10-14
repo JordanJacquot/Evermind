@@ -89,7 +89,7 @@ Add-ThemeDecor
 if (-not $EnTest) { Start-PlanificateurFichiers }   # dossiers ouverts tout seuls à l'heure des rendez-vous
 if (-not $EnTest) { Start-PlanificateurRappels }    # rappels : la veille, le matin même, 1 h avant...
 Initialize-Maj                                      # nouvelle version d'Evermind : bandeau « Mettre à jour »
-Initialize-Suite                                    # Mindset : thème de la suite suivi, ou bandeau qui le présente
+Initialize-Suite                                    # copie gérée par Mindset : thème de la suite suivi
 Start-ModeJeu                                       # un jeu plein écran au premier plan : Evermind se fait discret
 # Les animations ne tournent que quand Evermind est au premier plan (et jamais en mode jeu)
 if (-not $EnTest) {
