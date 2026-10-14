@@ -60,7 +60,7 @@ function Invoke-Scenario([string]$Nom, [hashtable]$Env, [switch]$Exemples) {
     if ($Exemples) { New-DonneesExemple $donnees }
     $capture = Join-Path $test "capture-$Nom.png"
     Remove-Item -LiteralPath $capture -ErrorAction SilentlyContinue
-    foreach ($k in 'EVERMIND_DOSSIERS', 'EVERMIND_PACKS', 'EVERMIND_THEME', 'EVERMIND_FERMER', 'EVERMIND_PHRASE', 'EVERMIND_AJOUTER', 'EVERMIND_FORMULAIRE', 'EVERMIND_REGLAGES', 'EVERMIND_CONFIRMATION', 'EVERMIND_FICHE', 'EVERMIND_FORMULAIRE_RV', 'EVERMIND_JOUR', 'EVERMIND_DECALER', 'EVERMIND_FICHE_SUPPRIMER', 'EVERMIND_CONFIRMATION_OUI', 'EVERMIND_CAPTURE_ALERTE', 'EVERMIND_ALERTE_RV', 'EVERMIND_MAJ_VERSION', 'EVERMIND_MAJ_ZIP', 'EVERMIND_MAJ_AUTO', 'EVERMIND_MAJ_INSTALLER', 'EVERMIND_MAJ_PAS_DE_RELANCE', 'EVERMIND_TEST_TELECHARGEMENT', 'EVERMIND_COULEURS', 'EVERMIND_VOIR', 'EVERMIND_LOGO', 'EVERMIND_TEST_PAROLE', 'EVERMIND_COMMANDE', 'EVERMIND_EVEIL_WAV', 'EVERMIND_DICTEE_WAV', 'EVERMIND_VOIX', 'EVERMIND_SUITE', 'EVERMIND_TEST_BLOCAGE', 'EVERMIND_TEST_TRAVAIL') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
+    foreach ($k in 'EVERMIND_DOSSIERS', 'EVERMIND_PACKS', 'EVERMIND_THEME', 'EVERMIND_FERMER', 'EVERMIND_PHRASE', 'EVERMIND_AJOUTER', 'EVERMIND_FORMULAIRE', 'EVERMIND_REGLAGES', 'EVERMIND_CONFIRMATION', 'EVERMIND_FICHE', 'EVERMIND_FORMULAIRE_RV', 'EVERMIND_JOUR', 'EVERMIND_DECALER', 'EVERMIND_FICHE_SUPPRIMER', 'EVERMIND_CONFIRMATION_OUI', 'EVERMIND_CAPTURE_ALERTE', 'EVERMIND_ALERTE_RV', 'EVERMIND_MAJ_VERSION', 'EVERMIND_MAJ_ZIP', 'EVERMIND_MAJ_AUTO', 'EVERMIND_MAJ_INSTALLER', 'EVERMIND_MAJ_PAS_DE_RELANCE', 'EVERMIND_TEST_TELECHARGEMENT', 'EVERMIND_COULEURS', 'EVERMIND_VOIR', 'EVERMIND_LOGO', 'EVERMIND_TEST_PAROLE', 'EVERMIND_COMMANDE', 'EVERMIND_EVEIL_WAV', 'EVERMIND_DICTEE_WAV', 'EVERMIND_VOIX', 'EVERMIND_SUITE', 'EVERMIND_TEST_BLOCAGE', 'EVERMIND_TEST_TRAVAIL', 'EVERMIND_TEST_QUITTER') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
     $env:EVERMIND_TEST = '1'; $env:EVERMIND_DONNEES = $donnees; $env:EVERMIND_CAPTURE = $capture
     $env:EVERMIND_VOIX = Join-Path $donnees 'voix-absente'
     foreach ($k in $Env.Keys) { Set-Item "env:$k" $Env[$k] }
@@ -173,6 +173,28 @@ foreach ($s in @(@('mindset-gere-pack', 'pack:suite-test'), @('mindset-gere-pack
         else { Write-Host "       thème de la suite : $(if ($s[0] -eq 'mindset-gere-pack') { 'pack appliqué' } else { 'pack absent, thème actuel gardé' })" -ForegroundColor DarkGray }
     } else { $ok = $false }
 }
+# Quitter Mindset ferme aussi Evermind : quitter.demande apparaît dans le dossier de données, Evermind quitte tout seul,
+# proprement et vite. Un vieux quitter.demande laissé avant le lancement est effacé (sinon il se refermerait aussitôt).
+$donnees = Join-Path $test 'donnees-quitter-demande'
+Remove-Item -LiteralPath $donnees -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $donnees | Out-Null
+New-DonneesExemple $donnees
+[IO.File]::WriteAllText((Join-Path $donnees 'quitter.demande'), 'vieux')
+foreach ($k in 'EVERMIND_CAPTURE', 'EVERMIND_SUITE', 'EVERMIND_REGLAGES', 'EVERMIND_PACKS', 'EVERMIND_THEME', 'EVERMIND_MAJ_VERSION', 'EVERMIND_TEST_BLOCAGE', 'EVERMIND_TEST_TRAVAIL', 'EVERMIND_VOIR') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
+$env:EVERMIND_TEST = '1'; $env:EVERMIND_DONNEES = $donnees; $env:EVERMIND_VOIX = Join-Path $donnees 'voix-absente'; $env:EVERMIND_TEST_QUITTER = '1'
+$env:EVERMIND_CAPTURE = Join-Path $test 'capture-quitter-demande.png'   # (jamais faite : Evermind se ferme avant, la fenêtre reste hors de l'écran)
+$err = Join-Path $test 'erreurs-quitter-demande.txt'
+$chrono = [Diagnostics.Stopwatch]::StartNew()
+$p = Start-Process powershell.exe -ArgumentList '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', "`"$main`"" -PassThru -WindowStyle Hidden -RedirectStandardError $err
+$fini = $p.WaitForExit(60000)
+Remove-Item env:EVERMIND_TEST_QUITTER -ErrorAction SilentlyContinue
+$journal = [IO.File]::ReadAllText((Join-Path $donnees 'journal.txt'), [Text.Encoding]::UTF8)
+$stderr = if (Test-Path -LiteralPath $err) { [string](Get-Content -LiteralPath $err -Raw) } else { '' }
+$demandes = ([regex]::Matches($journal, 'Fermeture demandée par Mindset')).Count
+if (-not $fini) { $p.Kill(); Write-Host 'ÉCHEC  quitter-demande : Evermind ne s''est pas fermé' -ForegroundColor Red; $ok = $false }
+elseif ("$stderr".Trim() -or $journal -match 'Erreurs|Arrêt inattendu' -or $demandes -ne 1 -or $journal -notmatch 'Fermeture\r?\n' -or (Test-Path -LiteralPath (Join-Path $donnees 'quitter.demande')) -or $chrono.Elapsed.TotalSeconds -lt 1.5) {
+    Write-Host "ÉCHEC  quitter-demande : fermeture pas propre (demandes vues : $demandes, $([math]::Round($chrono.Elapsed.TotalSeconds, 1)) s)" -ForegroundColor Red; if ("$stderr".Trim()) { Write-Host $stderr }; $ok = $false
+} else { Write-Host "OK     quitter-demande   (fermé tout seul, $([math]::Round($chrono.Elapsed.TotalSeconds, 1)) s après le lancement, vieux fichier ignoré)" -ForegroundColor Green }
 # Copie hors de Mindset (pas un dossier de travail) : la fenêtre « Evermind s'utilise maintenant avec Mindset », et rien ne démarre
 if (Invoke-Scenario 'blocage' @{ EVERMIND_TEST_BLOCAGE = '1' } -Exemples) {
     if ($script:Journal) { Write-Host 'ÉCHEC  blocage : Evermind a démarré quand même' -ForegroundColor Red; $ok = $false }

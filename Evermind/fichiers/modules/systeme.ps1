@@ -178,6 +178,28 @@ function Start-ModeJeu {
     $script:ModeJeuTimer.Start()
 }
 
+# ---------------------------------------------------------------------------
+# Quitter Mindset ferme aussi Evermind : Mindset écrit quitter.demande dans le dossier de données d'Evermind, attend
+# 6 secondes, puis arrête Evermind s'il tourne encore. Evermind le voit (vérifié chaque seconde) et quitte comme avec
+# « Quitter » : rien à confirmer, et une dictée ou une phrase en cours est coupée (on a choisi de tout quitter).
+# ---------------------------------------------------------------------------
+$QuitterFichier = Join-Path $DataDir 'quitter.demande'
+try { if ([IO.File]::Exists($QuitterFichier)) { [IO.File]::Delete($QuitterFichier) } } catch {}   # (un vieux fichier refermerait Evermind tout de suite)
+
+function Start-QuitterSurveillance {
+    if ($script:QuitterTimer) { return }
+    $script:QuitterTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $script:QuitterTimer.Interval = [TimeSpan]::FromSeconds(1)
+    $script:QuitterTimer.Add_Tick({
+        if (-not [IO.File]::Exists($QuitterFichier)) { return }
+        $script:QuitterTimer.Stop()
+        try { [IO.File]::Delete($QuitterFichier) } catch {}
+        Write-Log 'Fermeture demandée par Mindset'
+        Exit-App
+    })
+    $script:QuitterTimer.Start()
+}
+
 function Restart-App {
     $script:Relancer = $true
     Exit-App
@@ -188,6 +210,7 @@ function Exit-App {
     $script:Quitting = $true
     Write-Log 'Fermeture'
     try { if ($script:ShowWatch) { $script:ShowWatch.Stop() } } catch {}
+    try { if ($script:QuitterTimer) { $script:QuitterTimer.Stop() } } catch {}
     try { if ($script:Ecoute) { $script:Ecoute.Mic.Stop(); $script:Ecoute = $null } } catch {}
     try { if ($script:VoixHotkeyOk) { [EMNative]::RemoveHotKey((New-Object System.Windows.Interop.WindowInteropHelper $Window).Handle, $VoixHotkeyId) } } catch {}
     try { if ($script:Bulle) { $script:Bulle.Win.Close() } } catch {}

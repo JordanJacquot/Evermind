@@ -104,6 +104,8 @@ $ui.CroixQuitter.Add_Click({ Set-Setting 'Croix' 'quitter'; Update-CroixReglage 
 $Window.Add_Activated({ Update-Greeting; Update-Agenda; Update-Apercu })   # « demain » devient « aujourd'hui »
 $Window.Add_Loaded({ [void]$ui.InPhrase.Focus() })
 
+Start-QuitterSurveillance   # quitter Mindset ferme aussi Evermind (quitter.demande, systeme.ps1)
+
 # Un nouveau lancement d'Evermind demande d'afficher cette fenêtre (elle peut être cachée près de l'horloge)
 if ($script:ShowSignal) {
     $script:ShowWatch = New-Object System.Windows.Threading.DispatcherTimer
@@ -161,3 +163,10 @@ if ($env:EVERMIND_COMMANDE) {
 }
 if ($env:EVERMIND_INSTALLER) { Start-VoixInstall }
 if ($env:EVERMIND_FERMER) { Invoke-Croix }
+# Mindset qui quitte : quitter.demande écrit après le démarrage, Evermind doit se fermer tout seul (sans capture)
+if ($env:EVERMIND_TEST_QUITTER) {
+    $script:TestAttente = $true
+    $tq = New-Object System.Windows.Threading.DispatcherTimer; $tq.Interval = [TimeSpan]::FromMilliseconds(1500)
+    $tq.Add_Tick({ param($s) $s.Stop(); [IO.File]::WriteAllText($QuitterFichier, '1234') })
+    $tq.Start()
+}
