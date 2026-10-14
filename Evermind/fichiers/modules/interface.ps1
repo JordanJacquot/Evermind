@@ -93,6 +93,7 @@ function Start-Capture([string]$Path) {
             try {
                 $root = $Window.Content
                 $w = [int]$root.ActualWidth; $h = [int]$root.ActualHeight
+                if ($root.LayoutTransform -is [System.Windows.Media.ScaleTransform]) { $w = [int]($w * $root.LayoutTransform.ScaleX); $h = [int]($h * $root.LayoutTransform.ScaleY) }   # (réduite dans Mindset)
                 $bmp = New-Object System.Windows.Media.Imaging.RenderTargetBitmap($w, $h, 96, 96, [System.Windows.Media.PixelFormats]::Pbgra32)
                 $bmp.Render($root)
                 $enc = New-Object System.Windows.Media.Imaging.PngBitmapEncoder

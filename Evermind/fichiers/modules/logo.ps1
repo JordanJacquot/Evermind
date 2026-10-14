@@ -302,6 +302,7 @@ function Start-PackLogoShake {
 # ---------------------------------------------------------------------------
 $LogoTailleDefaut = 60
 function Get-LogoTaille {
+    if ($script:DansMindset) { return $LogoTailleDefaut }   # affiché dans Mindset : à sa place, taille d'origine
     $t = [double](Get-Setting 'LogoTaille' 0)
     if ($t -lt 36 -or $t -gt 140) { $LogoTailleDefaut } else { $t }
 }
@@ -311,7 +312,7 @@ function Update-LogoPlace {
     $ui.LogoHote.LayoutTransform = New-Object System.Windows.Media.ScaleTransform ($taille / 84.0), ($taille / 84.0)
     $W = $ui.LogoCalque.ActualWidth; $H = $ui.LogoCalque.ActualHeight
     if (-not $W -or -not $H) { return }
-    $pos = Get-Setting 'LogoPos' $null
+    $pos = if ($script:DansMindset) { $null } else { Get-Setting 'LogoPos' $null }   # (dans Mindset : toujours à sa place)
     if ($pos -and $null -ne $pos.X) {
         $ui.LogoPlace.Visibility = 'Collapsed'
         $x = [double]$pos.X * $W; $y = [double]$pos.Y * $H
@@ -331,6 +332,7 @@ function Initialize-LogoDeplacable {
     $l.Add_MouseLeftButtonDown({
         param($s, $e)
         $e.Handled = $true
+        if ($script:DansMindset) { return }   # affiché dans Mindset : le logo ne bouge pas
         if ($e.ClickCount -ge 2) { Set-Setting 'LogoPos' $null; Set-Setting 'LogoTaille' $LogoTailleDefaut; Update-LogoPlace; return }
         $script:LogoDrag = @{ Debut = $e.GetPosition($ui.LogoCalque); X = [System.Windows.Controls.Canvas]::GetLeft($s); Y = [System.Windows.Controls.Canvas]::GetTop($s); Bouge = $false }
         [void]$s.CaptureMouse()
@@ -359,6 +361,7 @@ function Initialize-LogoDeplacable {
     $l.Add_MouseWheel({
         param($s, $e)
         $e.Handled = $true
+        if ($script:DansMindset) { return }
         $avant = Get-LogoTaille
         $taille = [math]::Min(140.0, [math]::Max(36.0, $avant + $(if ($e.Delta -gt 0) { 6 } else { -6 })))
         if ($taille -eq $avant) { return }

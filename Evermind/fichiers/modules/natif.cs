@@ -603,6 +603,12 @@ public static class EMNative
         SetWindowLong(hwnd, -20, GetWindowLong(hwnd, -20) | 0x08000000 | 0x80 | 0x20);   // WS_EX_NOACTIVATE, TOOLWINDOW, TRANSPARENT
     }
 
+    // Fenêtre accrochée dans une autre (Mindset l'affiche dans sa zone centrale) : style WS_CHILD, ou un parent
+    [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr hwnd);
+    public static bool EstEnfant(IntPtr hwnd)
+    {
+        return hwnd != IntPtr.Zero && ((GetWindowLong(hwnd, -16) & 0x40000000) != 0 || GetParent(hwnd) != IntPtr.Zero);
+    }
     // -----------------------------------------------------------------------
     // Identité dans la barre des tâches
     // -----------------------------------------------------------------------

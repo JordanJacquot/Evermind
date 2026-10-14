@@ -60,7 +60,7 @@ function Initialize-AutoStart {
 # ---------------------------------------------------------------------------
 function Show-MainWindow {
     # (tests : la fenêtre reste hors de l'écran et ne prend jamais le premier plan, l'utilisateur garde la main)
-    if ($EnTest) { return }
+    if ($EnTest -or $script:DansMindset) { return }   # (affiché dans Mindset : c'est Mindset qui le montre, rien ne doit l'en sortir)
     try {
         if (-not $Window.IsVisible) { $Window.Show() }
         if ($Window.WindowState -eq 'Minimized') { $Window.WindowState = 'Normal' }
@@ -179,6 +179,44 @@ function Start-ModeJeu {
 }
 
 # ---------------------------------------------------------------------------
+# Affiché dans Mindset : Mindset accroche la vraie fenêtre d'Evermind dans sa zone centrale (fenêtre enfant, sans
+# bordure), et peut la décrocher à tout moment. Vérifié toutes les 500 ms. Accrochée : plus de taille minimale
+# (Mindset donne la place qu'il a ; plus petite que la taille minimale, toute la fenêtre est réduite d'autant, la
+# mise en page reste la même) et le logo reste à sa place ; décrochée : tout revient comme avant.
+# ---------------------------------------------------------------------------
+$script:DansMindset = $false
+
+function Update-DansMindset {
+    $h = (New-Object System.Windows.Interop.WindowInteropHelper $Window).Handle
+    $dans = [EMNative]::EstEnfant($h)
+    if ($dans -eq $script:DansMindset) { return }
+    if (-not $script:TailleMin) { $script:TailleMin = @{ L = $Window.MinWidth; H = $Window.MinHeight } }   # (celle d'interface.xaml)
+    $script:DansMindset = $dans
+    if ($dans) { $Window.MinWidth = 0; $Window.MinHeight = 0; $script:LogoDrag = $null }
+    else { $Window.MinWidth = $script:TailleMin.L; $Window.MinHeight = $script:TailleMin.H }
+    Write-Log "$(if ($dans) { 'Affiché dans Mindset' } else { 'Plus affiché dans Mindset : fenêtre normale' })"
+    Update-EchelleMindset
+    Update-LogoPlace
+}
+
+# Dans Mindset, plus petite que la taille minimale : tout le contenu est réduit à l'échelle (rien n'est coupé ni tassé)
+function Update-EchelleMindset {
+    $e = 1.0
+    if ($script:DansMindset -and $Window.ActualWidth -gt 0 -and $Window.ActualHeight -gt 0) {
+        $e = [math]::Min(1.0, [math]::Min($Window.ActualWidth / $script:TailleMin.L, $Window.ActualHeight / $script:TailleMin.H))
+    }
+    $Window.Content.LayoutTransform = if ($e -lt 1.0) { New-Object System.Windows.Media.ScaleTransform $e, $e } else { $null }
+}
+function Start-DansMindsetSurveillance {
+    if ($script:DansMindsetTimer) { return }
+    $script:DansMindsetTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $script:DansMindsetTimer.Interval = [TimeSpan]::FromMilliseconds(500)
+    $script:DansMindsetTimer.Add_Tick({ try { Update-DansMindset } catch { Write-Log "Affichage dans Mindset : $_" } })
+    $script:DansMindsetTimer.Start()
+    $Window.Add_SizeChanged({ if ($script:DansMindset) { Update-EchelleMindset } })
+}
+
+# ---------------------------------------------------------------------------
 # Quitter Mindset ferme aussi Evermind : Mindset écrit quitter.demande dans le dossier de données d'Evermind, attend
 # 6 secondes, puis arrête Evermind s'il tourne encore. Evermind le voit (vérifié chaque seconde) et quitte comme avec
 # « Quitter » : rien à confirmer, et une dictée ou une phrase en cours est coupée (on a choisi de tout quitter).
@@ -211,6 +249,7 @@ function Exit-App {
     Write-Log 'Fermeture'
     try { if ($script:ShowWatch) { $script:ShowWatch.Stop() } } catch {}
     try { if ($script:QuitterTimer) { $script:QuitterTimer.Stop() } } catch {}
+    try { if ($script:DansMindsetTimer) { $script:DansMindsetTimer.Stop() } } catch {}
     try { if ($script:Ecoute) { $script:Ecoute.Mic.Stop(); $script:Ecoute = $null } } catch {}
     try { if ($script:VoixHotkeyOk) { [EMNative]::RemoveHotKey((New-Object System.Windows.Interop.WindowInteropHelper $Window).Handle, $VoixHotkeyId) } } catch {}
     try { if ($script:Bulle) { $script:Bulle.Win.Close() } } catch {}

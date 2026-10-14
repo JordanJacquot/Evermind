@@ -105,6 +105,7 @@ $Window.Add_Activated({ Update-Greeting; Update-Agenda; Update-Apercu })   # « 
 $Window.Add_Loaded({ [void]$ui.InPhrase.Focus() })
 
 Start-QuitterSurveillance   # quitter Mindset ferme aussi Evermind (quitter.demande, systeme.ps1)
+Start-DansMindsetSurveillance   # affiché dans la fenêtre de Mindset : pas de taille minimale, logo fixe (systeme.ps1)
 
 # Un nouveau lancement d'Evermind demande d'afficher cette fenêtre (elle peut être cachée près de l'horloge)
 if ($script:ShowSignal) {
@@ -163,6 +164,45 @@ if ($env:EVERMIND_COMMANDE) {
 }
 if ($env:EVERMIND_INSTALLER) { Start-VoixInstall }
 if ($env:EVERMIND_FERMER) { Invoke-Croix }
+# Affiché dans Mindset : la fenêtre est accrochée dans une fenêtre parente comme le fait Mindset (SetParent, sans bordure,
+# WS_CHILD, 960 x 700 ou la taille donnée, « 900x640 »), puis décrochée, puis raccrochée pour la capture. Ce qui est vu est écrit au journal.
+if ($env:EVERMIND_TEST_MINDSET_HOTE) {
+    Add-Type -Namespace EMTest -Name Hote -MemberDefinition @'
+[DllImport("user32.dll")] public static extern IntPtr SetParent(IntPtr enfant, IntPtr parent);
+[DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int i);
+[DllImport("user32.dll")] public static extern int SetWindowLong(IntPtr h, int i, int v);
+[DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr apres, int x, int y, int l, int ht, uint f);
+'@
+    $script:TestAttente = $true; $script:TestPas = 0
+    $script:TestTaille = if ($env:EVERMIND_TEST_MINDSET_HOTE -match '^(\d+)x(\d+)$') { @([int]$Matches[1], [int]$Matches[2]) } else { @(960, 700) }
+    $th = New-Object System.Windows.Threading.DispatcherTimer; $th.Interval = [TimeSpan]::FromMilliseconds(500)
+    $th.Add_Tick({
+        param($s)
+        $h = (New-Object System.Windows.Interop.WindowInteropHelper $Window).Handle
+        $etat = { "dans=$script:DansMindset echelle=$(if ($Window.Content.LayoutTransform) { [math]::Round($Window.Content.LayoutTransform.ScaleX, 2) } else { 1 }) min=$($Window.MinWidth)x$($Window.MinHeight) taille=$([int]$Window.ActualWidth)x$([int]$Window.ActualHeight) logo=$([int][System.Windows.Controls.Canvas]::GetLeft($ui.LogoHote)),$([int][System.Windows.Controls.Canvas]::GetTop($ui.LogoHote)) place=$($ui.LogoPlace.Visibility)" }
+        switch (++$script:TestPas) {
+            { $_ -in 2, 8 } {
+                if (-not $script:TestHote) {
+                    $f = New-Object System.Windows.Forms.Form; $f.StartPosition = 'Manual'; $f.Location = New-Object System.Drawing.Point(-12000, 0); $f.ShowInTaskbar = $false
+                    $f.ClientSize = New-Object System.Drawing.Size($script:TestTaille[0], $script:TestTaille[1]); $f.Show(); $script:TestHote = $f
+                    $script:TestStyle = [EMTest.Hote]::GetWindowLong($h, -16)
+                }
+                [void][EMTest.Hote]::SetParent($h, $script:TestHote.Handle)
+                [void][EMTest.Hote]::SetWindowLong($h, -16, (($script:TestStyle -band (-bnot 0x80CF0000)) -bor 0x40000000))   # sans POPUP, CAPTION, THICKFRAME, SYSMENU, MIN/MAX ; WS_CHILD
+                [void][EMTest.Hote]::SetWindowPos($h, [IntPtr]::Zero, 0, 0, $script:TestTaille[0], $script:TestTaille[1], 0x0024)   # SWP_NOZORDER | SWP_FRAMECHANGED
+            }
+            4 { Write-Log "Test Mindset accroché : $(& $etat)" }
+            5 {
+                [void][EMTest.Hote]::SetParent($h, [IntPtr]::Zero)
+                [void][EMTest.Hote]::SetWindowLong($h, -16, $script:TestStyle)
+                [void][EMTest.Hote]::SetWindowPos($h, [IntPtr]::Zero, -10000, 0, 1200, 880, 0x0024)
+            }
+            7 { Write-Log "Test Mindset décroché : $(& $etat)" }
+            10 { $s.Stop(); $script:TestAttente = $false }   # raccroché : la capture montre Evermind à la taille donnée par l'hôte
+        }
+    })
+    $th.Start()
+}
 # Mindset qui quitte : quitter.demande écrit après le démarrage, Evermind doit se fermer tout seul (sans capture)
 if ($env:EVERMIND_TEST_QUITTER) {
     $script:TestAttente = $true
