@@ -188,7 +188,7 @@ function Update-Apercu {
         $l = $ui.ApercuLigne.Inlines
         $l.Add((New-Run 'Je comprends :  ' $Colors.dim)); $l.Add((New-IconeTexte 'travail' 14))
         $l.Add((New-Run "$(@($hor).Count) poste$(if (@($hor).Count -gt 1) { 's' }) de travail  " $Types['travail'].Couleur 'SemiBold'))
-        $l.Add((New-Run ((@($hor | ForEach-Object { "$($_.Jour) $($CreneauxNoms[$_.Creneau]) ($($_.Heures -replace ' à ', ' – '))" })) -join ',  ') $Colors.ok 'SemiBold'))
+        $l.Add((New-Run ((@($hor | ForEach-Object { "$($_.Jour) $($CreneauxNoms[$_.Creneau]) ($($_.Heures -replace ' à ', ' - '))" })) -join ',  ') $Colors.ok 'SemiBold'))
         $ui.ApercuLigne.Visibility = 'Visible'; return
     }
     $p = Read-Phrase $text
@@ -249,13 +249,13 @@ function Add-HorairesTravail($Liste) {
     $faits
 }
 
-# « C'est noté : 3 postes. Lundi 12 matin (6 h – 14 h), mardi 13 journée (8 h – 17 h) et mercredi 14 soir (14 h – 22 h). »
+# « C'est noté : 3 postes. Lundi 12 matin (6 h - 14 h), mardi 13 journée (8 h - 17 h) et mercredi 14 soir (14 h - 22 h). »
 #   Dit : plus court, sans les heures
 function Get-TexteHoraires($Faits) {
     $f = @($Faits)
     if (-not $f.Count) { return @{ Ecrit = 'Ces postes sont déjà dans ton agenda.'; Dit = 'Ces postes sont déjà dans ton agenda.' } }
     $quand = { param($x) if ($x.RV.Repetition) { Format-Repetition $x.RV.Repetition } else { $x.Quand.ToString('dddd d', $Fr) } }
-    $ecrits = @($f | ForEach-Object { "$(& $quand $_) $($CreneauxNoms[$_.Creneau]) ($($_.Heures -replace ' à ', ' – '))" })
+    $ecrits = @($f | ForEach-Object { "$(& $quand $_) $($CreneauxNoms[$_.Creneau]) ($($_.Heures -replace ' à ', ' - '))" })
     $dits = @($f | ForEach-Object { "$(& $quand $_) $($CreneauxNoms[$_.Creneau])" })
     $liste = { param($l) if ($l.Count -gt 1) { "$(($l | Select-Object -SkipLast 1) -join ', ') et $($l[-1])" } else { $l[0] } }
     $n = if ($f.Count -gt 1) { "$($f.Count) postes" } else { 'un poste' }

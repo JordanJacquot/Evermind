@@ -3,7 +3,8 @@
     Evermind 0.11.0
     L'agenda qui se souvient de tout pour toi : tu notes ton rendez-vous, il te le rappelle à voix haute.
 
-    Les rendez-vous sont gardés dans %LOCALAPPDATA%\Evermind\rendez-vous.json. Rien n'est envoyé sur Internet.
+    Les rendez-vous sont gardés dans %LOCALAPPDATA%\Evermind\rendez-vous.json (%LOCALAPPDATA%\Mindset\Evermind pour
+    une copie installée par Mindset, voir modules\donnees.ps1). Rien n'est envoyé sur Internet.
 
     Evermind.ps1 -Demarrage  reste caché près de l'horloge (lancement avec Windows).
 #>
@@ -37,21 +38,12 @@ if (-not $EnTest) {
     }
 }
 
-# Retire la marque « téléchargé depuis Internet » des fichiers d'Evermind, pour que
-# Windows n'affiche plus d'avertissement aux lancements suivants.
-try {
-    $appRoot = Split-Path $PSScriptRoot -Parent
-    @(Get-ChildItem -LiteralPath $PSScriptRoot -File -Recurse -ErrorAction SilentlyContinue) +
-    @(Get-ChildItem -LiteralPath $appRoot -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(Evermind\.exe|LISEZMOI\.txt)$' }) |
-        Unblock-File -ErrorAction SilentlyContinue
-} catch {}
-
 # ---------------------------------------------------------------------------
 # Chargement des modules (dossier « modules » à côté de ce fichier)
 # ---------------------------------------------------------------------------
 $AppDir = $PSScriptRoot
 $ModulesDir = Join-Path $AppDir 'modules'
-$missing = @('natif.cs', 'interface.xaml', 'donnees.ps1', 'fichiers.ps1', 'themes.ps1', 'comprendre.ps1', 'systeme.ps1', 'interface.ps1', 'logo.ps1', 'agenda.ps1', 'details.ps1', 'alerte.ps1', 'voix.ps1', 'maj.ps1', 'voix-kokoro.cs', 'eveil.ps1', 'cerveau.ps1', 'evenements.ps1' | Where-Object { -not (Test-Path -LiteralPath (Join-Path $ModulesDir $_)) })
+$missing = @('natif.cs', 'interface.xaml', 'donnees.ps1', 'suite.ps1', 'fichiers.ps1', 'themes.ps1', 'comprendre.ps1', 'systeme.ps1', 'interface.ps1', 'logo.ps1', 'agenda.ps1', 'details.ps1', 'alerte.ps1', 'voix.ps1', 'maj.ps1', 'voix-kokoro.cs', 'eveil.ps1', 'cerveau.ps1', 'evenements.ps1' | Where-Object { -not (Test-Path -LiteralPath (Join-Path $ModulesDir $_)) })
 if ($missing) {
     [System.Windows.MessageBox]::Show("Des fichiers d'Evermind sont manquants :`n`n$($missing -join ', ')`n`nRetélécharge Evermind et remplace tout le dossier.", 'Evermind', 'OK', 'Error') | Out-Null
     exit
@@ -63,7 +55,19 @@ Add-Type -TypeDefinition ([IO.File]::ReadAllText((Join-Path $ModulesDir 'natif.c
 $AppId = 'JordanJacquot.Evermind'
 try { [EMNative]::SetAppId($AppId) } catch {}
 
-foreach ($emModule in 'donnees', 'fichiers', 'themes', 'comprendre', 'systeme', 'interface', 'logo', 'agenda', 'details', 'alerte', 'voix', 'maj', 'eveil', 'cerveau', 'evenements') { . (Join-Path $ModulesDir "$emModule.ps1") }
+foreach ($emModule in 'donnees', 'suite', 'fichiers', 'themes', 'comprendre', 'systeme', 'interface', 'logo', 'agenda', 'details', 'alerte', 'voix', 'maj', 'eveil', 'cerveau', 'evenements') { . (Join-Path $ModulesDir "$emModule.ps1") }
+
+# Retire la marque « téléchargé depuis Internet » des fichiers d'Evermind, pour que Windows n'affiche plus
+# d'avertissement aux lancements suivants. Pas pour une copie installée par Mindset : elle n'a pas cette marque,
+# et son dossier (Program Files) n'est de toute façon pas modifiable par Evermind.
+if (-not $GereParMindset) {
+    try {
+        $appRoot = Split-Path $PSScriptRoot -Parent
+        @(Get-ChildItem -LiteralPath $PSScriptRoot -File -Recurse -ErrorAction SilentlyContinue) +
+        @(Get-ChildItem -LiteralPath $appRoot -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(Evermind\.exe|LISEZMOI\.txt)$' }) |
+            Unblock-File -ErrorAction SilentlyContinue
+    } catch {}
+}
 
 # ---------------------------------------------------------------------------
 # Lancement
@@ -84,9 +88,11 @@ if ($script:MajLancer) {
 }
 
 # Relance demandée (nouveau thème) : la place est libérée, puis un nouvel Evermind démarre
+# (caché près de l'horloge s'il l'était : thème de la suite changé pendant qu'on ne le regardait pas)
 if ($script:Relancer) {
     try { $script:InstanceMutex.ReleaseMutex(); $script:InstanceMutex.Dispose() } catch {}
     try { $script:ShowSignal.Dispose() } catch {}
-    if (Test-Path -LiteralPath $AppExe) { Start-Process -FilePath $AppExe }
-    else { Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$MainScript`"" }
+    $opt = @(if ($script:RelancerCache) { '-Demarrage' })
+    if (Test-Path -LiteralPath $AppExe) { if ($opt) { Start-Process -FilePath $AppExe -ArgumentList $opt } else { Start-Process -FilePath $AppExe } }
+    else { Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$MainScript`"") + $opt) }
 }

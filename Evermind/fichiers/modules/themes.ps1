@@ -484,6 +484,7 @@ function Set-AppTheme([string]$Id) {
     elseif (-not $AppThemes.Contains($Id)) { return }
     Set-Setting 'Theme' $Id
     Write-Log "Thème : $Id"
+    if ($GereParMindset) { Write-SuiteTheme $Id }   # un des 5 thèmes : toute la suite le prend (suite.ps1)
     if ($EnTest) { $ui.ThemeInfo.Text = "Thème « $Id » choisi (test : pas de relance)."; return }
     Restart-App
 }

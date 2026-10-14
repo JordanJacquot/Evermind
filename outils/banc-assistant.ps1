@@ -5,7 +5,8 @@
 #
 # Chaque conversation est une liste de phrases ; « attendu » dit ce qu'on veut voir dans la dernière réponse.
 
-param([string]$Voix = (Join-Path $env:LOCALAPPDATA 'Evermind\voix'))
+# (par défaut : la voix d'Evermind, ou celle d'une copie installée par Mindset)
+param([string]$Voix = $(@(@('Evermind\voix', 'Mindset\Evermind\voix') | ForEach-Object { Join-Path $env:LOCALAPPDATA $_ } | Where-Object { Test-Path -LiteralPath $_ }) + (Join-Path $env:LOCALAPPDATA 'Evermind\voix'))[0])
 $ErrorActionPreference = 'Stop'
 $racine = Split-Path $PSScriptRoot -Parent
 $modules = Join-Path $racine 'Evermind\fichiers\modules'

@@ -24,13 +24,16 @@ Mettre à jour
 -------------
 Quand une nouvelle version sort, un bandeau apparaît dans Evermind : appuie sur « Mettre à jour ».
 Evermind se ferme, se met à jour et se rouvre tout seul en quelques secondes. Tes rendez-vous,
-tes réglages, la voix et l'assistant restent.
+tes réglages, la voix et l'assistant restent. Chaque mise à jour est signée : Evermind refuse
+celle dont la signature n'est pas bonne. Si Evermind a été installé par Mindset (le portail de la
+suite), c'est Mindset qui le met à jour.
 
 Bon à savoir
 ------------
 - Tout reste sur ton PC : rien n'est envoyé sur Internet.
 - Tes rendez-vous sont dans %LOCALAPPDATA%\Evermind (ils restent si tu remplaces le dossier
-  d'Evermind par une nouvelle version).
+  d'Evermind par une nouvelle version), ou dans %LOCALAPPDATA%\Mindset\Evermind si Evermind a été
+  installé par Mindset.
 - Il faut Windows 10 ou 11 (64 bits) et au moins 8 Go de mémoire pour l'assistant.
   Avec une carte graphique, l'assistant répond plus vite.
 - La croix rouge peut réduire Evermind près de l'horloge : il continue de te donner tes rappels.

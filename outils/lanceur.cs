@@ -71,14 +71,24 @@ static class Lanceur
         return 0;
     }
 
-    // Même journal que le code d'Evermind (%LOCALAPPDATA%\Evermind\journal.txt)
+    // Même journal que le code d'Evermind : il choisit le dossier de données (modules\donnees.ps1) et donne le chemin
+    // du journal dans EVERMIND_JOURNAL. Si le code s'est arrêté avant, %LOCALAPPDATA%\Evermind (ou, s'il n'existe
+    // plus, %LOCALAPPDATA%\Mindset\Evermind, celui d'une copie installée par Mindset).
     static void Journal(string texte)
     {
         try
         {
-            string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Evermind");
-            Directory.CreateDirectory(dir);
-            File.AppendAllText(Path.Combine(dir, "journal.txt"), DateTime.Now.ToString("s") + " " + texte + "\r\n", new UTF8Encoding(false));
+            string fichier = Environment.GetEnvironmentVariable("EVERMIND_JOURNAL");
+            if (string.IsNullOrEmpty(fichier) || !fichier.EndsWith("journal.txt", StringComparison.OrdinalIgnoreCase))
+            {
+                string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                string dir = Path.Combine(local, "Evermind");
+                string mindset = Path.Combine(Path.Combine(local, "Mindset"), "Evermind");
+                if (!Directory.Exists(dir) && Directory.Exists(mindset)) dir = mindset;
+                fichier = Path.Combine(dir, "journal.txt");
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(fichier));
+            File.AppendAllText(fichier, DateTime.Now.ToString("s") + " " + texte + "\r\n", new UTF8Encoding(false));
         }
         catch { }
     }

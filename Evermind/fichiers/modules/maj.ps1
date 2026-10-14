@@ -1,14 +1,31 @@
 ﻿# Evermind : la mise à jour en un clic.
 #   Au démarrage, puis toutes les 6 heures, Evermind regarde sur GitHub la dernière version publiée (une simple lecture
 #   de la page des versions : rien de personnel n'est envoyé). Si elle est plus récente, un bandeau la propose.
-#   Un clic : le zip est téléchargé, son empreinte vérifiée (GitHub la donne), il est dézippé à part, puis Evermind se
-#   ferme ; un petit programme remplace les fichiers et relance Evermind. Les rendez-vous et réglages ne bougent pas
-#   (ils sont dans %LOCALAPPDATA%\Evermind), ni la voix ou l'assistant déjà installés.
-# Tests : EVERMIND_MAJ_VERSION (version « en ligne » imaginaire) et EVERMIND_MAJ_ZIP (zip local) remplacent GitHub.
+#   Un clic : le zip est téléchargé, son empreinte vérifiée (GitHub la donne) ainsi que sa signature (Evermind.zip.sig),
+#   il est dézippé à part, puis Evermind se ferme ; un petit programme remplace les fichiers et relance Evermind.
+#   Les rendez-vous et réglages ne bougent pas (ils sont dans le dossier de données), ni la voix ou l'assistant.
+#   Une copie installée par Mindset ne cherche rien : c'est Mindset qui la met à jour (suite.ps1).
+# Tests : EVERMIND_MAJ_VERSION (version « en ligne » imaginaire) et EVERMIND_MAJ_ZIP (zip local, et sa signature
+# <zip>.sig à côté) remplacent GitHub.
 # Chargé par Evermind.ps1, après voix.ps1.
 
 $MajDossier = Join-Path $env:TEMP 'Evermind-maj'
-$script:Maj = [hashtable]::Synchronized(@{ Etat = ''; Version = ''; Url = ''; Digest = ''; Page = ''; Erreur = ''; Recu = 0L; Total = 0L; Dossier = '' })
+$ClePublique = Join-Path $AppDir 'cle-publique.xml'   # la clé publique de la suite (la même que dans Mindset)
+$script:Maj = [hashtable]::Synchronized(@{ Etat = ''; Version = ''; Url = ''; UrlSig = ''; Digest = ''; Page = ''; Erreur = ''; Refus = $false; Recu = 0L; Total = 0L; Dossier = '' })
+
+# Signature d'un zip (RSA 3072, SHA-256), comme dans Mindset (modules\signature.ps1) : chaque zip publié est signé
+# avec la clé privée de Jordan, qui ne quitte jamais son PC (Mindset\outils\signer.ps1). Quelqu'un qui volerait
+# l'accès au compte GitHub ne pourrait donc pas faire installer un faux Evermind.
+function Test-Signature([byte[]]$Donnees, [byte[]]$Signature, [string]$ClePublique) {
+    if (-not $Donnees -or -not $Signature -or -not (Test-Path -LiteralPath $ClePublique)) { return $false }
+    $rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider
+    try {
+        $rsa.FromXmlString([IO.File]::ReadAllText($ClePublique, [Text.Encoding]::UTF8))
+        if ($rsa.KeySize -lt 3072 -or -not $rsa.PublicOnly) { return $false }
+        $rsa.VerifyData($Donnees, [System.Security.Cryptography.CryptoConfig]::MapNameToOID('SHA256'), $Signature)
+    } catch { $false }
+    finally { $rsa.Dispose() }
+}
 
 function Test-VersionPlusRecente([string]$En, [string]$Ici) {
     try { [version]($En.TrimStart('vV')) -gt [version]($Ici.TrimStart('vV')) } catch { $false }
@@ -23,13 +40,15 @@ function Start-MajRecherche {
         param($Etat, $Depot, $Version, $Zip)
         try {
             if ($Version) {   # (tests)
-                $Etat.Version = $Version; $Etat.Url = $Zip; $Etat.Digest = ''; $Etat.Page = ''
+                $Etat.Version = $Version; $Etat.Url = $Zip; $Etat.UrlSig = "$Zip.sig"; $Etat.Digest = ''; $Etat.Page = ''
             } else {
                 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
                 $r = Invoke-RestMethod "https://api.github.com/repos/$Depot/releases/latest" -UseBasicParsing -TimeoutSec 20 -Headers @{ 'User-Agent' = 'Evermind' }
                 $a = @($r.assets | Where-Object { $_.name -eq 'Evermind.zip' })[0]
                 $Etat.Version = ([string]$r.tag_name).TrimStart('vV'); $Etat.Page = [string]$r.html_url
                 $Etat.Url = if ($a) { [string]$a.browser_download_url } else { '' }
+                $s = @($r.assets | Where-Object { $_.name -eq 'Evermind.zip.sig' })[0]
+                $Etat.UrlSig = if ($s) { [string]$s.browser_download_url } else { '' }
                 $Etat.Digest = if ($a -and $a.digest) { ([string]$a.digest -replace '^sha256:', '').ToUpper() } else { '' }
             }
             $Etat.Etat = 'vu'
@@ -63,7 +82,12 @@ function Update-MajBandeau {
         }
         'erreur' {
             $script:MajTimer.Stop()
-            if ($script:MajDemandee) {
+            if ($m.Refus) {
+                # Signature absente ou fausse : rien n'est installé, et réessayer ne changerait rien
+                Write-Log "Mise à jour $($m.Version) refusée : $($m.Erreur)"
+                Show-MajBandeau "La mise à jour vers Evermind $($m.Version) a été refusée : $($m.Erreur). Rien n'a été installé, ton Evermind reste tel quel." '' $true
+                $m.Etat = 'refuse'
+            } elseif ($script:MajDemandee) {
                 Show-MajBandeau "La mise à jour n'a pas marché ($($m.Erreur)). Vérifie Internet et réessaie." 'Réessayer' $true
                 $m.Etat = 'dispo'
             } else { Write-Log "Mise à jour : recherche impossible ($($m.Erreur))"; $m.Etat = '' }
@@ -83,6 +107,7 @@ function Update-MajBandeau {
 function Show-MajBandeau([string]$Texte, [string]$Bouton, [bool]$PlusTard) {
     $ui.MajTexte.Text = $Texte
     $ui.BtnMaj.Content = $Bouton; $ui.BtnMaj.IsEnabled = $true
+    $ui.BtnMaj.Visibility = if ($Bouton) { 'Visible' } else { 'Collapsed' }
     $ui.BtnMajPlusTard.Visibility = if ($PlusTard) { 'Visible' } else { 'Collapsed' }
     $ui.MajBarreFond.Visibility = 'Collapsed'
     $ui.MajBandeau.Visibility = 'Visible'
@@ -93,12 +118,13 @@ function Start-MajTelechargement {
     $m = $script:Maj
     if ($m.Etat -in 'telecharge', 'pret') { return }
     $script:MajDemandee = $true
-    $m.Etat = 'telecharge'; $m.Erreur = ''; $m.Recu = 0L; $m.Total = 0L
+    $m.Etat = 'telecharge'; $m.Erreur = ''; $m.Refus = $false; $m.Recu = 0L; $m.Total = 0L
     $ui.MajTexte.Text = "Téléchargement d'Evermind $($m.Version)..."
     $ui.BtnMaj.IsEnabled = $false; $ui.BtnMajPlusTard.Visibility = 'Collapsed'
     $ps = [PowerShell]::Create()
     [void]$ps.AddScript({
-        param($Etat, $Dossier)
+        param($Etat, $Dossier, $Cle, $VerifSignature)
+        Set-Item -Path function:Test-Signature -Value $VerifSignature   # (la même vérification que la fenêtre, ici en arrière plan)
         try {
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
             $dest = Join-Path $Dossier $Etat.Version
@@ -115,15 +141,30 @@ function Start-MajTelechargement {
                 if ($Etat.Total -gt 0 -and (Get-Item -LiteralPath $zip).Length -ne $Etat.Total) { throw 'le téléchargement s''est coupé' }
             }
             if ($Etat.Digest -and (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne $Etat.Digest) { throw 'le fichier reçu est abîmé (empreinte différente)' }
-            Add-Type -AssemblyName System.IO.Compression.FileSystem
-            [IO.Compression.ZipFile]::ExtractToDirectory($zip, $dest)
+            # Signature : sans signature valide de Jordan, rien n'est installé (même si le zip vient bien de GitHub)
+            $octets = [IO.File]::ReadAllBytes($zip)
+            if (-not $Etat.UrlSig) { $Etat.Refus = $true; throw 'cette version n''est pas signée' }
+            $sig = $null
+            try {
+                if (Test-Path -LiteralPath $Etat.UrlSig) { $sig = [IO.File]::ReadAllBytes($Etat.UrlSig) }   # (tests : signature locale)
+                else { $wc = New-Object Net.WebClient; $wc.Headers['User-Agent'] = 'Evermind'; try { $sig = $wc.DownloadData($Etat.UrlSig) } finally { $wc.Dispose() } }
+            } catch { $Etat.Refus = $true; throw 'sa signature est introuvable' }
+            if (-not (Test-Signature $octets $sig $Cle)) { $Etat.Refus = $true; throw 'sa signature n''est pas valide (ce fichier ne vient pas de Jordan, ou il a été modifié)' }
+            # Dézippé depuis les octets vérifiés : le fichier sur le disque pourrait avoir changé entre-temps
+            Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+            $archive = New-Object IO.Compression.ZipArchive((New-Object IO.MemoryStream (, $octets)), [IO.Compression.ZipArchiveMode]::Read)
+            try { [IO.Compression.ZipFileExtensions]::ExtractToDirectory($archive, $dest) } finally { $archive.Dispose() }
             $app = Join-Path $dest 'Evermind'
             if (-not (Test-Path -LiteralPath (Join-Path $app 'Evermind.exe')) -or -not (Test-Path -LiteralPath (Join-Path $app 'fichiers\Evermind.ps1'))) { throw 'le zip ne contient pas Evermind' }
             Get-ChildItem -LiteralPath $app -Recurse -File | Unblock-File -ErrorAction SilentlyContinue
             $Etat.Dossier = $app
             $Etat.Etat = 'pret'
-        } catch { $Etat.Erreur = $_.Exception.Message; $Etat.Etat = 'erreur' }
-    }).AddArgument($m).AddArgument($MajDossier)
+        } catch {
+            $Etat.Erreur = $_.Exception.Message
+            if ($Etat.Refus) { Remove-Item -LiteralPath $zip, $dest -Recurse -Force -ErrorAction SilentlyContinue }   # (rien de refusé ne reste)
+            $Etat.Etat = 'erreur'
+        }
+    }).AddArgument($m).AddArgument($MajDossier).AddArgument($ClePublique).AddArgument(${function:Test-Signature}.ToString())
     $m.PS = $ps; $m.Handle = $ps.BeginInvoke()
     Write-Log "Mise à jour : téléchargement de $($m.Version)"
     Start-MajSuivi
@@ -172,6 +213,7 @@ function Initialize-Maj {
         Set-Setting 'MajInstallee' ''
         if ($faite -eq $AppVersion) { Write-Log "Mise à jour installée : $AppVersion"; Show-Notify "Evermind est à jour" "Tu as maintenant la version $AppVersion." }
     }
+    if ($GereParMindset) { return }   # copie installée par Mindset : c'est lui qui la met à jour (Réglages, Général)
     if ($EnTest -and -not $env:EVERMIND_MAJ_VERSION) { return }
     Start-MajRecherche
     $script:MajToutes = New-Object System.Windows.Threading.DispatcherTimer

@@ -2,15 +2,79 @@
 # Chargé par Evermind.ps1, qui définit $AppDir et $ModulesDir.
 
 # ---------------------------------------------------------------------------
-# Dossier de données
+# Mindset, le portail de la suite : %LOCALAPPDATA%\Mindset\suite.json, écrit par Mindset
+#   { "theme": "neon", "applis": { "evermind": "<dossier d'Evermind.exe>", ... }, "modifie": "..." }
+# Evermind est « géré par Mindset » si applis.evermind est le dossier de cette copie : ses données vont alors dans
+# %LOCALAPPDATA%\Mindset\Evermind, il suit le thème de la suite, et c'est Mindset qui le met à jour et le lance avec
+# Windows (suite.ps1). Sinon (copie autonome), il fait tout lui-même, comme avant.
+# Sécurité : n'importe quel programme de l'utilisateur peut modifier ce fichier. On n'y accepte qu'un nom de thème
+# connu, et le dossier n'y sert qu'à comparer avec le nôtre : rien n'y est jamais lancé ni ouvert.
 # ---------------------------------------------------------------------------
-$DataDir      = if ($env:EVERMIND_DONNEES) { $env:EVERMIND_DONNEES } else { Join-Path $env:LOCALAPPDATA 'Evermind' }
+$SuiteFile   = if ($EnTest) { $env:EVERMIND_SUITE } else { Join-Path $env:LOCALAPPDATA 'Mindset\suite.json' }   # (tests : un fichier à part, ou aucun)
+$ThemesSuite = @('neon', 'crepuscule', 'terminal', 'arcade', 'rubis')
+
+# Chemin complet, sans « \ » à la fin (pour comparer deux dossiers), ou $null s'il n'est pas valable
+function Get-CheminNormal([string]$Chemin) {
+    if ($Chemin -notmatch '^[A-Za-z]:\\') { return $null }
+    try { [IO.Path]::GetFullPath($Chemin).TrimEnd('\') } catch { $null }
+}
+
+# Ce qu'on garde de suite.json : le thème (s'il est connu) et le dossier d'Evermind (seulement pour comparer)
+function Read-Suite {
+    $s = @{ Existe = $false; Lisible = $false; Theme = $null; Evermind = $null }
+    if (-not $SuiteFile -or -not [IO.File]::Exists($SuiteFile)) { return $s }
+    $s.Existe = $true
+    try {
+        $j = [IO.File]::ReadAllText($SuiteFile, [Text.Encoding]::UTF8) | ConvertFrom-Json
+        if ($j.theme -is [string] -and $j.theme -in $ThemesSuite) { $s.Theme = $j.theme.ToLowerInvariant() }
+        if ($j.applis -and $j.applis.evermind -is [string]) { $s.Evermind = Get-CheminNormal $j.applis.evermind }
+        $s.Lisible = $true
+    } catch {}   # (illisible, ou en train d'être remplacé par Mindset : la copie reste autonome)
+    $s
+}
+
+# Le dossier de cette copie (celui d'Evermind.exe, parent de « fichiers ») ; les outils de test n'en ont pas
+$AppRacine = if ($AppDir) { Get-CheminNormal (Split-Path $AppDir -Parent) } else { $null }
+$script:Suite = Read-Suite
+$GereParMindset = [bool]($AppRacine -and $script:Suite.Evermind -and $script:Suite.Evermind -ieq $AppRacine)
+
+# ---------------------------------------------------------------------------
+# Dossier de données : %LOCALAPPDATA%\Evermind, ou %LOCALAPPDATA%\Mindset\Evermind pour une copie gérée par Mindset
+# ---------------------------------------------------------------------------
+# Tout ce qu'Evermind garde (rendez-vous, réglages, journal, voix, assistant, packs...) est dans ce dossier, choisi
+# ici une seule fois. Evermind.exe y écrit aussi son journal (il le trouve dans EVERMIND_JOURNAL, voir plus bas).
+$DataDirAncien  = Join-Path $env:LOCALAPPDATA 'Evermind'
+$DataDirMindset = Join-Path $env:LOCALAPPDATA 'Mindset\Evermind'
+$DataDirNote    = $null   # ce qui s'est passé, écrit au journal dès qu'il est prêt
+if ($env:EVERMIND_DONNEES) { $DataDir = $env:EVERMIND_DONNEES }
+elseif (-not $GereParMindset) { $DataDir = $DataDirAncien }
+else {
+    $DataDir = $DataDirMindset
+    # Premier lancement géré par Mindset : l'ancien dossier est renommé (même disque : immédiat, même pour des Go
+    # de modèles). Un fichier ouvert (par exemple la voix utilisée par Eve) l'empêche : on garde l'ancien pour cette
+    # fois, et on réessaie au prochain lancement.
+    if (-not [IO.Directory]::Exists($DataDirMindset) -and [IO.Directory]::Exists($DataDirAncien)) {
+        if ($EnTest -and $env:LOCALAPPDATA -ieq [Environment]::GetFolderPath('LocalApplicationData')) {
+            $DataDir = $DataDirAncien; $DataDirNote = 'Données : pas de déplacement pendant un test'   # (seulement dans un faux %LOCALAPPDATA%)
+        } else {
+            try {
+                New-Item -ItemType Directory -Force -Path (Split-Path $DataDirMindset -Parent) | Out-Null
+                [IO.Directory]::Move($DataDirAncien, $DataDirMindset)   # (Move-Item) un simple renommage, jamais une copie à moitié faite
+                $DataDirNote = "Données déplacées de $DataDirAncien vers $DataDirMindset (Evermind est géré par Mindset)"
+            } catch {
+                $DataDir = $DataDirAncien
+                $DataDirNote = "Données : déplacement vers $DataDirMindset impossible pour l'instant ($($_.Exception.Message)), $DataDirAncien gardé cette fois"
+            }
+        }
+    }
+}
 $AgendaFile   = Join-Path $DataDir 'rendez-vous.json'
 $SettingsFile = Join-Path $DataDir 'reglages.json'
 $LogFile      = Join-Path $DataDir 'journal.txt'
 $Utf8NoBom    = New-Object Text.UTF8Encoding($false)
 $Fr           = [Globalization.CultureInfo]::GetCultureInfo('fr-FR')
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
+$env:EVERMIND_JOURNAL = $LogFile   # Evermind.exe (outils\lanceur.cs) y écrit les erreurs qu'il voit passer
 
 # Journal gardé petit : au delà de 1 Mo, on ne garde que les 3000 dernières lignes
 try {
@@ -25,6 +89,7 @@ try {
 function Write-Log([string]$Message) {
     try { [IO.File]::AppendAllText($LogFile, "$(Get-Date -Format s) $Message`r`n", $Utf8NoBom) } catch {}
 }
+if ($DataDirNote) { Write-Log $DataDirNote }
 
 # Écrit un fichier JSON sans risque de le perdre : on écrit à côté, puis on remplace d'un coup
 # (l'ancienne version reste dans « .bak » si quelque chose tourne mal).

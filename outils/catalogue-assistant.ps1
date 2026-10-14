@@ -9,7 +9,8 @@
 #   .\outils\catalogue-assistant.ps1 [-Voix <dossier contenant ia\>] [-Filtre <mot>]
 #
 # Code de sortie : 0 si tout va bien, 1 sinon.
-param([string]$Voix = (Join-Path $env:LOCALAPPDATA 'Evermind\voix'), [string]$Filtre = '')
+# (par défaut : la voix d'Evermind, ou celle d'une copie installée par Mindset)
+param([string]$Voix = $(@(@('Evermind\voix', 'Mindset\Evermind\voix') | ForEach-Object { Join-Path $env:LOCALAPPDATA $_ } | Where-Object { Test-Path -LiteralPath $_ }) + (Join-Path $env:LOCALAPPDATA 'Evermind\voix'))[0], [string]$Filtre = '')
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName PresentationFramework
 $racine = Split-Path $PSScriptRoot -Parent

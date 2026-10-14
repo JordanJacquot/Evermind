@@ -9,7 +9,8 @@
 #
 # Code de sortie : 0 si tout est bon, 1 sinon.
 
-param([string]$Voix = (Join-Path $env:LOCALAPPDATA 'Evermind\voix'), [int]$Delai = 90, [switch]$AssistantSeul)
+# (par défaut : la voix d'Evermind, ou celle d'une copie installée par Mindset)
+param([string]$Voix = $(@(@('Evermind\voix', 'Mindset\Evermind\voix') | ForEach-Object { Join-Path $env:LOCALAPPDATA $_ } | Where-Object { Test-Path -LiteralPath $_ }) + (Join-Path $env:LOCALAPPDATA 'Evermind\voix'))[0], [int]$Delai = 90, [switch]$AssistantSeul)
 $ErrorActionPreference = 'Stop'
 $racine = Split-Path $PSScriptRoot -Parent
 $main = Join-Path $racine 'Evermind\fichiers\Evermind.ps1'
@@ -59,7 +60,7 @@ function Invoke-Scenario([string]$Nom, [hashtable]$Env, [switch]$Exemples) {
     if ($Exemples) { New-DonneesExemple $donnees }
     $capture = Join-Path $test "capture-$Nom.png"
     Remove-Item -LiteralPath $capture -ErrorAction SilentlyContinue
-    foreach ($k in 'EVERMIND_DOSSIERS', 'EVERMIND_PACKS', 'EVERMIND_THEME', 'EVERMIND_FERMER', 'EVERMIND_PHRASE', 'EVERMIND_AJOUTER', 'EVERMIND_FORMULAIRE', 'EVERMIND_REGLAGES', 'EVERMIND_CONFIRMATION', 'EVERMIND_FICHE', 'EVERMIND_FORMULAIRE_RV', 'EVERMIND_JOUR', 'EVERMIND_DECALER', 'EVERMIND_FICHE_SUPPRIMER', 'EVERMIND_CONFIRMATION_OUI', 'EVERMIND_CAPTURE_ALERTE', 'EVERMIND_ALERTE_RV', 'EVERMIND_MAJ_VERSION', 'EVERMIND_MAJ_ZIP', 'EVERMIND_MAJ_AUTO', 'EVERMIND_MAJ_INSTALLER', 'EVERMIND_MAJ_PAS_DE_RELANCE', 'EVERMIND_TEST_TELECHARGEMENT', 'EVERMIND_COULEURS', 'EVERMIND_VOIR', 'EVERMIND_LOGO', 'EVERMIND_TEST_PAROLE', 'EVERMIND_COMMANDE', 'EVERMIND_EVEIL_WAV', 'EVERMIND_DICTEE_WAV', 'EVERMIND_VOIX') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
+    foreach ($k in 'EVERMIND_DOSSIERS', 'EVERMIND_PACKS', 'EVERMIND_THEME', 'EVERMIND_FERMER', 'EVERMIND_PHRASE', 'EVERMIND_AJOUTER', 'EVERMIND_FORMULAIRE', 'EVERMIND_REGLAGES', 'EVERMIND_CONFIRMATION', 'EVERMIND_FICHE', 'EVERMIND_FORMULAIRE_RV', 'EVERMIND_JOUR', 'EVERMIND_DECALER', 'EVERMIND_FICHE_SUPPRIMER', 'EVERMIND_CONFIRMATION_OUI', 'EVERMIND_CAPTURE_ALERTE', 'EVERMIND_ALERTE_RV', 'EVERMIND_MAJ_VERSION', 'EVERMIND_MAJ_ZIP', 'EVERMIND_MAJ_AUTO', 'EVERMIND_MAJ_INSTALLER', 'EVERMIND_MAJ_PAS_DE_RELANCE', 'EVERMIND_TEST_TELECHARGEMENT', 'EVERMIND_COULEURS', 'EVERMIND_VOIR', 'EVERMIND_LOGO', 'EVERMIND_TEST_PAROLE', 'EVERMIND_COMMANDE', 'EVERMIND_EVEIL_WAV', 'EVERMIND_DICTEE_WAV', 'EVERMIND_VOIX', 'EVERMIND_SUITE', 'EVERMIND_BANDEAU_MINDSET') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
     $env:EVERMIND_TEST = '1'; $env:EVERMIND_DONNEES = $donnees; $env:EVERMIND_CAPTURE = $capture
     $env:EVERMIND_VOIX = Join-Path $donnees 'voix-absente'
     foreach ($k in $Env.Keys) { Set-Item "env:$k" $Env[$k] }
@@ -125,6 +126,26 @@ foreach ($s in @(@('alerte-rappel', 'Dentiste'), @('alerte-simple', 'personne'))
 # Nouvelle version disponible : le bandeau « Mettre à jour » (version imaginaire, rien n'est téléchargé)
 $ok = (Invoke-Scenario 'maj-bandeau' @{ EVERMIND_MAJ_VERSION = '9.9.9'; EVERMIND_MAJ_ZIP = (Join-Path $racine 'release\Evermind.zip') } -Exemples) -and $ok
 if ($script:Journal -notmatch 'Mise à jour disponible : 9\.9\.9') { Write-Host 'ÉCHEC  maj-bandeau : la nouvelle version n''a pas été vue' -ForegroundColor Red; $ok = $false }
+# Signature des mises à jour : un zip sans signature, puis avec une fausse, est refusé et rien n'est installé
+$nonSigne = Join-Path $test 'maj-non-signee.zip'
+Copy-Item -LiteralPath (Join-Path $racine 'release\Evermind.zip') -Destination $nonSigne -Force
+Remove-Item -LiteralPath "$nonSigne.sig" -ErrorAction SilentlyContinue
+foreach ($s in @(@('maj-sans-signature', 'sa signature est introuvable'), @('maj-signature-fausse', 'sa signature n''est pas valide'))) {
+    if ($s[0] -eq 'maj-signature-fausse') { [IO.File]::WriteAllBytes("$nonSigne.sig", [byte[]](1..384 | ForEach-Object { $_ % 256 })) }
+    if (Invoke-Scenario $s[0] @{ EVERMIND_MAJ_VERSION = '9.9.9'; EVERMIND_MAJ_ZIP = $nonSigne; EVERMIND_MAJ_AUTO = '1' } -Exemples) {
+        if ($script:Journal -notmatch ('Mise à jour 9\.9\.9 refusée : ' + [regex]::Escape($s[1]))) { Write-Host "ÉCHEC  $($s[0]) : la mise à jour n'a pas été refusée" -ForegroundColor Red; $ok = $false }
+        else { Write-Host '       mise à jour refusée, rien d''installé' -ForegroundColor DarkGray }
+    } else { $ok = $false }
+}
+# Mindset : copie gérée (faux suite.json qui donne ce dossier) : thème de la suite pris, Réglages qui le disent
+$suite = Join-Path $test 'suite.json'
+[IO.File]::WriteAllText($suite, (ConvertTo-Json -InputObject ([ordered]@{ theme = 'arcade'; applis = [ordered]@{ evermind = (Join-Path $racine 'Evermind\'); nevermind = 'C:\Program Files\Mindset\Nevermind' }; modifie = '2026-10-14T16:00:00' })), $utf8)
+if (Invoke-Scenario 'mindset-gere' @{ EVERMIND_SUITE = $suite; EVERMIND_REGLAGES = 'General'; EVERMIND_VOIR = 'ReglagesMindset' } -Exemples) {
+    if ($script:Journal -notmatch 'Thème de la suite \(Mindset\) : arcade' -or $script:Journal -notmatch 'Géré par Mindset') { Write-Host 'ÉCHEC  mindset-gere : le thème de la suite n''a pas été pris' -ForegroundColor Red; $ok = $false }
+    else { Write-Host '       thème de la suite pris (arcade), mises à jour par Mindset' -ForegroundColor DarkGray }
+} else { $ok = $false }
+# Copie autonome, Mindset pas installé : le bandeau qui présente Mindset
+$ok = (Invoke-Scenario 'mindset-bandeau' @{ EVERMIND_BANDEAU_MINDSET = '1' } -Exemples) -and $ok
 # Horaires de travail : l'aperçu « Je comprends », puis l'ajout (un poste par jour)
 $ok = (Invoke-Scenario 'horaires-apercu' @{ EVERMIND_PHRASE = 'boulot lundi matin, mardi journée et mercredi soir' } -Exemples) -and $ok
 if (Invoke-Scenario 'horaires-ajout' @{ EVERMIND_PHRASE = 'je suis du matin lundi et mardi'; EVERMIND_AJOUTER = '1' } -Exemples) {

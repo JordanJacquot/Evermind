@@ -21,8 +21,16 @@ function Test-AutoStart {
     [bool](Get-ItemProperty -LiteralPath $RunKey -Name $RunName -ErrorAction SilentlyContinue)
 }
 
+# L'entrée « Evermind » lance-t-elle cette copie-ci ? (Evermind.exe, ou ce script par PowerShell)
+function Test-AutoStartIci {
+    $cur = [string](Get-ItemProperty -LiteralPath $RunKey -Name $RunName -ErrorAction SilentlyContinue).$RunName
+    if (-not $cur) { return $false }
+    $chemins = @(@([regex]::Matches($cur, '"([^"]+)"') | ForEach-Object { $_.Groups[1].Value }) + ($cur.Trim() -replace '(?i)\s+-Demarrage$', '') | ForEach-Object { Get-CheminNormal $_ })
+    ($chemins -contains (Get-CheminNormal $AppExe)) -or ($chemins -contains (Get-CheminNormal $MainScript))
+}
+
 function Set-AutoStart([bool]$On) {
-    if ($EnTest) { return }
+    if ($EnTest -or $GereParMindset) { return }   # copie gérée : c'est Mindset qui lance Evermind avec Windows
     if ($On) { New-ItemProperty -LiteralPath $RunKey -Name $RunName -Value (Get-AutoStartCommand) -PropertyType String -Force | Out-Null }
     else { Remove-ItemProperty -LiteralPath $RunKey -Name $RunName -ErrorAction SilentlyContinue }
     Set-Setting 'DemarrageWindows' $On
@@ -33,6 +41,12 @@ function Set-AutoStart([bool]$On) {
 function Initialize-AutoStart {
     if ($EnTest) { return }
     try {
+        # Copie gérée par Mindset : Mindset la lance avec Windows (avec -Demarrage). Une ancienne entrée « Evermind » qui
+        # lance cette copie-ci est retirée, sinon Evermind serait lancé deux fois ; celle d'une autre copie reste.
+        if ($GereParMindset) {
+            if (Test-AutoStartIci) { Remove-ItemProperty -LiteralPath $RunKey -Name $RunName -ErrorAction Stop; Write-Log 'Démarrage avec Windows : entrée d''Evermind retirée (Mindset s''en charge)' }
+            return
+        }
         $want = [bool](Get-Setting 'DemarrageWindows' $true)
         if ($want) {
             $cur = (Get-ItemProperty -LiteralPath $RunKey -Name $RunName -ErrorAction SilentlyContinue).$RunName
