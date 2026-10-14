@@ -609,6 +609,27 @@ public static class EMNative
     {
         return hwnd != IntPtr.Zero && ((GetWindowLong(hwnd, -16) & 0x40000000) != 0 || GetParent(hwnd) != IntPtr.Zero);
     }
+
+    // Place d'une fenêtre accrochée, dans son parent (x, y, largeur, hauteur), pour la lui rendre après l'avoir montrée
+    [StructLayout(LayoutKind.Sequential)] struct RECT { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
+    [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hwnd, out RECT r);
+    [DllImport("user32.dll")] static extern bool ScreenToClient(IntPtr hwnd, ref POINT p);
+    [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hwnd, IntPtr apres, int x, int y, int l, int h, uint flags);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
+    public static int[] PlaceDansParent(IntPtr hwnd)
+    {
+        RECT r; if (!GetWindowRect(hwnd, out r)) return null;
+        POINT p = new POINT { X = r.Left, Y = r.Top };
+        IntPtr parent = GetParent(hwnd);
+        if (parent != IntPtr.Zero) ScreenToClient(parent, ref p);
+        return new int[] { p.X, p.Y, r.Right - r.Left, r.Bottom - r.Top };
+    }
+    public static void Placer(IntPtr hwnd, int[] place)
+    {
+        if (place != null) SetWindowPos(hwnd, IntPtr.Zero, place[0], place[1], place[2], place[3], 0x0014);   // SWP_NOZORDER | SWP_NOACTIVATE
+    }
+    public static bool EstVisible(IntPtr hwnd) { return IsWindowVisible(hwnd); }
     // -----------------------------------------------------------------------
     // Identité dans la barre des tâches
     // -----------------------------------------------------------------------

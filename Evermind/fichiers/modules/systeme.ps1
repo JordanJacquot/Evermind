@@ -58,11 +58,18 @@ function Initialize-AutoStart {
 # ---------------------------------------------------------------------------
 # Fenêtre et icône près de l'horloge
 # ---------------------------------------------------------------------------
+# Décrochée de Mindset, qui l'a cachée lui-même (SW_HIDE) : WPF la croit encore visible. Elle est cachée pour WPF aussi,
+# pour que le prochain affichage (icône près de l'horloge) la remontre pour de bon.
+function Sync-VisibiliteFenetre {
+    if ($Window.IsVisible -and -not [EMNative]::EstVisible((New-Object System.Windows.Interop.WindowInteropHelper $Window).Handle)) { $Window.Hide() }
+}
+
 function Show-MainWindow {
     # (tests : la fenêtre reste hors de l'écran et ne prend jamais le premier plan, l'utilisateur garde la main)
     if ($EnTest -or $script:DansMindset) { return }   # (affiché dans Mindset : c'est Mindset qui le montre, rien ne doit l'en sortir)
     try {
-        if (-not $Window.IsVisible) { $Window.Show() }
+        Sync-VisibiliteFenetre
+        if (-not $Window.IsVisible) { $Window.ShowActivated = $true; $Window.Show() }
         if ($Window.WindowState -eq 'Minimized') { $Window.WindowState = 'Normal' }
         # Passe devant toutes les fenêtres, puis redevient une fenêtre normale
         $Window.Topmost = $true; $Window.Topmost = $false
@@ -192,7 +199,19 @@ function Update-DansMindset {
     if ($dans -eq $script:DansMindset) { return }
     if (-not $script:TailleMin) { $script:TailleMin = @{ L = $Window.MinWidth; H = $Window.MinHeight } }   # (celle d'interface.xaml)
     $script:DansMindset = $dans
-    if ($dans) { $Window.MinWidth = 0; $Window.MinHeight = 0; $script:LogoDrag = $null }
+    if ($dans) {
+        $Window.MinWidth = 0; $Window.MinHeight = 0; $script:LogoDrag = $null
+        # Lancé caché (-Demarrage) : pour WPF la fenêtre n'a jamais été montrée, Mindset n'afficherait qu'un fond noir.
+        # Elle est montrée sans être activée, puis remise exactement là où Mindset l'a placée.
+        if (-not $Window.IsVisible) {
+            $place = [EMNative]::PlaceDansParent($h)
+            $Window.ShowActivated = $false; $Window.WindowStartupLocation = 'Manual'
+            $Window.Show()
+            [EMNative]::Placer($h, $place)
+            Set-AnimationsPause $false
+            Write-Log 'Affiché dans Mindset : fenêtre montrée (lancé caché)'
+        }
+    }
     else { $Window.MinWidth = $script:TailleMin.L; $Window.MinHeight = $script:TailleMin.H }
     Write-Log "$(if ($dans) { 'Affiché dans Mindset' } else { 'Plus affiché dans Mindset : fenêtre normale' })"
     Update-EchelleMindset

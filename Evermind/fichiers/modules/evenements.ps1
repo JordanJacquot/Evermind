@@ -172,14 +172,15 @@ if ($env:EVERMIND_TEST_MINDSET_HOTE) {
 [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int i);
 [DllImport("user32.dll")] public static extern int SetWindowLong(IntPtr h, int i, int v);
 [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr apres, int x, int y, int l, int ht, uint f);
+[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
 '@
     $script:TestAttente = $true; $script:TestPas = 0
     $script:TestTaille = if ($env:EVERMIND_TEST_MINDSET_HOTE -match '^(\d+)x(\d+)$') { @([int]$Matches[1], [int]$Matches[2]) } else { @(960, 700) }
     $th = New-Object System.Windows.Threading.DispatcherTimer; $th.Interval = [TimeSpan]::FromMilliseconds(500)
     $th.Add_Tick({
         param($s)
-        $h = (New-Object System.Windows.Interop.WindowInteropHelper $Window).Handle
-        $etat = { "dans=$script:DansMindset echelle=$(if ($Window.Content.LayoutTransform) { [math]::Round($Window.Content.LayoutTransform.ScaleX, 2) } else { 1 }) min=$($Window.MinWidth)x$($Window.MinHeight) taille=$([int]$Window.ActualWidth)x$([int]$Window.ActualHeight) logo=$([int][System.Windows.Controls.Canvas]::GetLeft($ui.LogoHote)),$([int][System.Windows.Controls.Canvas]::GetTop($ui.LogoHote)) place=$($ui.LogoPlace.Visibility)" }
+        $h = (New-Object System.Windows.Interop.WindowInteropHelper $Window).EnsureHandle()
+        $etat = { "visible=$($Window.IsVisible) dans=$script:DansMindset echelle=$(if ($Window.Content.LayoutTransform) { [math]::Round($Window.Content.LayoutTransform.ScaleX, 2) } else { 1 }) min=$($Window.MinWidth)x$($Window.MinHeight) taille=$([int]$Window.ActualWidth)x$([int]$Window.ActualHeight) logo=$([int][System.Windows.Controls.Canvas]::GetLeft($ui.LogoHote)),$([int][System.Windows.Controls.Canvas]::GetTop($ui.LogoHote)) place=$($ui.LogoPlace.Visibility)" }
         switch (++$script:TestPas) {
             { $_ -in 2, 8 } {
                 if (-not $script:TestHote) {
@@ -190,13 +191,16 @@ if ($env:EVERMIND_TEST_MINDSET_HOTE) {
                 [void][EMTest.Hote]::SetParent($h, $script:TestHote.Handle)
                 [void][EMTest.Hote]::SetWindowLong($h, -16, (($script:TestStyle -band (-bnot 0x80CF0000)) -bor 0x40000000))   # sans POPUP, CAPTION, THICKFRAME, SYSMENU, MIN/MAX ; WS_CHILD
                 [void][EMTest.Hote]::SetWindowPos($h, [IntPtr]::Zero, 0, 0, $script:TestTaille[0], $script:TestTaille[1], 0x0024)   # SWP_NOZORDER | SWP_FRAMECHANGED
+                [void][EMTest.Hote]::ShowWindow($h, 9)   # SW_RESTORE, comme Mindset
             }
             4 { Write-Log "Test Mindset accroché : $(& $etat)" }
             5 {
                 [void][EMTest.Hote]::SetParent($h, [IntPtr]::Zero)
                 [void][EMTest.Hote]::SetWindowLong($h, -16, $script:TestStyle)
                 [void][EMTest.Hote]::SetWindowPos($h, [IntPtr]::Zero, -10000, 0, 1200, 880, 0x0024)
+                [void][EMTest.Hote]::ShowWindow($h, 0)   # SW_HIDE : Mindset la cache en la décrochant
             }
+            6 { Sync-VisibiliteFenetre }   # (ce que fait l'icône près de l'horloge avant de la remontrer)
             7 { Write-Log "Test Mindset décroché : $(& $etat)" }
             10 { $s.Stop(); $script:TestAttente = $false }   # raccroché : la capture montre Evermind à la taille donnée par l'hôte
         }
