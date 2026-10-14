@@ -73,7 +73,7 @@ static class Lanceur
 
     // Même journal que le code d'Evermind : il choisit le dossier de données (modules\donnees.ps1) et donne le chemin
     // du journal dans EVERMIND_JOURNAL. Si le code s'est arrêté avant, %LOCALAPPDATA%\Evermind (ou, s'il n'existe
-    // plus, %LOCALAPPDATA%\Mindset\Evermind, celui d'une copie installée par Mindset).
+    // plus, celui d'une copie installée par Mindset : %LOCALAPPDATA%\Mindset\Evermind, ou <X>:\Mindset\Donnees\Evermind).
     static void Journal(string texte)
     {
         try
@@ -84,6 +84,11 @@ static class Lanceur
                 string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                 string dir = Path.Combine(local, "Evermind");
                 string mindset = Path.Combine(Path.Combine(local, "Mindset"), "Evermind");
+                // Mindset installé sur un autre disque : <X>:\Mindset\Programmes\Evermind a ses données dans <X>:\Mindset\Donnees\Evermind
+                DirectoryInfo racine = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\'));
+                if (racine.Parent != null && racine.Parent.Parent != null && string.Equals(racine.Parent.Name, "Programmes", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(racine.Parent.Parent.Name, "Mindset", StringComparison.OrdinalIgnoreCase))
+                    mindset = Path.Combine(Path.Combine(racine.Parent.Parent.FullName, "Donnees"), "Evermind");
                 if (!Directory.Exists(dir) && Directory.Exists(mindset)) dir = mindset;
                 fichier = Path.Combine(dir, "journal.txt");
             }

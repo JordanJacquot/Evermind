@@ -4,12 +4,21 @@
 # (Copie gérée par Mindset ou non : $GereParMindset, décidé par mindset.ps1, chargé avant tout le reste.)
 
 # ---------------------------------------------------------------------------
-# Dossier de données : %LOCALAPPDATA%\Evermind, ou %LOCALAPPDATA%\Mindset\Evermind pour une copie gérée par Mindset
+# Dossier de données : %LOCALAPPDATA%\Evermind, ou celui de Mindset pour une copie gérée par Mindset
 # ---------------------------------------------------------------------------
 # Tout ce qu'Evermind garde (rendez-vous, réglages, journal, voix, assistant, packs...) est dans ce dossier, choisi
 # ici une seule fois. Evermind.exe y écrit aussi son journal (il le trouve dans EVERMIND_JOURNAL, voir plus bas).
+# Dossier de données d'une copie gérée, déduit de l'emplacement du programme (jamais d'un fichier modifiable) :
+#   <X>:\Mindset\Programmes\Evermind   ->  <X>:\Mindset\Donnees\Evermind   (Mindset installé sur un autre disque)
+#   sinon (C:\Program Files\Mindset\Evermind...)  ->  %LOCALAPPDATA%\Mindset\Evermind
+function Get-DonneesMindset([string]$Racine) {
+    $p = if ($Racine) { Split-Path $Racine -Parent } else { $null }
+    $m = if ($p) { Split-Path $p -Parent } else { $null }
+    if ($m -and (Split-Path $p -Leaf) -ieq 'Programmes' -and (Split-Path $m -Leaf) -ieq 'Mindset') { return [IO.Path]::Combine($m, 'Donnees', 'Evermind') }   # (Join-Path refuse un disque absent)
+    Join-Path $env:LOCALAPPDATA 'Mindset\Evermind'
+}
 $DataDirAncien  = Join-Path $env:LOCALAPPDATA 'Evermind'
-$DataDirMindset = Join-Path $env:LOCALAPPDATA 'Mindset\Evermind'
+$DataDirMindset = Get-DonneesMindset $AppRacine
 $DataDirNote    = $null   # ce qui s'est passé, écrit au journal dès qu'il est prêt
 if ($env:EVERMIND_DONNEES) { $DataDir = $env:EVERMIND_DONNEES }
 elseif (-not $GereParMindset) { $DataDir = $DataDirAncien }
@@ -17,10 +26,14 @@ else {
     $DataDir = $DataDirMindset
     # Premier lancement géré par Mindset : l'ancien dossier est renommé (même disque : immédiat, même pour des Go
     # de modèles). Un fichier ouvert (par exemple la voix utilisée par Eve) l'empêche : on garde l'ancien pour cette
-    # fois, et on réessaie au prochain lancement.
+    # fois, et on réessaie au prochain lancement. Sur un autre disque, rien n'est copié ici : c'est Mindset qui copie
+    # les données avant de lancer Evermind ; en attendant, l'ancien dossier est gardé.
     if (-not [IO.Directory]::Exists($DataDirMindset) -and [IO.Directory]::Exists($DataDirAncien)) {
         if ($EnTest -and $env:LOCALAPPDATA -ieq [Environment]::GetFolderPath('LocalApplicationData')) {
             $DataDir = $DataDirAncien; $DataDirNote = 'Données : pas de déplacement pendant un test'   # (seulement dans un faux %LOCALAPPDATA%)
+        } elseif ([IO.Path]::GetPathRoot($DataDirAncien) -ine [IO.Path]::GetPathRoot($DataDirMindset)) {
+            $DataDir = $DataDirAncien
+            $DataDirNote = "Données : $DataDirMindset est sur un autre disque, rien n'est copié ici (Mindset s'en charge), $DataDirAncien gardé cette fois"
         } else {
             try {
                 New-Item -ItemType Directory -Force -Path (Split-Path $DataDirMindset -Parent) | Out-Null
