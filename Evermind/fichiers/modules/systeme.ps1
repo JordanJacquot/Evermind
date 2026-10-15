@@ -66,7 +66,10 @@ function Sync-VisibiliteFenetre {
 
 function Show-MainWindow {
     # (tests : la fenêtre reste hors de l'écran et ne prend jamais le premier plan, l'utilisateur garde la main)
-    if ($EnTest -or $script:DansMindset) { return }   # (affiché dans Mindset : c'est Mindset qui le montre, rien ne doit l'en sortir)
+    if ($EnTest) { return }
+    # Géré par Mindset : Evermind ne s'ouvre que dans Mindset, qui se ramène devant sur son onglet
+    if ($GereParMindset -and (Open-DansMindset)) { return }
+    if ($script:DansMindset) { return }   # (affiché dans Mindset : c'est Mindset qui le montre, rien ne doit l'en sortir)
     try {
         Sync-VisibiliteFenetre
         if (-not $Window.IsVisible) { $Window.ShowActivated = $true; $Window.Show() }
@@ -104,6 +107,7 @@ function Show-Notify([string]$Title, [string]$Text) {
 # La croix ne ferme pas Evermind : il reste près de l'horloge pour donner les rappels.
 function Hide-ToTray {
     $Window.Hide()
+    if ($GereParMindset) { return }   # (géré par Mindset : pas d'icône à Evermind près de l'horloge)
     if (-not (Get-Setting 'AstuceHorloge' $false)) {
         Set-Setting 'AstuceHorloge' $true
         Show-Notify 'Evermind reste près de l''horloge' 'Il veille sur tes rendez-vous. Clique sur son icône pour le rouvrir.'

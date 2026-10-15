@@ -28,6 +28,8 @@ $ModulesDir = Join-Path $AppDir 'modules'
 if (Test-Path -LiteralPath (Join-Path $ModulesDir 'mindset.ps1')) {
     . (Join-Path $ModulesDir 'mindset.ps1')
     if (Test-BlocageMindset) { Show-BlocageMindset; exit }
+    # Géré par Mindset et lancé à la main : il s'ouvre dans Mindset (qui le lance caché, puis l'accroche dans son onglet)
+    if ($GereParMindset -and -not $Demarrage -and -not $EnTest -and (Open-DansMindset)) { exit }
 }
 
 # ---------------------------------------------------------------------------
@@ -84,7 +86,7 @@ if (-not $GereParMindset) {
 # ---------------------------------------------------------------------------
 Write-Log "Démarrage Evermind $AppVersion (langue $((Get-UICulture).Name), PowerShell $($PSVersionTable.PSVersion))$(if ($Demarrage) { ', lancé avec Windows' })"
 Initialize-AutoStart
-if (-not $EnTest) { [void](Get-TrayIcon) }
+if (-not $EnTest -and -not $GereParMindset) { [void](Get-TrayIcon) }   # (géré par Mindset : c'est l'icône de Mindset)
 if ($env:EVERMIND_CAPTURE) { Start-Capture $env:EVERMIND_CAPTURE }
 if (-not $Demarrage) { $Window.Show() }
 [System.Windows.Threading.Dispatcher]::Run()

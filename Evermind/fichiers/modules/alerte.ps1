@@ -15,7 +15,7 @@ function Show-Alerte {
     catch {
         Write-Log "Alerte impossible : $_"
         $script:AlerteEnCapture = $false
-        try { (Get-TrayIcon).ShowBalloonTip(8000, $Titre, $Texte, [System.Windows.Forms.ToolTipIcon]::Info) } catch {}
+        if (-not $GereParMindset) { try { (Get-TrayIcon).ShowBalloonTip(8000, $Titre, $Texte, [System.Windows.Forms.ToolTipIcon]::Info) } catch {} }
     }
 }
 

@@ -53,6 +53,28 @@ $script:Suite = Read-Suite
 $GereParMindset = [bool]($AppRacine -and $script:Suite.Evermind -and $script:Suite.Evermind -ieq $AppRacine)
 
 # ---------------------------------------------------------------------------
+# Evermind s'affiche seulement dans Mindset
+# ---------------------------------------------------------------------------
+# Lancé à la main, ou une fenêtre à montrer (rappel cliqué, « OK Evermind ») : Mindset s'ouvre sur l'onglet d'Evermind,
+# qu'il lance caché (-Demarrage) puis accroche. Son programme vient de son installation (HKLM, modifiable seulement par
+# un administrateur), jamais de suite.json. $false si Mindset est introuvable (Evermind s'ouvre alors seul).
+function Open-DansMindset {
+    $exe = $null
+    try {
+        $dossier = Get-CheminNormal ([string](Get-ItemProperty -LiteralPath 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Mindset' -Name InstallLocation -ErrorAction Stop).InstallLocation).Trim().Trim('"')
+        if ($dossier) { $exe = Join-Path $dossier 'Mindset.exe' }
+    } catch {}
+    if (-not $exe -or -not (Test-Path -LiteralPath $exe -PathType Leaf)) { return $false }
+    try {
+        $dir = Join-Path $env:LOCALAPPDATA 'Mindset'
+        [void][IO.Directory]::CreateDirectory($dir)
+        [IO.File]::WriteAllText((Join-Path $dir 'afficher-page.txt'), 'appli:evermind', (New-Object Text.UTF8Encoding($false)))
+        Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe -Parent) -ErrorAction Stop
+        $true
+    } catch { $false }
+}
+
+# ---------------------------------------------------------------------------
 # Copie hors de Mindset : bloquée
 # ---------------------------------------------------------------------------
 # Dossier de travail (code source) : un dossier .git dans son dossier ou juste au-dessus, comme D:\Projets\Evermind\Evermind.
