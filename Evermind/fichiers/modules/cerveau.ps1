@@ -1,12 +1,11 @@
-﻿# Evermind : l'assistant. Une petite IA (Qwen3 4B, lancée avec llama.cpp) tourne sur le PC, comprend ce qu'on
-# lui dit librement et répond avec ce qu'Evermind doit faire. Evermind vérifie tout avant d'agir :
-#   - les dates passent par ses propres règles (comprendre.ps1), jamais par un calcul de l'IA ;
-#   - un rendez-vous à modifier ou supprimer doit exister dans l'agenda ;
-#   - avant chaque changement, l'agenda est mis de côté : « annule » revient en arrière.
-# Rien ne part sur Internet. L'IA s'arrête après 10 minutes sans question, pour laisser la mémoire aux jeux.
+﻿# Evermind : l'assistant. C'est celui d'Evermind Mobile : ses règles comprennent seules les demandes courantes (tout
+# de suite), et son modèle entraîné pour Evermind (Evermind 0.6B, lancé avec llama.cpp) les phrases longues et parlées ;
+# chaque réponse du modèle est contrôlée avant d'agir. Il tourne dans un petit programme Java (dépôt Evermind-Mobile,
+# module assistant-pc), lancé une fois : Evermind lui envoie la phrase et l'agenda, il rend ce qu'il faut dire et le
+# nouvel agenda. Avant chaque changement, l'agenda est mis de côté : « annule » revient en arrière.
+# Rien ne part sur Internet. Le modèle s'arrête après 10 minutes sans question, pour laisser la mémoire aux jeux.
+# Ouvrir les dossiers d'un rendez-vous et les postes de travail restent lus par les règles d'Evermind PC.
 # Chargé par Evermind.ps1, qui définit $AppDir et $ModulesDir.
-
-$CerveauVeille = 600   # secondes sans question avant d'arrêter l'IA
 
 # Phrases qui ne sont pas un nouveau rendez-vous mais une demande (décaler, supprimer, question...)
 $RxCommande = "^\s*(?:(?:euh\s*,?\s*)?(?:est-ce que tu (?:peux|pourrais)|tu (?:peux|pourrais)|peux-tu|pourrais-tu|(?:j'aimerais|je voudrais|je veux|il faut) que tu)\s+(?:me\s+|m')?)?(?:d[ée]cale|d[ée]place|repousse|avance|reporte|change|modifie|renomme|supprime[rsz]?|enl[èe]ve[rsz]?|efface[rsz]?|retire[rsz]?|annule[rsz]?|ajoute\s+\S+.*\s+(?:à|au|aux)\s+(?:la|le|l'|mon|ma|mes|ce|cette)\b|j'ai (?:fini|fait|appel|pay|achet)|c'est (?:fait|bon)|qu'est-ce|quand|est-ce que j'ai|combien|quels?|quelles?|dis-moi|montre|liste|rappelle-moi (?:quand|ce que))|\?\s*$"
@@ -19,36 +18,29 @@ function Start-Cerveau {
     if (-not (Test-CerveauInstalle)) { return $false }
     if ($script:Cerveau -and -not $script:Cerveau.Process.HasExited) { $script:Cerveau.Dernier = Get-Date; return $true }
     try {
-        $l = New-Object Net.Sockets.TcpListener ([Net.IPAddress]::Loopback, 0); $l.Start(); $port = $l.LocalEndpoint.Port; $l.Stop()
-        $threads = [math]::Max(2, [math]::Min(8, [int]([Environment]::ProcessorCount / 2)))
         $psi = New-Object Diagnostics.ProcessStartInfo
-        $psi.FileName = $LlamaExe
-        # -ngl 99 : tout sur la carte graphique s'il y en a une (Vulkan), sinon le processeur fait le travail
-        $psi.Arguments = "-m `"$IaModele`" --host 127.0.0.1 --port $port -ngl 99 -c 8192 -t $threads --no-webui"
+        $psi.FileName = $JavaExe
+        $journal = Join-Path $DataDir 'assistant.log'
+        if ((Test-Path -LiteralPath $journal) -and (Get-Item -LiteralPath $journal).Length -gt 2MB) { Remove-Item -LiteralPath $journal -Force -ErrorAction SilentlyContinue }
+        $psi.Arguments = "-Xmx256m -cp `"$AssistantLib\*`" io.github.jordanjacquot.evermind.pc.PrincipalKt --serveur `"$LlamaExe`" --modele `"$IaModele`" --journal `"$journal`""
         $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.WorkingDirectory = $IaDir
+        $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true
+        $psi.StandardOutputEncoding = New-Object Text.UTF8Encoding $false
         $p = [Diagnostics.Process]::Start($psi)
     } catch { Write-Log "Assistant impossible à démarrer : $_"; return $false }
-    try { $p.PriorityClass = 'BelowNormal' } catch {}   # (un jeu passe avant)
-    $script:Cerveau = @{ Process = $p; Port = $port; Dernier = Get-Date }
-    Write-Log "Assistant démarré (port $port)"
-    if (-not $script:CerveauTimer) {
-        $script:CerveauTimer = New-Object System.Windows.Threading.DispatcherTimer
-        $script:CerveauTimer.Interval = [TimeSpan]::FromSeconds(5)
-        $script:CerveauTimer.Add_Tick({
-            # En veille après 10 minutes sans question : la mémoire est rendue aux jeux
-            $c = $script:Cerveau
-            if (-not $c -or $c.Process.HasExited) { $script:CerveauTimer.Stop(); return }
-            if (-not $script:Demande -and ((Get-Date) - $c.Dernier).TotalSeconds -gt $CerveauVeille) { Stop-Cerveau; Write-Log 'Assistant mis en veille' }
-        })
-    }
-    $script:CerveauTimer.Start()
+    try { $p.PriorityClass = 'BelowNormal' } catch {}   # (un jeu passe avant ; le modèle, lancé par lui, aussi)
+    $script:Cerveau = @{ Process = $p; Dernier = Get-Date }
+    Write-Log 'Assistant démarré'
     $true
 }
 
 function Stop-Cerveau {
     $c = $script:Cerveau
     $script:Cerveau = $null
-    if ($c) { try { if (-not $c.Process.HasExited) { $c.Process.Kill() } } catch {} }
+    if (-not $c) { return }
+    # Fin de l'entrée : le programme arrête le modèle et se ferme ; sinon il est arrêté de force
+    try { $c.Process.StandardInput.Close() } catch {}
+    try { if (-not $c.Process.WaitForExit(3000)) { $c.Process.Kill() } } catch {}
 }
 
 # ---------------------------------------------------------------------------
@@ -178,29 +170,23 @@ function Get-QuestionIA([string]$Texte, $Relance) {
 }
 
 function Invoke-Commande([string]$Texte, [string]$Source, $Relance) {
-    if ($script:Demande -and -not $Relance) { return $true }   # une question à la fois
+    if ($script:Demande) { return $true }   # une question à la fois
+    # « Ouvre le dossier de Monsieur Richard », « je suis du matin lundi » : lus par les règles d'Evermind PC
+    $ouv = Get-OuvertureTexte $Texte
+    if ($ouv) { Invoke-ActionsIA ([pscustomobject]@{ actions = @($ouv); reponse = '' }) @{} $Texte $Source; return $true }
+    $hor = Get-HorairesTravail $Texte
+    $inH = Get-IntentionsTexte $Texte
+    if ($hor -and -not $inH.Supp -and -not $inH.Modif -and -not $inH.Question) {
+        Invoke-ActionsIA ([pscustomobject]@{ actions = @([pscustomobject]@{ action = 'horaires'; Liste = @($hor) }); reponse = '' }) @{} $Texte $Source
+        return $true
+    }
     if (-not (Start-Cerveau)) { return $false }
-    $q = Get-QuestionIA $Texte $Relance
-    $ctx = $q.Ctx; $messages = $q.Messages; $corps = $q.Corps
-    $ps = [PowerShell]::Create()
-    [void]$ps.AddScript({
-        param($Port, $Corps)
-        # L'IA met quelques secondes à se charger la première fois : on attend qu'elle soit prête
-        $limite = (Get-Date).AddSeconds(120)
-        while ((Get-Date) -lt $limite) {
-            try { $h = [Net.WebRequest]::Create("http://127.0.0.1:$Port/health"); $h.Timeout = 1500; $rh = $h.GetResponse(); $rh.Close(); break }
-            catch { Start-Sleep -Milliseconds 250 }
-        }
-        $req = [Net.WebRequest]::Create("http://127.0.0.1:$Port/v1/chat/completions")
-        $req.Method = 'POST'; $req.ContentType = 'application/json; charset=utf-8'; $req.Timeout = 120000
-        $b = [Text.Encoding]::UTF8.GetBytes($Corps)
-        $s = $req.GetRequestStream(); $s.Write($b, 0, $b.Length); $s.Close()
-        $resp = $req.GetResponse()
-        $sr = New-Object IO.StreamReader($resp.GetResponseStream(), [Text.Encoding]::UTF8)
-        $txt = $sr.ReadToEnd(); $resp.Close()
-        $txt
-    }).AddArgument($script:Cerveau.Port).AddArgument($corps)
-    $script:Demande = @{ PS = $ps; Handle = $ps.BeginInvoke(); Process = $script:Cerveau.Process; Codes = $ctx.Codes; Messages = $messages; Relance = [bool]$Relance; Texte = $Texte; Source = $Source; Debut = [Diagnostics.Stopwatch]::StartNew() }
+    $c = $script:Cerveau
+    $demande = [ordered]@{ texte = $Texte; agenda = @(Get-AgendaDonnees); maintenant = (Get-Date).ToString($DateFormat, [Globalization.CultureInfo]::InvariantCulture) }
+    $octets = [Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject $demande -Depth 10 -Compress) + "`n")
+    try { $c.Process.StandardInput.BaseStream.Write($octets, 0, $octets.Length); $c.Process.StandardInput.BaseStream.Flush() }
+    catch { Write-Log "Assistant injoignable : $_"; Stop-Cerveau; return $false }
+    $script:Demande = @{ Lecture = $c.Process.StandardOutput.ReadLineAsync(); Process = $c.Process; Texte = $Texte; Source = $Source; Debut = [Diagnostics.Stopwatch]::StartNew() }
     if ($Source -eq 'voix') { Show-Bulle 'Je réfléchis...' }
     Set-VoixEtat "Je réfléchis à : « $Texte »"
     if (-not $script:DemandeTimer) {
@@ -215,40 +201,59 @@ function Invoke-Commande([string]$Texte, [string]$Source, $Relance) {
 function Step-Demande {
     $d = $script:Demande
     if (-not $d) { $script:DemandeTimer.Stop(); return }
-    if (-not $d.Handle.IsCompleted) {
-        # L'IA s'est arrêtée (fichier manquant, plus de mémoire...) : inutile d'attendre
-        $mort = $d.Process -and $d.Process.HasExited
+    if (-not $d.Lecture.IsCompleted) {
+        # Le programme s'est arrêté (fichier manquant, plus de mémoire...) : inutile d'attendre
+        $mort = $d.Process.HasExited
         if ($mort) { Write-Log "Assistant arrêté tout seul (code $($d.Process.ExitCode))" }
         if (-not $mort -and $d.Debut.Elapsed.TotalSeconds -lt 150) { return }
-        try { $d.PS.Stop() } catch {}
+        # (trop long : il est relancé, sinon sa réponse en retard passerait pour celle de la question suivante)
+        if (-not $mort) { Write-Log 'Assistant trop long : relancé'; Stop-Cerveau }
     }
     $script:Demande = $null
     $script:DemandeTimer.Stop()
     if ($script:Cerveau) { $script:Cerveau.Dernier = Get-Date }
-    $reponse = $null
-    try {
-        $brut = @($d.PS.EndInvoke($d.Handle))[-1]
-        $reponse = (ConvertFrom-Json $brut).choices[0].message.content | ConvertFrom-Json
-    } catch { Write-Log "Assistant : pas de réponse utilisable ($($_.Exception.Message))" }
-    $d.PS.Dispose()
-    Write-Log "Assistant ($([math]::Round($d.Debut.Elapsed.TotalSeconds, 1)) s) : « $($d.Texte) » -> $(if ($reponse) { $reponse | ConvertTo-Json -Depth 6 -Compress } else { 'rien' })"
-    if (-not $reponse) {
-        # L'IA n'a pas répondu : les règles d'Evermind prennent le relais
+    $r = $null
+    try { if ($d.Lecture.IsCompleted -and -not $d.Lecture.IsFaulted -and $d.Lecture.Result) { $r = ConvertFrom-Json $d.Lecture.Result } }
+    catch { Write-Log "Assistant : réponse illisible ($($_.Exception.Message))" }
+    Write-Log "Assistant ($([math]::Round($d.Debut.Elapsed.TotalSeconds, 1)) s) : « $($d.Texte) » -> $(if (-not $r) { 'rien' } elseif ($r.compris) { $r.ecrit } else { 'pas compris' })"
+    if (-not $r) {
+        # Pas de réponse : les règles d'Evermind prennent le relais
         if ($d.Source -eq 'voix') { Invoke-DicteeRegles $d.Texte } else { Show-FormMessage 'L''assistant n''a pas répondu. Réessaie dans un instant.' $Colors.bad }
         return
     }
-    $decision = Get-DecisionIA $d $reponse
-    if ($decision.Relance) {
-        $script:Demande = $null
-        [void](Invoke-Commande $d.Texte $d.Source $decision.Relance)
-        return
+    Invoke-ReponseAssistant $r $d.Texte $d.Source
+}
+
+# La réponse de l'assistant : le nouvel agenda remplace l'ancien (mis de côté pour « annule »), puis Evermind dit ce
+# qu'il a fait
+function Invoke-ReponseAssistant($R, [string]$Texte, [string]$Source) {
+    if (-not $R.compris) {
+        # Ni les règles ni le modèle n'ont compris : à la voix, Evermind s'ouvre pour corriger (comme sans assistant)
+        if ($Source -eq 'voix') { Invoke-DicteeRegles $Texte; return }
+        $R = [pscustomobject]@{ compris = $false; dit = 'Je n''ai pas compris, tu peux reformuler ?'; ecrit = 'Je n''ai pas compris, tu peux reformuler ?'; change = $false; aCorriger = $null }
     }
-    $reponse = $decision.Reponse
-    # Retenu pour la phrase suivante (« lequel ? » puis « le dentiste »)
-    [void]$script:Conversation.Add(@{ role = 'user'; content = $d.Texte })
-    [void]$script:Conversation.Add(@{ role = 'assistant'; content = ($reponse | ConvertTo-Json -Depth 6 -Compress) })
-    $script:ConversationQuand = Get-Date
-    Invoke-ActionsIA $reponse $d.Codes $d.Texte $d.Source
+    if ($R.change -and $null -ne $R.agenda) {
+        # Le nouvel agenda est relu entièrement avant de remplacer l'ancien : en cas de problème, rien n'est perdu
+        try {
+            $nouveau = New-Object System.Collections.ArrayList
+            foreach ($x in $R.agenda) { if ($x) { [void]$nouveau.Add((ConvertTo-RendezVous $x)) } }
+        } catch { Write-Log "Assistant : agenda illisible ($_)"; Show-FormMessage 'Je n''ai pas réussi à faire ce changement.' $Colors.bad; return }
+        Save-Annulation
+        $script:Agenda = $nouveau
+        Save-Agenda
+    }
+    $ecrit = [string]$R.ecrit
+    $dit = [string]$R.dit
+    Set-VoixEtat "Tu as dit : « $Texte »"
+    Show-FormMessage $ecrit $(if ($R.aCorriger -or -not $R.change) { '#C9C3DD' } else { $Colors.ok })
+    if ($R.aCorriger) {
+        # Il manque quelque chose pour créer : la phrase va dans la barre pour la compléter
+        Show-MainWindow
+        $ui.InPhrase.Text = [string]$R.aCorriger; $ui.InPhrase.CaretIndex = $ui.InPhrase.Text.Length; [void]$ui.InPhrase.Focus()
+    } elseif ($Source -eq 'barre') { $ui.InPhrase.Text = '' }
+    if ($Source -eq 'voix') { Show-Bulle $ecrit 6000 }
+    if ($Source -ne 'barre' -or -not $R.change) { Invoke-Parole $dit }
+    Update-Agenda
 }
 
 # Que faire de la réponse de l'IA ($d : Texte, Relance, Messages, Codes) : @{ Relance = ... } pour lui redemander

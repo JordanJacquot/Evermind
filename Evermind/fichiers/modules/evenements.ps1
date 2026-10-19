@@ -129,7 +129,7 @@ if ($env:EVERMIND_CAPTURE_ALERTE) {
     $rvA = @($script:Agenda | Where-Object { $_.Titre -like $env:EVERMIND_ALERTE_RV })[0]
     if ($rvA) { Show-AlerteRappel $rvA ($rvA.Quand) ($rvA.Quand.AddHours(-1)) } else { Show-Alerte 'Evermind n''entend rien' 'Aucun son ne vient du micro (coupé ?). Choisis le bon micro dans les réglages.' }
 }
-# Un téléchargement imaginaire en cours (l'assistant, 2,3 Go) : la barre vivante, la vitesse, le temps qui reste
+# Un téléchargement imaginaire en cours (l'assistant, 700 Mo) : la barre vivante, la vitesse, le temps qui reste
 if ($env:EVERMIND_TEST_TELECHARGEMENT) {
     $script:VoixDl = [hashtable]::Synchronized(@{ Recu = 812MB; Total = 2382MB; Etape = 'cerveau de l''assistant'; Erreur = ''; Fini = $false; Pack = 'ia'; Test = $true })
     $script:TestAttente = $true; $script:TestPas = 0

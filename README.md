@@ -19,8 +19,9 @@ Il faut Windows 10 ou 11 (64 bits) et au moins 8 Go de mémoire. Avec une carte 
 
 - **Parler à Evermind** : dis « OK Evermind » (ou Ctrl + Maj + Espace, même en jeu), puis « décale le dentiste à jeudi »,
   « supprime tous les raids de novembre », « pour le foot prends mes crampons », « qu'est-ce que j'ai demain ? »,
-  « annule ». Une IA locale (Qwen3 4B avec llama.cpp) comprend, Evermind vérifie tout avant d'agir et garde de quoi
-  revenir en arrière. Elle répond avec une voix naturelle (Kokoro, 5 voix françaises).
+  « annule ». L'assistant d'Evermind Mobile comprend (ses règles pour les demandes
+  courantes, tout de suite ; son modèle entraîné, Evermind 0.6B avec llama.cpp, pour les phrases longues), Evermind
+  vérifie tout avant d'agir et garde de quoi revenir en arrière. Elle répond avec une voix naturelle (Kokoro, 5 voix françaises).
 - **Écrire ou dicter un rendez-vous** : « mardi prochain à 15 h dentiste », « foot tous les lundis à 19 h sauf en
   novembre », « séminaire la première semaine des trois prochains mois », « ElleFest du 27 au 29 octobre ».
 - **Agenda** : calendrier du mois, liste « À venir » ou du jour choisi, fiche détaillée, formulaire.

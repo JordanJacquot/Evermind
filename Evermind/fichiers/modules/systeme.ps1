@@ -146,7 +146,7 @@ function Update-CroixReglage {
 # Relance Evermind (nouveau thème) : il se ferme, puis Evermind.ps1 le relance une fois tout arrêté
 # ---------------------------------------------------------------------------
 # Mode jeu : quand un programme plein écran (un jeu, une vidéo) est au premier plan, Evermind se fait tout petit.
-#   Priorité basse, l'IA et la voix rendues si elles ne servent pas (l'IA garde sinon ~2,5 Go de la carte graphique),
+#   Priorité basse, l'IA et la voix rendues si elles ne servent pas (l'IA garde sinon ~1 Go de la carte graphique),
 #   la mémoire inutilisée rendue à Windows. « OK Evermind » et Ctrl + Maj + Espace marchent toujours (l'IA se
 #   recharge en quelques secondes si on lui demande quelque chose). Vérifié toutes les 4 secondes.
 # ---------------------------------------------------------------------------
