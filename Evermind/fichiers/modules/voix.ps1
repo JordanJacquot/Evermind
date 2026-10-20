@@ -15,7 +15,7 @@ $IaDir = Join-Path $VoixDir 'ia'
 $LlamaExe = Join-Path $IaDir 'llama-server.exe'
 # L'assistant : celui d'Evermind Mobile (ses règles, ses contrôles et son modèle entraîné, Evermind 0.6B), dans un petit
 # programme Java (dépôt Evermind-Mobile, module assistant-pc) qui lance lui-même le modèle avec llama-server
-$IaModele = Join-Path $IaDir 'evermind-0.6b-v2-q8_0.gguf'
+$IaModele = Join-Path $IaDir 'evermind-0.6b-v3-q8_0.gguf'
 $AssistantDir = Join-Path $IaDir 'assistant'
 $JavaExe = Join-Path $AssistantDir 'jdk-21.0.12.1+1-jre\bin\java.exe'
 $AssistantLib = Join-Path $AssistantDir 'v2\evermind-assistant\lib'
@@ -27,7 +27,8 @@ $KokoroExe = Join-Path $KokoroDir 'EvermindVoix.exe'
 $VoixAncienne = Join-Path $VoixDir 'supertonic'
 if (-not $EnTest) {
     foreach ($ancien in @($VoixAncienne, (Join-Path $VoixDir 'piper'), $IaAncienModele) + @(Get-ChildItem -LiteralPath $VoixDir -Filter 'fr_FR-*.onnx*' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }) +
-            # (les anciennes versions du programme de l'assistant)
+            # (les anciennes versions du modèle et du programme de l'assistant)
+            @(Get-ChildItem -LiteralPath $IaDir -Filter 'evermind-0.6b-*.gguf' -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne $IaModele } | ForEach-Object { $_.FullName }) +
             @(Get-ChildItem -LiteralPath $AssistantDir -Directory -Filter 'v*' -ErrorAction SilentlyContinue | Where-Object { $AssistantLib -notlike "$($_.FullName)\*" } | ForEach-Object { $_.FullName })) {
         if (Test-Path -LiteralPath $ancien) { try { Remove-Item -LiteralPath $ancien -Recurse -Force -ErrorAction Stop } catch {} }
     }
@@ -56,8 +57,8 @@ $VoixFichiers = @(
     @{ Pack = 'ia'; Nom = 'moteur de l''assistant'; Url = 'https://github.com/ggml-org/llama.cpp/releases/download/b11541/llama-b11541-bin-win-vulkan-x64.zip'
        Sha256 = '37BBA511D120222F13C3D520DD875F739A530CC124E78F7CBCE0026DE0173D8A'; Taille = 33464528
        Extraire = '^(llama-server\.exe|llama-server-impl\.dll|llama\.dll|llama-common\.dll|ggml[^/]*\.dll|mtmd\.dll|libomp\.dll)$'; Vers = 'ia'; Garder = $LlamaExe }
-    @{ Pack = 'ia'; Nom = 'cerveau de l''assistant'; Url = 'https://github.com/JordanJacquot/Evermind-Mobile/releases/download/assistant-v2/evermind-0.6b-v2-q8_0.gguf'
-       Sha256 = '040D7B5CE176B058A02D614161261B6CCAC7AF6AB702228BBCE81ADAF8F6E871'; Taille = 639446912; Garder = $IaModele }
+    @{ Pack = 'ia'; Nom = 'cerveau de l''assistant'; Url = 'https://github.com/JordanJacquot/Evermind-Mobile/releases/download/assistant-v3/evermind-0.6b-v3-q8_0.gguf'
+       Sha256 = 'AB12471564B38C32584081173729C5BC02F8F0EDA493C673C44D34ECE3A16068'; Taille = 639446912; Garder = $IaModele }
     @{ Pack = 'ia'; Nom = 'Java'; Url = 'https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jre_x64_windows_hotspot_21.0.12.1_1.zip'
        Sha256 = 'D35F31E712F0FCF6AC5A093EDC90204FBFF22F720BA3950BD09D331D5E621636'; Taille = 48999141
        Extraire = '^jdk-21\.0\.12\.1\+1-jre/.+[^/]$'; Vers = 'ia\assistant'; Garder = $JavaExe }
