@@ -5,7 +5,7 @@
 #     Evermind.exe                           <- à lancer (icône Evermind)
 #     LISEZMOI.txt                           <- installer et utiliser
 #     fichiers\Evermind.ps1, Evermind.ico, lanceur de secours (.bat)
-#     fichiers\cle-publique.xml              <- vérifie la signature des mises à jour (la même que Mindset)
+#     fichiers\cles-publiques\*.xml          <- vérifient la signature des mises à jour (les mêmes que Mindset)
 #     fichiers\modules\                      <- le code découpé par partie
 
 $ErrorActionPreference = 'Stop'
@@ -32,9 +32,9 @@ $release = Join-Path $racine 'release'
 New-Item -ItemType Directory -Force -Path $release | Out-Null
 $zip = Join-Path $release 'Evermind.zip'
 Compress-Archive -Path $app -DestinationPath $zip -Force
-# La clé publique de la suite doit être dans le zip : sans elle, Evermind refuse toutes ses mises à jour (modules\maj.ps1)
+# Les clés publiques de la suite doivent être dans le zip : sans elles, Evermind refuse toutes ses mises à jour (modules\maj.ps1)
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $z = [IO.Compression.ZipFile]::OpenRead($zip)
-try { $cle = @($z.Entries | Where-Object { $_.FullName.Replace('\', '/') -ieq 'Evermind/fichiers/cle-publique.xml' }).Count } finally { $z.Dispose() }
-if (-not $cle) { throw "Le zip ne contient pas Evermind\fichiers\cle-publique.xml (à copier depuis Mindset\fichiers)." }
+try { $cle = @($z.Entries | Where-Object { $_.FullName.Replace('\', '/') -ilike 'Evermind/fichiers/cles-publiques/*.xml' }).Count } finally { $z.Dispose() }
+if (-not $cle) { throw "Le zip ne contient pas Evermind\fichiers\cles-publiques (à copier depuis Mindset\fichiers)." }
 "OK : $zip"

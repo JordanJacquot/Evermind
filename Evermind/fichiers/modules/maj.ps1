@@ -10,21 +10,35 @@
 # Chargé par Evermind.ps1, après voix.ps1.
 
 $MajDossier = Join-Path $env:TEMP 'Evermind-maj'
-$ClePublique = Join-Path $AppDir 'cle-publique.xml'   # la clé publique de la suite (la même que dans Mindset)
+$ClePublique = Join-Path $AppDir 'cles-publiques'   # les clés publiques de la suite (les mêmes que dans Mindset)
 $script:Maj = [hashtable]::Synchronized(@{ Etat = ''; Version = ''; Url = ''; UrlSig = ''; Digest = ''; Page = ''; Erreur = ''; Refus = $false; Recu = 0L; Total = 0L; Dossier = '' })
 
-# Signature d'un zip (RSA 3072, SHA-256), comme dans Mindset (modules\signature.ps1) : chaque zip publié est signé
+# Signature d'un zip (RSA, SHA-256), comme dans Mindset (modules\signature.ps1) : chaque zip publié est signé
 # avec la clé privée de Jordan, qui ne quitte jamais son PC (Mindset\outils\signer.ps1). Quelqu'un qui volerait
 # l'accès au compte GitHub ne pourrait donc pas faire installer un faux Evermind.
+# Une liste de clés (clé de tous les jours, clé de secours, clé suivante pendant un changement) : la signature est bonne
+# si UNE des clés la vérifie. Liste vide, fichier abîmé, clé privée ou trop courte (moins de 3072 bits) : tout est refusé.
 function Test-Signature([byte[]]$Donnees, [byte[]]$Signature, [string]$ClePublique) {
-    if (-not $Donnees -or -not $Signature -or -not (Test-Path -LiteralPath $ClePublique)) { return $false }
-    $rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider
+    if (-not $Donnees -or -not $Signature -or -not $ClePublique) { return $false }
+    if (Test-Path -LiteralPath $ClePublique -PathType Container) {
+        $fichiers = @(Get-ChildItem -LiteralPath $ClePublique -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Extension -eq '.xml' } | ForEach-Object { $_.FullName })
+    } elseif (Test-Path -LiteralPath $ClePublique -PathType Leaf) { $fichiers = @($ClePublique) }
+    else { return $false }
+    if (-not $fichiers.Count) { return $false }
+    $cles = @()
     try {
-        $rsa.FromXmlString([IO.File]::ReadAllText($ClePublique, [Text.Encoding]::UTF8))
-        if ($rsa.KeySize -lt 3072 -or -not $rsa.PublicOnly) { return $false }
-        $rsa.VerifyData($Donnees, [System.Security.Cryptography.CryptoConfig]::MapNameToOID('SHA256'), $Signature)
+        foreach ($f in $fichiers) {
+            $rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider
+            $cles += $rsa
+            $rsa.FromXmlString([IO.File]::ReadAllText($f, [Text.Encoding]::UTF8))
+            if ($rsa.KeySize -lt 3072 -or -not $rsa.PublicOnly) { return $false }
+        }
+        foreach ($rsa in $cles) {
+            if ($rsa.VerifyData($Donnees, [System.Security.Cryptography.CryptoConfig]::MapNameToOID('SHA256'), $Signature)) { return $true }
+        }
+        $false
     } catch { $false }
-    finally { $rsa.Dispose() }
+    finally { foreach ($rsa in $cles) { $rsa.Dispose() } }
 }
 
 function Test-VersionPlusRecente([string]$En, [string]$Ici) {
@@ -196,6 +210,12 @@ Start-Sleep -Milliseconds 700
 # Les nouveaux fichiers par dessus les anciens (robocopy réessaie si un fichier est encore pris)
 & robocopy.exe $Source $Cible /E /R:10 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { Note "remplacement impossible (robocopy $LASTEXITCODE)" } else { Note 'fichiers remplacés' }
+# Les clés publiques : exactement la liste de la nouvelle version (/MIR), pour qu'une clé retirée disparaisse vraiment
+$cles = Join-Path $Source 'fichiers\cles-publiques'
+if (Test-Path -LiteralPath $cles) {
+    & robocopy.exe $cles (Join-Path $Cible 'fichiers\cles-publiques') /MIR /R:10 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) { Note "liste des clés non remplacée (robocopy $LASTEXITCODE)" }
+}
 if (-not $PasDeRelance) { Start-Process -FilePath (Join-Path $Cible 'Evermind.exe') }
 '@
     [IO.File]::WriteAllText($script, $code, (New-Object Text.UTF8Encoding($true)))
