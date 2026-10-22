@@ -48,3 +48,7 @@ Il faut Windows 10 ou 11 (64 bits) et au moins 8 Go de mémoire. Avec une carte 
 - Les fichiers téléchargés (Whisper, Kokoro, llama.cpp, Vosk, modèles) ont des versions et des empreintes fixées.
 - Les scripts sont en UTF-8 avec BOM (sinon PowerShell 5.1 abîme les accents).
 - Les thèmes personnalisés (images de personnages) ne sont pas dans le dépôt.
+
+## Licence
+
+Evermind est sous licence MIT (voir le fichier `LICENSE`) : tu peux lire, réutiliser, modifier et redistribuer le code, en gardant la mention de licence. Les composants d'autres auteurs gardent leur propre licence : les modules téléchargés à part (Whisper, Kokoro, llama.cpp, Vosk et leurs modèles), chacun sous sa propre licence.
