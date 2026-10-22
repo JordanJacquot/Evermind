@@ -84,11 +84,12 @@ function Start-Capture([string]$Path) {
     # (jamais au premier plan, même un instant : on peut utiliser le PC pendant les tests)
     $Window.Add_SourceInitialized({ [EMJeu]::SansActivation((New-Object System.Windows.Interop.WindowInteropHelper $Window).Handle) })
     # Capture une fois la fenêtre dessinée et la dictée de test (s'il y en a une) terminée
+    # (« erreur » : la mise à jour vient d'échouer, son minuteur n'a pas encore noté le refus au journal)
     $Window.Add_ContentRendered({
         $script:CaptureTimer = New-Object System.Windows.Threading.DispatcherTimer
         $script:CaptureTimer.Interval = [TimeSpan]::FromMilliseconds(300)
         $script:CaptureTimer.Add_Tick({
-            if ($script:AlerteEnCapture -or ($script:Maj.Etat -in @('cherche', 'vu', 'telecharge', 'pret')) -or ($env:EVERMIND_MAJ_AUTO -and $script:Maj.Etat -eq 'dispo') -or $script:Transcription -or $script:Demande -or $script:TestTimer -or ($script:Eveil -and $script:Eveil.Detecte) -or $script:Parle -or ($script:VoixDl -and -not $script:VoixDl.Fini -and -not $script:VoixDl.Test) -or $script:TestAttente) { return }
+            if ($script:AlerteEnCapture -or ($script:Maj.Etat -in @('cherche', 'vu', 'telecharge', 'pret', 'erreur')) -or ($env:EVERMIND_MAJ_AUTO -and $script:Maj.Etat -eq 'dispo') -or $script:Transcription -or $script:Demande -or $script:TestTimer -or ($script:Eveil -and $script:Eveil.Detecte) -or $script:Parle -or ($script:VoixDl -and -not $script:VoixDl.Fini -and -not $script:VoixDl.Test) -or $script:TestAttente) { return }
             $script:CaptureTimer.Stop()
             try {
                 $root = $Window.Content
