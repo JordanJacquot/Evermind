@@ -794,7 +794,14 @@ function Hide-Bulle { if ($script:Bulle) { $script:Bulle.Win.Hide() } }
 # Source : 'raccourci' (Ctrl + Maj + Espace) ou 'bouton' (le micro dans la fenêtre).
 # Avec le raccourci : on garde appuyé pendant qu'on parle et on relâche, ou on appuie une fois
 # et Evermind s'arrête tout seul quand on se tait.
-function Set-VoixEtat([string]$Texte) { $ui.VoixEtat.Text = $Texte; $ui.VoixEtat.Visibility = if ($Texte) { 'Visible' } else { 'Collapsed' } }
+function Set-VoixEtat([string]$Texte) {
+    $ui.VoixEtat.Text = $Texte; $ui.VoixEtat.Visibility = if ($Texte) { 'Visible' } else { 'Collapsed' }
+    # Thème perso : son image de chargement tourne tant qu'Evermind écoute ou réfléchit
+    if ($script:VoixChargeTimer) {
+        $ui.VoixCharge.Visibility = if ($Texte) { 'Visible' } else { 'Collapsed' }
+        if ($Texte) { $script:VoixChargeTimer.Start() } else { $script:VoixChargeTimer.Stop() }
+    }
+}
 
 # -Silencieux : après un « OK Evermind » pas encore confirmé, on enregistre sans bip ni bulle (rien n'est perdu si on parle tout de suite)
 function Start-Ecoute([string]$Source, [switch]$Silencieux) {

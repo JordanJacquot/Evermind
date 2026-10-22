@@ -263,9 +263,10 @@ function Add-PackLogo($Canvas, [double]$C, [double]$Taille) {
         $timer.Interval = [TimeSpan]::FromMilliseconds($ThemePack.LogoDelay)
         $timer.Add_Tick({
             param($s)
+            if ($script:AnimsPause -or -not $Window.IsVisible -or $Window.WindowState -eq 'Minimized') { return }
             $m = $script:PackLogo
             $m.Frame++
-            if ($m.Frame -ge $m.Frames.Count) { $m.Frame = 0; $s.Stop() }
+            if ($m.Frame -ge $m.Frames.Count) { $m.Frame = 0; if (-not $ThemePack.LogoBoucle) { $s.Stop() } }
             $m.Img.Source = $m.Frames[$m.Frame]
         })
     } else {
@@ -280,6 +281,7 @@ function Add-PackLogo($Canvas, [double]$C, [double]$Taille) {
     [System.Windows.Controls.Canvas]::SetLeft($img, $C - $Taille / 2); [System.Windows.Controls.Canvas]::SetTop($img, $C - $Taille / 2)
     [void]$Canvas.Children.Add($img)
     $script:PackLogo = @{ Img = $img; Rot = $rot; Move = $mv; Frames = $frames; Frame = 0; Timer = $timer; Glow = $ThemePack.LogoGlow }
+    if ($timer -and $ThemePack.LogoBoucle) { $timer.Start() }   # logo animé du thème (Pikachu...) : il bouge tout le temps
     if ($ThemePack.LogoGlow) { Start-Sautille $img 3 $ThemePack.LogoGlow }   # lévitation lumineuse permanente
 }
 

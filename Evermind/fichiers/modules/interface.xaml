@@ -383,8 +383,6 @@
     <DockPanel Margin="32,22,32,6">
       <Button x:Name="BtnNouveau" DockPanel.Dock="Right" Style="{StaticResource BtnPrimary}" Content="+  Nouveau rendez-vous" VerticalAlignment="Center"/>
       <Button x:Name="BtnReglages" DockPanel.Dock="Right" Style="{StaticResource BtnSecondary}" Content="Réglages" VerticalAlignment="Center" Margin="0,0,12,0"/>
-      <!-- Mascotte d'un thème personnalisé (themes.ps1) -->
-      <Border x:Name="Mascotte" DockPanel.Dock="Right" Height="72" Margin="0,-14,22,-14" VerticalAlignment="Center" Visibility="Collapsed" IsHitTestVisible="False"/>
       <!-- La place du logo dans l'en-tête : le logo lui-même est sur un calque au-dessus, on peut le déplacer (logo.ps1) -->
       <Border x:Name="LogoPlace" Width="54" Height="54" Margin="-4,-6,10,-6" VerticalAlignment="Center"/>
       <StackPanel VerticalAlignment="Center">
@@ -393,70 +391,74 @@
       </StackPanel>
     </DockPanel>
 
-    <!-- Barre rapide : écrire ou dire son rendez-vous en une phrase -->
-    <Border Grid.Row="1" Style="{StaticResource Card}" Margin="32,12,32,0" Padding="18,14">
-      <StackPanel>
-        <Grid>
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="Auto"/>
-            <ColumnDefinition Width="Auto"/>
-          </Grid.ColumnDefinitions>
-          <TextBox x:Name="InPhrase" Style="{StaticResource Champ}" Tag="Écris ou dis ton rendez-vous : « mardi prochain à 15 h dentiste »" MaxLength="200"/>
-          <Grid Grid.Column="1" Margin="14,0,0,0" Width="60" Height="60">
-            <Ellipse x:Name="MicHalo" Opacity="0" IsHitTestVisible="False">
-              <Ellipse.Fill>
-                <RadialGradientBrush>
-                  <GradientStop Color="#AAFF2EB5" Offset="0.55"/>
-                  <GradientStop Color="#00FF2EB5" Offset="1"/>
-                </RadialGradientBrush>
-              </Ellipse.Fill>
-            </Ellipse>
-            <Button x:Name="BtnMicro" Style="{StaticResource BtnMicro}" Content="&#xE720;" ToolTip="Parler (ou Ctrl + Maj + Espace, même en jeu)"/>
-          </Grid>
-          <Button x:Name="BtnAjouter" Grid.Column="2" Style="{StaticResource BtnPrimary}" Content="Ajouter" IsDefault="True" Margin="12,0,0,0" VerticalAlignment="Center"/>
-        </Grid>
-        <TextBlock x:Name="ApercuLigne" FontSize="14" TextWrapping="Wrap" Margin="6,10,0,0" Visibility="Collapsed"/>
-        <TextBlock x:Name="FormMessage" FontSize="14" TextWrapping="Wrap" Margin="6,10,0,0" Visibility="Collapsed"/>
-        <TextBlock x:Name="VoixEtat" Style="{StaticResource Sub}" FontSize="13" Margin="6,8,0,0" Visibility="Collapsed"/>
-        <!-- Installation de la dictée, la première fois -->
-        <Border x:Name="VoixInstall" Visibility="Collapsed" Margin="0,12,0,0" Background="#1400E5FF" BorderBrush="#5500E5FF" BorderThickness="1" CornerRadius="14" Padding="16,12">
-          <DockPanel>
-            <Button x:Name="BtnVoixInstall" DockPanel.Dock="Right" Style="{StaticResource BtnPrimary}" Content="Installer la dictée" VerticalAlignment="Center" Margin="14,0,0,0"/>
-            <Button x:Name="BtnVoixPlusTard" DockPanel.Dock="Right" Style="{StaticResource BtnSecondary}" Content="Plus tard" VerticalAlignment="Center" Margin="14,0,0,0" Visibility="Collapsed"/>
-            <StackPanel VerticalAlignment="Center">
-              <TextBlock x:Name="VoixInstallTexte" FontSize="14" Foreground="#EEEBF7" TextWrapping="Wrap"/>
-              <Border x:Name="VoixBarreFond" Height="6" CornerRadius="3" Background="#22FFFFFF" Margin="0,10,0,0" Visibility="Collapsed">
-                <Border x:Name="VoixBarre" HorizontalAlignment="Left" Width="4" CornerRadius="3" Background="{StaticResource AccentBg}"/>
-              </Border>
-            </StackPanel>
-          </DockPanel>
-        </Border>
-        <!-- Nouvelle version d'Evermind : mise à jour en un clic -->
-        <Border x:Name="MajBandeau" Visibility="Collapsed" Margin="0,12,0,0" Background="#1AFF2EB5" BorderBrush="#66FF2EB5" BorderThickness="1" CornerRadius="14" Padding="16,12">
-          <DockPanel>
-            <Button x:Name="BtnMaj" DockPanel.Dock="Right" Style="{StaticResource BtnPrimary}" Content="Mettre à jour" VerticalAlignment="Center" Margin="14,0,0,0"/>
-            <Button x:Name="BtnMajPlusTard" DockPanel.Dock="Right" Style="{StaticResource BtnSecondary}" Content="Plus tard" VerticalAlignment="Center" Margin="14,0,0,0"/>
-            <TextBlock DockPanel.Dock="Left" Text="✦" FontSize="22" Foreground="#FF2EB5" VerticalAlignment="Center" Margin="0,0,14,0"/>
-            <StackPanel VerticalAlignment="Center">
-              <TextBlock x:Name="MajTexte" FontSize="14" Foreground="#EEEBF7" TextWrapping="Wrap"/>
-              <Border x:Name="MajBarreFond" Height="6" CornerRadius="3" Background="#22FFFFFF" Margin="0,10,0,0" Visibility="Collapsed">
-                <Border x:Name="MajBarre" HorizontalAlignment="Left" Width="4" CornerRadius="3" Background="{StaticResource AccentBg}"/>
-              </Border>
-            </StackPanel>
-          </DockPanel>
-        </Border>
-      </StackPanel>
-    </Border>
-
-    <Grid Grid.Row="2" Margin="32,14,32,0">
+    <Grid Grid.Row="1" Grid.RowSpan="2" Margin="32,14,32,0">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="340"/>
         <ColumnDefinition Width="20"/>
-        <ColumnDefinition Width="380"/>
+        <ColumnDefinition Width="*"/>
       </Grid.ColumnDefinitions>
 
-      <!-- Calendrier du mois -->
+      <!-- À droite, en grand : la barre rapide puis le calendrier du mois -->
+      <DockPanel Grid.Column="2">
+          <!-- Barre rapide : écrire ou dire son rendez-vous en une phrase -->
+          <Border DockPanel.Dock="Top" Style="{StaticResource Card}" Margin="0,0,0,14" Padding="18,14">
+            <StackPanel>
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="InPhrase" Style="{StaticResource Champ}" Tag="Écris ou dis ton rendez-vous : « mardi prochain à 15 h dentiste »" MaxLength="200"/>
+                <Grid Grid.Column="1" Margin="14,0,0,0" Width="60" Height="60">
+                  <Ellipse x:Name="MicHalo" Opacity="0" IsHitTestVisible="False">
+                    <Ellipse.Fill>
+                      <RadialGradientBrush>
+                        <GradientStop Color="#AAFF2EB5" Offset="0.55"/>
+                        <GradientStop Color="#00FF2EB5" Offset="1"/>
+                      </RadialGradientBrush>
+                    </Ellipse.Fill>
+                  </Ellipse>
+                  <Button x:Name="BtnMicro" Style="{StaticResource BtnMicro}" Content="&#xE720;" ToolTip="Parler (ou Ctrl + Maj + Espace, même en jeu)"/>
+                </Grid>
+                <Button x:Name="BtnAjouter" Grid.Column="2" Style="{StaticResource BtnPrimary}" Content="Ajouter" IsDefault="True" Margin="12,0,0,0" VerticalAlignment="Center"/>
+              </Grid>
+              <TextBlock x:Name="ApercuLigne" FontSize="14" TextWrapping="Wrap" Margin="6,10,0,0" Visibility="Collapsed"/>
+              <TextBlock x:Name="FormMessage" FontSize="14" TextWrapping="Wrap" Margin="6,10,0,0" Visibility="Collapsed"/>
+              <!-- Pendant l'écoute : l'image de chargement du thème tourne à côté du texte (themes.ps1) -->
+              <StackPanel Orientation="Horizontal" Margin="6,8,0,0">
+                <Image x:Name="VoixCharge" Width="36" Height="36" Margin="0,0,10,0" Visibility="Collapsed" VerticalAlignment="Center"/>
+                <TextBlock x:Name="VoixEtat" Style="{StaticResource Sub}" FontSize="13" VerticalAlignment="Center" Visibility="Collapsed"/>
+              </StackPanel>
+              <!-- Installation de la dictée, la première fois -->
+              <Border x:Name="VoixInstall" Visibility="Collapsed" Margin="0,12,0,0" Background="#1400E5FF" BorderBrush="#5500E5FF" BorderThickness="1" CornerRadius="14" Padding="16,12">
+                <DockPanel>
+                  <Button x:Name="BtnVoixInstall" DockPanel.Dock="Right" Style="{StaticResource BtnPrimary}" Content="Installer la dictée" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                  <Button x:Name="BtnVoixPlusTard" DockPanel.Dock="Right" Style="{StaticResource BtnSecondary}" Content="Plus tard" VerticalAlignment="Center" Margin="14,0,0,0" Visibility="Collapsed"/>
+                  <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Name="VoixInstallTexte" FontSize="14" Foreground="#EEEBF7" TextWrapping="Wrap"/>
+                    <Border x:Name="VoixBarreFond" Height="6" CornerRadius="3" Background="#22FFFFFF" Margin="0,10,0,0" Visibility="Collapsed">
+                      <Border x:Name="VoixBarre" HorizontalAlignment="Left" Width="4" CornerRadius="3" Background="{StaticResource AccentBg}"/>
+                    </Border>
+                  </StackPanel>
+                </DockPanel>
+              </Border>
+              <!-- Nouvelle version d'Evermind : mise à jour en un clic -->
+              <Border x:Name="MajBandeau" Visibility="Collapsed" Margin="0,12,0,0" Background="#1AFF2EB5" BorderBrush="#66FF2EB5" BorderThickness="1" CornerRadius="14" Padding="16,12">
+                <DockPanel>
+                  <Button x:Name="BtnMaj" DockPanel.Dock="Right" Style="{StaticResource BtnPrimary}" Content="Mettre à jour" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                  <Button x:Name="BtnMajPlusTard" DockPanel.Dock="Right" Style="{StaticResource BtnSecondary}" Content="Plus tard" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                  <TextBlock DockPanel.Dock="Left" Text="✦" FontSize="22" Foreground="#FF2EB5" VerticalAlignment="Center" Margin="0,0,14,0"/>
+                  <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Name="MajTexte" FontSize="14" Foreground="#EEEBF7" TextWrapping="Wrap"/>
+                    <Border x:Name="MajBarreFond" Height="6" CornerRadius="3" Background="#22FFFFFF" Margin="0,10,0,0" Visibility="Collapsed">
+                      <Border x:Name="MajBarre" HorizontalAlignment="Left" Width="4" CornerRadius="3" Background="{StaticResource AccentBg}"/>
+                    </Border>
+                  </StackPanel>
+                </DockPanel>
+              </Border>
+            </StackPanel>
+          </Border>
       <Border Style="{StaticResource Card}" Padding="20,16">
         <DockPanel>
           <DockPanel DockPanel.Dock="Top" Margin="4,0,0,10">
@@ -479,10 +481,33 @@
           <UniformGrid x:Name="CalGrille" Columns="7" Rows="6"/>
         </DockPanel>
       </Border>
+      </DockPanel>
 
-      <!-- À venir, ou les rendez-vous du jour choisi -->
-      <Border Grid.Column="2" Style="{StaticResource Card}" Padding="20,18,8,18">
+      <!-- À gauche : à venir (ou le jour choisi), et en bas la mascotte du thème avec sa bulle (themes.ps1) -->
+      <DockPanel Grid.Column="0">
+      <Grid x:Name="MascotteZone" DockPanel.Dock="Bottom" Height="190" Margin="0,12,0,0" Visibility="Collapsed" IsHitTestVisible="False">
+        <Border x:Name="Mascotte" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="4,0,0,0"/>
+        <Border x:Name="MascotteBulle" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,0,0,0" MaxWidth="330" Padding="14,10" CornerRadius="16,16,16,4" Background="#E6110F22" BorderBrush="#7300E5FF" BorderThickness="1">
+          <TextBlock x:Name="MascotteTexte" FontSize="14" Foreground="#EEEBF7" TextWrapping="Wrap"/>
+        </Border>
+      </Grid>
+      <Border Style="{StaticResource Card}" Padding="20,18,8,18">
         <DockPanel>
+          <!-- Les « À faire » du jour : combien sont faits (agenda.ps1) -->
+          <Grid x:Name="AFaireZone" DockPanel.Dock="Top" Margin="0,0,12,14" Visibility="Collapsed">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Grid Width="64" Height="64">
+              <Ellipse Stroke="#16FFFFFF" StrokeThickness="6"/>
+              <Ellipse x:Name="AFaireAnneau" Stroke="#00E5FF" StrokeThickness="6" StrokeDashCap="Round" RenderTransformOrigin="0.5,0.5">
+                <Ellipse.RenderTransform><RotateTransform Angle="-90"/></Ellipse.RenderTransform>
+              </Ellipse>
+              <TextBlock x:Name="AFaireChiffre" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Grid>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="14,0,0,0">
+              <TextBlock Text="À faire aujourd'hui" FontSize="15" FontWeight="SemiBold" Foreground="#FFFFFF"/>
+              <TextBlock x:Name="AFaireTexte" Style="{StaticResource Sub}" FontSize="13" TextWrapping="Wrap"/>
+            </StackPanel>
+          </Grid>
           <DockPanel DockPanel.Dock="Top" Margin="0,0,12,12">
             <Button x:Name="BtnToutVoir" DockPanel.Dock="Right" Style="{StaticResource BtnSecondary}" Content="Tout voir" VerticalAlignment="Center" Visibility="Collapsed"/>
             <StackPanel>
@@ -502,6 +527,7 @@
           </Grid>
         </DockPanel>
       </Border>
+      </DockPanel>
     </Grid>
 
     <!-- Bas de la fenêtre -->

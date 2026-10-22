@@ -116,6 +116,7 @@ if ($script:ShowSignal) {
 }
 
 # Tests automatiques : phrase tapée d'avance, ajout, formulaire ouvert, dictée d'un fichier son
+if ($env:EVERMIND_TEST_ECOUTE) { Set-VoixEtat 'Je t''écoute... (je m''arrête tout seul quand tu te tais)' }   # (tests : la dictée qui écoute, avec le chargement du thème)
 if ($env:EVERMIND_PHRASE) { $ui.InPhrase.Text = $env:EVERMIND_PHRASE; if ($env:EVERMIND_AJOUTER) { Invoke-Ajouter } }
 if ($env:EVERMIND_FORMULAIRE) { Open-Formulaire }
 if ($env:EVERMIND_REGLAGES) { Open-Reglages $(if ($env:EVERMIND_REGLAGES -ne '1') { $env:EVERMIND_REGLAGES }) }

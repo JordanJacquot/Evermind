@@ -38,7 +38,10 @@ $AppThemes = [ordered]@{
 #   Hello             bonjour de l'en-tête (« {0} » = Bonjour ou Bonsoir)
 #   Logo              image à la place du E (PNG transparent, carré) ; LogoFrames, LogoDelay : planche animée ;
 #                     LogoGlow : couleur d'une lueur, le logo lévite au lieu de se secouer
-#   Mascotte          personnage animé dans l'en-tête : { File = planche PNG (images côte à côte), Frames, Delay (ms), Flip }
+#   Mascotte          personnage animé en bas à gauche, avec sa bulle : { File = planche PNG (images côte à côte), Frames, Delay (ms), Flip,
+#                     Vignette = image opaque, affichée en vignette arrondie }
+#   LogoBoucle        le logo animé (LogoFrames) tourne en boucle au lieu d'une fois à chaque événement
+#   Loader            image de chargement (planche : { File, Frames, Delay }) : elle tourne pendant que la dictée écoute
 #   Footer            dessin animé dans la barre du bas : { File = planche PNG, Frames, Delay (ms), Height (px) }
 #   TabIcons          icônes des onglets des Réglages : { son, voix, assistant, theme, general = { File, Frames, Delay, Glow } }
 #   Background        image de fond, sous un voile sombre (BackgroundOpacity 0 à 1, BackgroundAlign « bas-droite »...)
@@ -57,8 +60,11 @@ function Get-ThemePack([string]$Id) {
     if (-not $p.Name) { $p.Name = $Id }
     $p.Logo = & $fichier $j.Logo
     $p.LogoFrames = [math]::Max(1, [int]$j.LogoFrames); $p.LogoDelay = [math]::Max(30, [int]$j.LogoDelay); $p.LogoGlow = [string]$j.LogoGlow
+    $p.LogoBoucle = [bool]$j.LogoBoucle
     $p.Mascotte = $null
-    if ($j.Mascotte -and (& $fichier $j.Mascotte.File)) { $p.Mascotte = @{ File = (& $fichier $j.Mascotte.File); Frames = [math]::Max(1, [int]$j.Mascotte.Frames); Delay = [math]::Max(40, [int]$j.Mascotte.Delay); Flip = [bool]$j.Mascotte.Flip } }
+    if ($j.Mascotte -and (& $fichier $j.Mascotte.File)) { $p.Mascotte = @{ File = (& $fichier $j.Mascotte.File); Frames = [math]::Max(1, [int]$j.Mascotte.Frames); Delay = [math]::Max(40, [int]$j.Mascotte.Delay); Flip = [bool]$j.Mascotte.Flip; Vignette = [bool]$j.Mascotte.Vignette } }
+    $p.Loader = $null
+    if ($j.Loader -and (& $fichier $j.Loader.File)) { $p.Loader = @{ File = (& $fichier $j.Loader.File); Frames = [math]::Max(1, [int]$j.Loader.Frames); Delay = [math]::Max(30, [int]$j.Loader.Delay) } }
     $p.Footer = $null
     if ($j.Footer -and (& $fichier $j.Footer.File)) { $p.Footer = @{ File = (& $fichier $j.Footer.File); Frames = [math]::Max(1, [int]$j.Footer.Frames); Delay = [math]::Max(40, [int]$j.Footer.Delay); Height = [math]::Max(16, [int]$j.Footer.Height) } }
     $p.TabIcons = @{}
@@ -234,6 +240,10 @@ function Get-Couleur([string]$Hex) { [System.Windows.Media.ColorConverter]::Conv
 # Texte de la fenêtre (interface.xaml) traduit avant d'être chargé : couleurs, et police du thème
 function Convert-ThemeXaml([string]$Text, [string]$Id = $ThemeId) {
     if ($PackFont -and $Id -eq $ThemeId) { $Text = Add-PackFontXaml $Text }
+    if ($ThemePack -and $ThemePack.Background -and $Id -eq $ThemeId) {
+        # Fond en image : les panneaux deviennent plus sombres et moins transparents, l'agenda reste bien lisible
+        $Text = [regex]::Replace($Text, '<GradientStop Color="#17FFFFFF" Offset="0"/>(\s*)<GradientStop Color="#08FFFFFF" Offset="1"/>', '<GradientStop Color="#E0120F26" Offset="0"/>$1<GradientStop Color="#D80A0818" Offset="1"/>')
+    }
     if ($Id -eq 'neon') { return $Text }
     $th = $AppThemes[$Id]
     $Text = [regex]::Replace($Text, '(?<![&\w])#([0-9A-Fa-f]{8}|[0-9A-Fa-f]{6})(?![0-9A-Fa-f])', { param($m) ConvertTo-ThemeHex $m.Value $Id })
@@ -269,7 +279,7 @@ function Add-ThemeDecor {
         $img.Fill = $brush; $img.Opacity = $ThemePack.BackgroundOpacity
         [void]$d.Children.Add($img)
         $veil = New-Object System.Windows.Shapes.Rectangle
-        $veil.Fill = New-RawGradient @('#99000000', '#33000000', '#AA000000') 0 1
+        $veil.Fill = New-RawGradient @('#A6000000', '#73000000', '#D0000000') 0 1
         [void]$d.Children.Add($veil)
     }
     if ($ThemePack) { Initialize-PackVisuels }
@@ -355,16 +365,50 @@ function Initialize-PackVisuels {
         $script:PixelTimer.Add_Tick({ if ($script:PixelAFaire -and $Window.IsVisible) { $script:PixelAFaire = $false; Update-TaillesPixel $Window } })
         $script:PixelTimer.Start()
     }
-    # Mascotte : le personnage du thème, animé dans l'en-tête
+    # Mascotte : le personnage du thème, en bas à gauche, avec sa bulle (« Bonjour ! Tu as 2 rendez-vous aujourd'hui. »)
     if ($ThemePack.Mascotte) {
         $M = $ThemePack.Mascotte
         $frames = Get-SheetFrames $M.File $M.Frames
         $img = New-Object System.Windows.Controls.Image
-        $img.Source = $frames[0]; $img.Height = 72; $img.Stretch = 'Uniform'
-        [System.Windows.Media.RenderOptions]::SetBitmapScalingMode($img, $(if ($frames[0].PixelHeight -le 72) { 'NearestNeighbor' } else { 'HighQuality' }))
+        $h = if ($M.Vignette) { 118 } else { 132 }
+        $img.Source = $frames[0]; $img.Height = $h; $img.Stretch = 'Uniform'
+        [System.Windows.Media.RenderOptions]::SetBitmapScalingMode($img, $(if ($ThemePack.FontPixel) { 'NearestNeighbor' } else { 'HighQuality' }))
         if ($M.Flip) { $img.RenderTransformOrigin = [System.Windows.Point]::new(0.5, 0.5); $img.RenderTransform = New-Object System.Windows.Media.ScaleTransform -1, 1 }
-        $ui.Mascotte.Child = $img; $ui.Mascotte.Visibility = 'Visible'
-        if ($frames.Count -gt 1) { $script:PackTimers += Start-Defilement $img $frames $M.Delay } else { Start-Sautille $img 8 }
+        if ($M.Vignette) {
+            # Image opaque (une scène) : vignette arrondie avec un fin bord aux couleurs du thème
+            $img.Stretch = 'UniformToFill'; $img.Width = $h
+            $v = New-Object System.Windows.Controls.Border
+            $v.CornerRadius = 16; $v.BorderThickness = 1; $v.BorderBrush = Get-Brush '#8000E5FF'; $v.ClipToBounds = $true
+            $clip = New-Object System.Windows.Media.RectangleGeometry ([System.Windows.Rect]::new(0, 0, $h, $h)), 15, 15
+            $img.Clip = $clip; $v.Child = $img
+            $ui.Mascotte.Child = $v
+        } else {
+            $fx = New-Object System.Windows.Media.Effects.DropShadowEffect; $fx.ShadowDepth = 5; $fx.BlurRadius = 14; $fx.Opacity = 0.6; $fx.Direction = 270
+            $img.Effect = $fx
+            $ui.Mascotte.Child = $img
+        }
+        $ui.MascotteZone.Visibility = 'Visible'
+        if ($frames.Count -gt 1) { $script:PackTimers += Start-Defilement $img $frames $M.Delay } elseif (-not $M.Vignette) { Start-Sautille $img 5 }
+        # La bulle apparaît en grandissant depuis la mascotte
+        $bulle = $ui.MascotteBulle
+        $bulle.RenderTransformOrigin = [System.Windows.Point]::new(0, 1)
+        if ($EnTest) { $bulle = $null }   # (tests : la bulle tout de suite, pour la capture)
+    }
+    if ($ThemePack.Mascotte -and $bulle) {
+        $sc = New-Object System.Windows.Media.ScaleTransform 0.6, 0.6; $bulle.RenderTransform = $sc; $bulle.Opacity = 0
+        $ease = New-Object System.Windows.Media.Animation.BackEase; $ease.Amplitude = 0.35; $ease.EasingMode = 'EaseOut'
+        $dur = [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(600)); $debut = [TimeSpan]::FromMilliseconds(350)
+        foreach ($pr in @([System.Windows.Media.ScaleTransform]::ScaleXProperty, [System.Windows.Media.ScaleTransform]::ScaleYProperty)) {
+            $a = New-Object System.Windows.Media.Animation.DoubleAnimation 0.6, 1, $dur; $a.EasingFunction = $ease; $a.BeginTime = $debut; $sc.BeginAnimation($pr, $a)
+        }
+        $o = New-Object System.Windows.Media.Animation.DoubleAnimation 0, 1, $dur; $o.BeginTime = $debut; $bulle.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $o)
+    }
+    # Chargement du thème : il tourne à côté de « Je t'écoute... » pendant la dictée (Set-VoixEtat)
+    if ($ThemePack.Loader) {
+        $script:VoixChargeImages = Get-SheetFrames $ThemePack.Loader.File $ThemePack.Loader.Frames
+        $ui.VoixCharge.Source = $script:VoixChargeImages[0]
+        $script:VoixChargeTimer = Start-Defilement $ui.VoixCharge $script:VoixChargeImages $ThemePack.Loader.Delay
+        $script:VoixChargeTimer.Stop()   # (pas dans PackTimers : il ne tourne que pendant l'écoute)
     }
     # Dessin animé de la barre du bas
     if ($ThemePack.Footer) {

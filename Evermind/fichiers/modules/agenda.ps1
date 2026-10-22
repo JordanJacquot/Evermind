@@ -354,6 +354,9 @@ function Update-Calendrier {
         [void]$parJour[$k].Add($it)
     }
     $ui.CalGrille.Children.Clear()
+    $anime = $script:CalMoisAnime -ne $first -and -not $EnTest   # (tests : tout de suite, pour la capture)
+    $script:CalMoisAnime = $first
+    $rang = 0
     for ($i = 0; $i -lt 42; $i++) {
         $d = $start.AddDays($i)
         $choisi = $script:JourChoisi -and $d -eq $script:JourChoisi
@@ -363,6 +366,18 @@ function Update-Calendrier {
         $cell.Background = Get-Brush $(if ($choisi) { '#2600E5FF' } else { '#0BFFFFFF' })
         $cell.BorderBrush = if ($choisi) { $Window.FindResource('AccentBg') } elseif ($d -eq $today) { Get-Brush '#00E5FF' } else { Get-Brush '#12FFFFFF' }
         if ($choisi) { $cell.Effect = New-Object System.Windows.Media.Effects.DropShadowEffect -Property @{ Color = [System.Windows.Media.Color]::FromRgb(0, 229, 255); BlurRadius = 18; ShadowDepth = 0; Opacity = 0.45 } }
+        elseif ($d -eq $today) {
+            # Aujourd'hui luit doucement, aux couleurs du thème
+            $fx = New-Object System.Windows.Media.Effects.DropShadowEffect -Property @{ Color = (Get-Brush '#00E5FF').Color; BlurRadius = 20; ShadowDepth = 0; Opacity = 0.15 }
+            $cell.Effect = $fx
+            $lu = New-Object System.Windows.Media.Animation.DoubleAnimation 0.15, 0.7, ([System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(1400)))
+            $lu.AutoReverse = $true; $lu.RepeatBehavior = [System.Windows.Media.Animation.RepeatBehavior]::Forever
+            $lu.EasingFunction = New-Object System.Windows.Media.Animation.SineEase
+            [System.Windows.Media.Animation.Timeline]::SetDesiredFrameRate($lu, 20)
+            if ($script:AujLueur) { $script:AnimsBoucle.Remove($script:AujLueur) }   # (la case d'avant est redessinée : sa lueur part avec elle)
+            Add-AnimationBoucle $fx ([System.Windows.Media.Effects.DropShadowEffect]::OpacityProperty) $lu
+            $script:AujLueur = $script:AnimsBoucle[$script:AnimsBoucle.Count - 1]
+        }
         if ($d.Month -ne $first.Month) { $cell.Opacity = 0.38 }
         elseif ($d -lt $today) { $cell.Opacity = 0.7 }
 
@@ -405,6 +420,13 @@ function Update-Calendrier {
                 $pill.Child = $pt
                 $pill.Tag = @{ Id = $it.RV.Id; Quand = $it.Prochain }; $pill.Cursor = 'Hand'
                 $pill.Add_MouseLeftButtonDown({ param($s, $e) $e.Handled = $true; Show-Fiche (Get-RendezVous $s.Tag.Id) $s.Tag.Quand })
+                if ($anime) {
+                    $pill.Opacity = 0
+                    $mv = New-Object System.Windows.Media.TranslateTransform 0, 6; $pill.RenderTransform = $mv
+                    $dur = [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(420)); $t0 = [TimeSpan]::FromMilliseconds(120 + 45 * $rang++)
+                    $a = New-Object System.Windows.Media.Animation.DoubleAnimation 0, 1, $dur; $a.BeginTime = $t0; $pill.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $a)
+                    $a = New-Object System.Windows.Media.Animation.DoubleAnimation 6, 0, $dur; $a.BeginTime = $t0; $a.EasingFunction = New-Object System.Windows.Media.Animation.CubicEase; $mv.BeginAnimation([System.Windows.Media.TranslateTransform]::YProperty, $a)
+                }
                 [void]$sp.Children.Add($pill)
             }
             if ($list.Count -gt 2) {
@@ -617,6 +639,42 @@ function Update-Panneau {
     $n = $items.Count
     $ui.ListeVide.Visibility = if ($n) { 'Collapsed' } else { 'Visible' }
     $ui.ListeCompte.Text = switch ($n) { 0 { '' } 1 { '1 rendez-vous' } default { "$n rendez-vous" } }
+    Update-Aujourdhui
+}
+
+# Aujourd'hui : l'anneau des « À faire » (cochés « C'est fait » sur ceux du jour) et la bulle de la mascotte du thème
+function Update-Aujourdhui {
+    $today = (Get-Date).Date
+    $jour = @(Get-AgendaEntre $today $today.AddDays(1))
+    $af = @($jour | Where-Object { (Get-TypeRV $_.RV) -eq 'rappel' })
+    $faits = @($af | Where-Object { $_.RV.Fait }).Count
+    $total = $af.Count
+    if ($total) {
+        $ui.AFaireZone.Visibility = 'Visible'
+        $ui.AFaireChiffre.Text = "$faits/$total"
+        $reste = $total - $faits
+        $ui.AFaireTexte.Text = if (-not $reste) { 'Tout est fait, bravo !' } elseif ($reste -eq 1) { "$faits sur $total, plus qu'une !" } else { "$faits sur $total faites" }
+        # Longueur du cercle en épaisseurs de trait (diamètre 64 - trait 6)
+        $L = [math]::PI * 58 / 6
+        $ui.AFaireAnneau.StrokeDashArray = New-Object System.Windows.Media.DoubleCollection (,[double[]]@($L, $L))
+        $cible = $L * (1 - $faits / $total)
+        if ($script:AFaireValeur -ne "$faits/$total") {
+            $script:AFaireValeur = "$faits/$total"
+            $a = New-Object System.Windows.Media.Animation.DoubleAnimation $L, $cible, ([System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(1100)))
+            $a.EasingFunction = New-Object System.Windows.Media.Animation.CubicEase; $a.BeginTime = [TimeSpan]::FromMilliseconds(250)
+            $ui.AFaireAnneau.BeginAnimation([System.Windows.Shapes.Shape]::StrokeDashOffsetProperty, $a)
+        }
+    } else { $ui.AFaireZone.Visibility = 'Collapsed' }
+    if ($ThemePack -and $ThemePack.Mascotte) {
+        $h = (Get-Date).Hour
+        $bj = if ($h -ge 18 -or $h -lt 5) { 'Bonsoir' } else { 'Bonjour' }
+        $rdv = @($jour | Where-Object { (Get-TypeRV $_.RV) -ne 'rappel' -and $_.Prochain -ge (Get-Date).AddMinutes(-30) -or ((Get-TypeRV $_.RV) -ne 'rappel' -and $_.RV.Journee) }).Count
+        $reste = $total - $faits
+        $morceaux = @()
+        if ($rdv) { $morceaux += $(if ($rdv -eq 1) { '1 rendez-vous' } else { "$rdv rendez-vous" }) }
+        if ($reste) { $morceaux += $(if ($reste -eq 1) { '1 chose à faire' } else { "$reste choses à faire" }) }
+        $ui.MascotteTexte.Text = if ($morceaux.Count) { "$bj ! Tu as $($morceaux -join ' et ') aujourd'hui." } else { "$bj ! Rien de prévu aujourd'hui, profite bien." }
+    }
 }
 
 function Update-Agenda { Update-Calendrier; Update-Panneau }
