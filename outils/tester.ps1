@@ -111,7 +111,7 @@ if (Test-Path -LiteralPath $zips) {
         [IO.Compression.ZipFile]::ExtractToDirectory($z.FullName, (Join-Path $packs $id))
         $ok = (Invoke-Scenario "pack-$id" @{ EVERMIND_PACKS = $packs; EVERMIND_THEME = "pack:$id" } -Exemples) -and $ok
     }
-    $ok = (Invoke-Scenario 'pack-reglages' @{ EVERMIND_PACKS = $packs; EVERMIND_THEME = 'pack:mario'; EVERMIND_REGLAGES = 'Theme' }) -and $ok
+    $ok = (Invoke-Scenario 'pack-reglages' @{ EVERMIND_PACKS = $packs; EVERMIND_THEME = "pack:$((@(Get-ChildItem -LiteralPath $packs -Directory) | Select-Object -First 1).Name)"; EVERMIND_REGLAGES = 'Theme' }) -and $ok   # (le premier pack trouvé : aucun nom de thème dans le code)
 } else { Write-Host '(thèmes personnalisés non testés : pas de dossier Thème-Evermind sur le bureau)' -ForegroundColor DarkGray }
 $ok = (Invoke-Scenario 'fiche' @{ EVERMIND_FICHE = 'Dentiste' } -Exemples) -and $ok
 $ok = (Invoke-Scenario 'fermer' @{ EVERMIND_FERMER = '1' } -Exemples) -and $ok
@@ -149,11 +149,14 @@ foreach ($s in @(@('maj-sans-signature', 'sa signature est introuvable'), @('maj
 # Son et Thème, le bouton qui ouvre les réglages de Mindset à la place des choix
 $suite = Join-Path $test 'suite.json'
 [IO.File]::WriteAllText($suite, (ConvertTo-Json -InputObject ([ordered]@{ theme = 'arcade'; applis = [ordered]@{ evermind = (Join-Path $racine 'Evermind\'); nevermind = 'C:\Program Files\Mindset\Nevermind' }; micro = 'Micro de test (USB)'; casque = ''; modifie = '2026-10-14T16:00:00' })), $utf8)
+# Une nouvelle version imaginaire est « en ligne » : une copie gérée ne doit pas la chercher elle-même (c'est Mindset
+# qui le fait ; la page Code signing policy le promet)
 foreach ($s in @(@('mindset-gere', 'Son'), @('mindset-gere-theme', 'Theme'))) {
-    if (Invoke-Scenario $s[0] @{ EVERMIND_SUITE = $suite; EVERMIND_REGLAGES = $s[1] } -Exemples) {
+    if (Invoke-Scenario $s[0] @{ EVERMIND_SUITE = $suite; EVERMIND_REGLAGES = $s[1]; EVERMIND_MAJ_VERSION = '9.9.9'; EVERMIND_MAJ_ZIP = $zipTest } -Exemples) {
         $reg = ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $script:Donnees 'reglages.json'), [Text.Encoding]::UTF8))
         if ($script:Journal -notmatch 'Thème de la suite \(Mindset\) : arcade' -or $script:Journal -notmatch 'Géré par Mindset' -or $reg.Micro -ne 'Micro de test (USB)' -or [string]$reg.Casque -ne '') { Write-Host "ÉCHEC  $($s[0]) : thème, micro ou casque de la suite pas pris" -ForegroundColor Red; $ok = $false }
-        else { Write-Host '       thème (arcade), micro et casque de la suite pris, mises à jour par Mindset' -ForegroundColor DarkGray }
+        elseif ($script:Journal -match 'Mise à jour (disponible|: recherche|: téléchargement)') { Write-Host "ÉCHEC  $($s[0]) : une copie gérée par Mindset a cherché sa mise à jour elle-même" -ForegroundColor Red; $ok = $false }
+        else { Write-Host '       thème (arcade), micro et casque de la suite pris, mises à jour par Mindset (aucune recherche par Evermind)' -ForegroundColor DarkGray }
     } else { $ok = $false }
 }
 # Mindset : thème personnalisé de la suite (« pack:<id> » dans suite.json), installé par Mindset dans nos packs : il est
