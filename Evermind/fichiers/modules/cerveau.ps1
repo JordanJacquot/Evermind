@@ -19,10 +19,13 @@ function Start-Cerveau {
     if ($script:Cerveau -and -not $script:Cerveau.Process.HasExited) { $script:Cerveau.Dernier = Get-Date; return $true }
     try {
         $psi = New-Object Diagnostics.ProcessStartInfo
+        # java.exe garde son nom (pas de copie Mindset.exe comme pour llama-server, voir Get-CopieMindset) : il est signé
+        # et porte son nom d'origine dans ses informations, qu'une copie renommée garderait (description « OpenJDK
+        # Platform binary », et un programme renommé est suspect pour certains antivirus)
         $psi.FileName = $JavaExe
         $journal = Join-Path $DataDir 'assistant.log'
         if ((Test-Path -LiteralPath $journal) -and (Get-Item -LiteralPath $journal).Length -gt 2MB) { Remove-Item -LiteralPath $journal -Force -ErrorAction SilentlyContinue }
-        $psi.Arguments = "-Xmx256m -cp `"$AssistantLib\*`" io.github.jordanjacquot.evermind.pc.PrincipalKt --serveur `"$LlamaExe`" --modele `"$IaModele`" --journal `"$journal`""
+        $psi.Arguments = "-Xmx256m -cp `"$AssistantLib\*`" io.github.jordanjacquot.evermind.pc.PrincipalKt --serveur `"$(Get-CopieMindset $LlamaExe)`" --modele `"$IaModele`" --journal `"$journal`""
         $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.WorkingDirectory = $IaDir
         $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true
         $psi.StandardOutputEncoding = New-Object Text.UTF8Encoding $false

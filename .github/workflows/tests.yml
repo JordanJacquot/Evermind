@@ -73,3 +73,17 @@ jobs:
 
       - name: "Horaires de travail"
         run: .\outils\tester-horaires.ps1
+
+      # Une seule ligne « Mindset » dans le Gestionnaire des tâches : le relais Evermind.exe, les programmes d'aide
+      # lancés sous le nom Mindset.exe, aucun processus cherché par son nom (petits programmes de test compilés ici)
+      - name: "Regroupement sous Mindset.exe"
+        run: .\outils\tester-regroupement.ps1
+
+      # Les deux programmes se construisent, avec le bon titre (nom de la ligne du Gestionnaire des tâches)
+      - name: "Construction de Mindset.exe et Evermind.exe"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\outils\construire.ps1
+          $h = (Get-Item -LiteralPath 'Evermind\Mindset.exe').VersionInfo; $r = (Get-Item -LiteralPath 'Evermind\Evermind.exe').VersionInfo
+          Write-Host "Mindset.exe : titre $($h.FileDescription), produit $($h.ProductName) $($h.ProductVersion) ; Evermind.exe : titre $($r.FileDescription), produit $($r.ProductName)"
+          if ($h.FileDescription -ne 'Mindset' -or $h.ProductName -ne 'Evermind' -or $r.ProductName -ne 'Evermind') { throw 'Titre ou produit inattendu' }

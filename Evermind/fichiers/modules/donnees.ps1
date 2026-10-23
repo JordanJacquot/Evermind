@@ -7,7 +7,7 @@
 # Dossier de données : %LOCALAPPDATA%\Evermind, ou celui de Mindset pour une copie gérée par Mindset
 # ---------------------------------------------------------------------------
 # Tout ce qu'Evermind garde (rendez-vous, réglages, journal, voix, assistant, packs...) est dans ce dossier, choisi
-# ici une seule fois. Evermind.exe y écrit aussi son journal (il le trouve dans EVERMIND_JOURNAL, voir plus bas).
+# ici une seule fois. Son programme (Mindset.exe) y écrit aussi son journal (il le trouve dans EVERMIND_JOURNAL, voir plus bas).
 # Dossier de données d'une copie gérée, déduit de l'emplacement du programme (jamais d'un fichier modifiable) :
 #   <X>:\Mindset\Programmes\Evermind   ->  <X>:\Mindset\Donnees\Evermind   (Mindset installé sur un autre disque)
 #   sinon (C:\Program Files\Mindset\Evermind...)  ->  %LOCALAPPDATA%\Mindset\Evermind
@@ -52,7 +52,7 @@ $LogFile      = Join-Path $DataDir 'journal.txt'
 $Utf8NoBom    = New-Object Text.UTF8Encoding($false)
 $Fr           = [Globalization.CultureInfo]::GetCultureInfo('fr-FR')
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
-$env:EVERMIND_JOURNAL = $LogFile   # Evermind.exe (outils\lanceur.cs) y écrit les erreurs qu'il voit passer
+$env:EVERMIND_JOURNAL = $LogFile   # Mindset.exe (outils\lanceur.cs) y écrit les erreurs qu'il voit passer
 
 # Journal gardé petit : au delà de 1 Mo, on ne garde que les 3000 dernières lignes
 try {

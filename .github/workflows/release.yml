@@ -2,8 +2,9 @@
 # Authenticode gratuite par SignPath Foundation (même modèle que Mindset et Nevermind, issue #4 de Mindset).
 #
 # Déroulé :
-#   1. « construire » : compile Evermind.exe (outils\construire.ps1, depuis outils\lanceur.cs) et dépose le dossier
-#      Evermind comme artefact. Aucun exe n'est pris tout fait dans le dépôt (Evermind.exe y est ignoré par git).
+#   1. « construire » : compile Mindset.exe (le programme Evermind, depuis outils\lanceur.cs) et Evermind.exe (le relais,
+#      depuis outils\relais.cs) avec outils\construire.ps1, et dépose le dossier Evermind comme artefact. Aucun exe
+#      n'est pris tout fait dans le dépôt (les exe y sont ignorés par git).
 #   2. « signer » : seulement quand la variable SIGNPATH_ACTIVE vaut true (Settings > Secrets and variables >
 #      Actions > Variables). Envoie l'artefact à SignPath, attend l'approbation manuelle de Jordan dans SignPath,
 #      vérifie les signatures, puis dépose Evermind.zip (signé) comme artefact.
@@ -68,19 +69,25 @@ jobs:
           $ErrorActionPreference = 'Stop'
           .\outils\construire.ps1
 
-      - name: "Vérifier Evermind.exe"
+      # Deux exe, et seulement eux : Mindset.exe (le programme Evermind, nommé comme ceux de toute la suite pour une
+      # seule ligne « Mindset » dans le Gestionnaire des tâches) et Evermind.exe (le relais qui le lance)
+      - name: "Vérifier Mindset.exe et Evermind.exe"
         run: |
           $ErrorActionPreference = 'Stop'
-          $exes = @(Get-ChildItem -LiteralPath 'Evermind' -Recurse -File -Filter '*.exe')
-          if ($exes.Count -ne 1 -or $exes[0].Name -ne 'Evermind.exe' -or $exes[0].DirectoryName -ne (Resolve-Path 'Evermind').Path) {
-            throw "Un seul exe attendu (Evermind\Evermind.exe), trouvés : $($exes.FullName -join ', ')"
+          $exes = @(Get-ChildItem -LiteralPath 'Evermind' -Recurse -File -Filter '*.exe' | Sort-Object Name)
+          $racine = (Resolve-Path 'Evermind').Path
+          if ($exes.Count -ne 2 -or ($exes.Name -join ',') -ne 'Evermind.exe,Mindset.exe' -or @($exes | Where-Object { $_.DirectoryName -ne $racine }).Count) {
+            throw "Deux exe attendus (Evermind\Evermind.exe et Evermind\Mindset.exe), trouvés : $($exes.FullName -join ', ')"
           }
-          $i = $exes[0].VersionInfo
-          Write-Host "Evermind.exe : produit $($i.ProductName), version du produit $($i.ProductVersion)"
-          if ($i.ProductName -ne 'Evermind') { throw "Nom de produit inattendu : $($i.ProductName)" }
-          if ($i.ProductVersion -ne '${{ steps.version.outputs.version4 }}') { throw "Version de Evermind.exe ($($i.ProductVersion)) différente de ${{ steps.version.outputs.version4 }}" }
-          $h = (Get-FileHash -LiteralPath $exes[0].FullName -Algorithm SHA256).Hash
-          [IO.File]::AppendAllText($env:GITHUB_STEP_SUMMARY, "Evermind.exe (non signé) : SHA-256 ``$h``" + "`n")
+          foreach ($e in $exes) {
+            $i = $e.VersionInfo
+            Write-Host "$($e.Name) : produit $($i.ProductName), titre $($i.FileDescription), version du produit $($i.ProductVersion)"
+            if ($i.ProductName -ne 'Evermind') { throw "$($e.Name) : nom de produit inattendu : $($i.ProductName)" }
+            if ($i.ProductVersion -ne '${{ steps.version.outputs.version4 }}') { throw "Version de $($e.Name) ($($i.ProductVersion)) différente de ${{ steps.version.outputs.version4 }}" }
+            $h = (Get-FileHash -LiteralPath $e.FullName -Algorithm SHA256).Hash
+            [IO.File]::AppendAllText($env:GITHUB_STEP_SUMMARY, "$($e.Name) (non signé) : SHA-256 ``$h``" + "`n")
+          }
+          if ((Get-Item -LiteralPath "$racine\Mindset.exe").VersionInfo.FileDescription -ne 'Mindset') { throw 'Mindset.exe doit avoir le titre « Mindset » (nom de la ligne du Gestionnaire des tâches)' }
 
       - name: "Préparer le dossier à signer"
         run: |
@@ -90,7 +97,7 @@ jobs:
           Copy-Item -LiteralPath 'Evermind' -Destination $dest -Recurse
           Get-ChildItem -LiteralPath $dest -Recurse -File | Measure-Object | ForEach-Object { Write-Host "$($_.Count) fichiers" }
 
-      # L'artefact contient un seul dossier « Evermind » (Evermind.exe, LISEZMOI.txt, fichiers\...).
+      # L'artefact contient un seul dossier « Evermind » (Evermind.exe, Mindset.exe, LISEZMOI.txt, fichiers\...).
       # SignPath vérifie qu'il vient bien de ce workflow (origin verification).
       - name: "Déposer l'artefact non signé"
         id: depot
@@ -140,10 +147,10 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $racine = '_ci\signe\Evermind'
-          if (-not (Test-Path -LiteralPath "$racine\Evermind.exe")) { throw "Dossier signé inattendu : $racine\Evermind.exe absent" }
+          foreach ($n in 'Evermind.exe', 'Mindset.exe') { if (-not (Test-Path -LiteralPath "$racine\$n")) { throw "Dossier signé inattendu : $racine\$n absent" } }
           $problemes = @()
           $exes = @(Get-ChildItem -LiteralPath $racine -Recurse -File -Filter '*.exe')
-          if ($exes.Count -ne 1) { throw "1 exe attendu dans $racine, trouvés : $($exes.Name -join ', ')" }
+          if ($exes.Count -ne 2) { throw "2 exe attendus dans $racine, trouvés : $($exes.Name -join ', ')" }
           $nos = $exes + @(Get-ChildItem -LiteralPath $racine -Recurse -File | Where-Object { $_.Extension -in '.ps1', '.psm1', '.psd1' })
           foreach ($f in $nos) {
             $s = Get-AuthenticodeSignature -LiteralPath $f.FullName

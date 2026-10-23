@@ -40,7 +40,7 @@ $Window.Add_SourceInitialized({
     # Barre de titre sombre, couleur du haut du fond (#0C0920 écrit en « 0xBBGGRR »)
     $h = (New-Object System.Windows.Interop.WindowInteropHelper $Window).Handle
     try { [EMNative]::SetDarkTitleBar($h, 0x20090C) } catch {}
-    # Épinglée à la barre des tâches, la fenêtre se relance par Evermind.exe (ou par PowerShell s'il manque), avec son icône
+    # Épinglée à la barre des tâches, la fenêtre se relance par son programme (Mindset.exe, ou PowerShell s'il manque), avec son icône
     try { [EMNative]::SetWindowIdentity($h, $AppId, (Get-LaunchCommand), $IconPath, 'Evermind') }
     catch { Write-Log "Identité de la fenêtre : $_" }
 })

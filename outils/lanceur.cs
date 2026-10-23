@@ -1,7 +1,10 @@
-﻿// Evermind.exe : le programme Evermind. Il exécute lui même le code d'Evermind (fichiers\Evermind.ps1)
-// au lieu de le confier à powershell.exe : pour Windows, c'est une vraie application, avec son nom
-// et son icône (barre des tâches, Gestionnaire des tâches, notifications).
-// Compilé par construire.ps1. « Evermind.exe -Demarrage » : lancement avec Windows, caché près de l'horloge.
+﻿// Mindset.exe (dans le dossier d'Evermind) : le programme Evermind. Il exécute lui même le code d'Evermind
+// (fichiers\Evermind.ps1) au lieu de le confier à powershell.exe : pour Windows, c'est une vraie application, avec son
+// icône (barre des tâches, notifications). Il s'appelle Mindset.exe comme les programmes des autres applis de la suite :
+// le Gestionnaire des tâches regroupe ainsi toute la suite sur une seule ligne « Mindset ». Evermind.exe, à côté, n'est
+// plus qu'un relais qui le lance (outils\relais.cs). Rien ne cherche donc jamais ce programme par son nom : toujours par
+// son chemin (le dossier d'Evermind), son numéro (PID) ou son mutex (Local\Evermind-Instance).
+// Compilé par construire.ps1. « Mindset.exe -Demarrage » : lancement avec Windows, caché près de l'horloge.
 using System;
 using System.IO;
 using System.Management.Automation;
@@ -11,7 +14,8 @@ using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 
-[assembly: AssemblyTitle("Evermind")]
+// Le titre donne le nom de la ligne regroupée du Gestionnaire des tâches ; le produit reste Evermind (signature du code)
+[assembly: AssemblyTitle("Mindset")]
 [assembly: AssemblyProduct("Evermind")]
 [assembly: AssemblyDescription("L'agenda qui te rappelle tes rendez-vous à voix haute")]
 // (le numéro de version est celui d'Evermind.ps1, ajouté par construire.ps1 à la compilation : la signature du code

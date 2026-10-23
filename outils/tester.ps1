@@ -33,6 +33,9 @@ $ok = ($LASTEXITCODE -eq 0) -and $ok
 # Horaires de travail en postes : matin, journée, soir, nuit
 & (Join-Path $PSScriptRoot 'tester-horaires.ps1')
 $ok = ($LASTEXITCODE -eq 0) -and $ok
+# Une seule ligne « Mindset » dans le Gestionnaire des tâches : relais Evermind.exe, programmes d'aide sous le nom Mindset.exe
+& (Join-Path $PSScriptRoot 'tester-regroupement.ps1')
+$ok = ($LASTEXITCODE -eq 0) -and $ok
 
 # Rendez-vous d'exemple : aujourd'hui, demain (qui revient chaque semaine), dans quelques jours, un passé
 function New-DonneesExemple([string]$Dossier) {
@@ -53,7 +56,8 @@ function New-DonneesExemple([string]$Dossier) {
 }
 
 # Lance l'app hors de l'écran dans une situation donnée, attend sa capture et vérifie les erreurs
-function Invoke-Scenario([string]$Nom, [hashtable]$Env, [switch]$Exemples) {
+# (-Programme : par un programme construit, Evermind.exe ou Mindset.exe, au lieu de PowerShell)
+function Invoke-Scenario([string]$Nom, [hashtable]$Env, [switch]$Exemples, [string]$Programme) {
     $donnees = Join-Path $test "donnees-$Nom"
     if (Test-Path -LiteralPath $donnees) { Remove-Item -LiteralPath $donnees -Recurse -Force }
     New-Item -ItemType Directory -Force -Path $donnees | Out-Null
@@ -65,7 +69,27 @@ function Invoke-Scenario([string]$Nom, [hashtable]$Env, [switch]$Exemples) {
     $env:EVERMIND_VOIX = Join-Path $donnees 'voix-absente'
     foreach ($k in $Env.Keys) { Set-Item "env:$k" $Env[$k] }
     $err = Join-Path $test "erreurs-$Nom.txt"
-    $p = Start-Process powershell.exe -ArgumentList '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', "`"$main`"" -PassThru -WindowStyle Hidden -RedirectStandardError $err
+    Remove-Item -LiteralPath $err -ErrorAction SilentlyContinue
+    $script:Processus = @()
+    if ($Programme) {
+        $dossierApp = Split-Path $Programme -Parent
+        $hote = Join-Path $dossierApp 'Mindset.exe'
+        $p = Start-Process -FilePath $Programme -PassThru
+        if ($Programme -ine $hote) {
+            # Le relais (Evermind.exe) lance Mindset.exe de son dossier puis se ferme aussitôt : Mindset.exe est ensuite
+            # suivi par son numéro (PID) et son chemin, jamais par son nom
+            if (-not $p.WaitForExit(10000)) { $p.Kill(); Write-Host "ÉCHEC  $Nom : le relais $Programme ne s'est pas fermé" -ForegroundColor Red; return $false }
+            $h = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($p.Id)" | Where-Object { $_.ExecutablePath -ieq $hote })
+            if ($h.Count -ne 1) { Write-Host "ÉCHEC  $Nom : le relais n'a pas lancé $hote" -ForegroundColor Red; return $false }
+            $p = Get-Process -Id ([int]$h[0].ProcessId) -ErrorAction SilentlyContinue
+            if (-not $p) { Write-Host "ÉCHEC  $Nom : $hote s'est arrêté tout de suite" -ForegroundColor Red; return $false }
+        }
+        # Les programmes qui tournent depuis le dossier d'Evermind (nom et chemin), pendant que l'app est ouverte
+        Start-Sleep -Seconds 2
+        $script:Processus = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath -like "$dossierApp\*" } | ForEach-Object { "$($_.Name) (PID $($_.ProcessId), parent $($_.ParentProcessId)) $($_.ExecutablePath)" })
+    } else {
+        $p = Start-Process powershell.exe -ArgumentList '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', "`"$main`"" -PassThru -WindowStyle Hidden -RedirectStandardError $err
+    }
     if (-not $p.WaitForExit($Delai * 1000)) { $p.Kill(); Write-Host "ÉCHEC  $Nom : l'app ne s'est pas fermée en $Delai s." -ForegroundColor Red; return $false }
     $bon = $true
     $stderr = if (Test-Path -LiteralPath $err) { Get-Content -LiteralPath $err -Raw } else { '' }
@@ -78,6 +102,7 @@ function Invoke-Scenario([string]$Nom, [hashtable]$Env, [switch]$Exemples) {
     $journal = Join-Path $donnees 'journal.txt'
     $script:Journal = if (Test-Path -LiteralPath $journal) { [IO.File]::ReadAllText($journal, [Text.Encoding]::UTF8) } else { '' }
     $script:Donnees = $donnees
+    if ($Programme -and $script:Journal -match 'Erreurs :|Arrêt inattendu') { Write-Host "ÉCHEC  $Nom : erreurs dans le journal" -ForegroundColor Red; $bon = $false }
     if ($bon) { Write-Host "OK     $Nom   ($capture)" -ForegroundColor Green }
     $bon
 }
@@ -213,6 +238,18 @@ foreach ($s in @(@('mindset-hote', @{ EVERMIND_TEST_MINDSET_HOTE = '900x640'; EV
         else { Write-Host "       accroché : $acc" -ForegroundColor DarkGray; Write-Host "       décroché : $dec" -ForegroundColor DarkGray }
     } else { $ok = $false }
 }
+# Les programmes construits (outils\construire.ps1) : Evermind.exe n'est plus qu'un relais qui lance Mindset.exe (le
+# programme Evermind, nommé comme ceux de toute la suite : une seule ligne « Mindset » dans le Gestionnaire des tâches)
+# puis se ferme aussitôt. Pendant que l'app tourne, seul Mindset.exe doit tourner depuis le dossier d'Evermind.
+$exeRelais = Join-Path $racine 'Evermind\Evermind.exe'; $exeHote = Join-Path $racine 'Evermind\Mindset.exe'
+if ((Test-Path -LiteralPath $exeRelais) -and (Test-Path -LiteralPath $exeHote)) {
+    foreach ($s in @(@('programme-relais', $exeRelais), @('programme-mindset', $exeHote))) {
+        if (Invoke-Scenario $s[0] @{} -Exemples -Programme $s[1]) {
+            foreach ($l in $script:Processus) { Write-Host "       processus : $l" -ForegroundColor DarkGray }
+            if ($script:Processus.Count -ne 1 -or $script:Processus[0] -notmatch '^Mindset\.exe ' -or $script:Journal -notmatch 'Démarrage Evermind') { Write-Host "ÉCHEC  $($s[0]) : processus inattendus ($($script:Processus.Count))" -ForegroundColor Red; $ok = $false }
+        } else { $ok = $false }
+    }
+} else { Write-Host '(programmes non testés : Evermind.exe et Mindset.exe pas construits, lance outils\construire.ps1)' -ForegroundColor DarkGray }
 # Copie hors de Mindset (pas un dossier de travail) : la fenêtre « Evermind s'utilise maintenant avec Mindset », et rien ne démarre
 if (Invoke-Scenario 'blocage' @{ EVERMIND_TEST_BLOCAGE = '1' } -Exemples) {
     if ($script:Journal) { Write-Host 'ÉCHEC  blocage : Evermind a démarré quand même' -ForegroundColor Red; $ok = $false }

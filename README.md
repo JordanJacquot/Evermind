@@ -41,7 +41,8 @@ Il faut Windows 10 ou 11 (64 bits) et au moins 8 Go de mémoire. Avec une carte 
 
 ## Pour les développeurs
 
-- `outils\construire.ps1` : crée l'icône, `Evermind\Evermind.exe` et `release\Evermind.zip` (Evermind fermé ; le zip n'est pas
+- `outils\construire.ps1` : crée l'icône, `Evermind\Mindset.exe` (le programme, nommé comme ceux de toute la suite :
+  une seule ligne « Mindset » dans le Gestionnaire des tâches), `Evermind\Evermind.exe` (le relais qui le lance) et `release\Evermind.zip` (Evermind fermé ; le zip n'est pas
   dans le dépôt). `outils\publier.ps1 -Version x.y.z` le signe et le publie dans une Release, où Mindset le prend.
 - `outils\tester.ps1 [-Voix <dossier>]` : tous les tests. Les phrases (`catalogue-phrases.ps1`, près de 3 000),
   les demandes à l'assistant (`catalogue-assistant.ps1`), les dossiers et les rappels, puis l'app lancée hors de
@@ -49,14 +50,14 @@ Il faut Windows 10 ou 11 (64 bits) et au moins 8 Go de mémoire. Avec une carte 
 - Les erreurs de compréhension se corrigent par familles de phrases, avec un exemple ajouté aux catalogues.
 - Les fichiers téléchargés (Whisper, Kokoro, llama.cpp, Vosk, Java, modèles) ont des versions et des empreintes fixées.
 - Sur GitHub : `.github\workflows\tests.yml` lance les tests rapides (sans fenêtre ni Internet) à chaque envoi ;
-  `release.yml` construit `Evermind.exe` à chaque étiquette de version, puis le fait signer par SignPath quand la
+  `release.yml` construit les deux exe à chaque étiquette de version, puis le fait signer par SignPath quand la
   variable `SIGNPATH_ACTIVE` est posée.
 - Les scripts sont en UTF-8 avec BOM (sinon PowerShell 5.1 abîme les accents).
 - Les thèmes personnalisés (images de personnages) ne sont pas dans le dépôt.
 
 ## Code signing policy
 
-Evermind.exe et les scripts d'Evermind seront signés gratuitement par SignPath.io, avec un certificat de la SignPath
+Mindset.exe, Evermind.exe et les scripts d'Evermind seront signés gratuitement par SignPath.io, avec un certificat de la SignPath
 Foundation (demande en cours). Rôles et confidentialité : [Code signing policy](CODE_SIGNING.md).
 
 ## Licence

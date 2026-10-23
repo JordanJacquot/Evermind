@@ -9,20 +9,22 @@ Free code signing provided by [SignPath.io](https://about.signpath.io), certific
 
 ## What is signed
 
-- `Evermind.exe` and the PowerShell scripts (`.ps1`) of Evermind (`fichiers\Evermind.ps1` and `fichiers\modules\*.ps1`),
-  all built from this repository.
+- `Mindset.exe` (the Evermind program, named like the programs of the whole Mindset suite so that Windows Task Manager
+  shows the suite on a single line), `Evermind.exe` (a small launcher that starts `Mindset.exe`) and the PowerShell
+  scripts (`.ps1`) of Evermind (`fichiers\Evermind.ps1` and `fichiers\modules\*.ps1`), all built from this repository.
 - Not signed: the other files of the app cannot carry a signature (the window `interface.xaml`, the backup launcher
   `Lancer Evermind (secours).bat`, the C# sources `natif.cs` and `voix-kokoro.cs`). `natif.cs` is compiled in memory
-  when Evermind starts; `voix-kokoro.cs` is compiled on your PC into `EvermindVoix.exe` (in Evermind's data folder)
-  after you install the voice. Both are compiled with the C# compiler that comes with Windows.
+  when Evermind starts; `voix-kokoro.cs` is compiled on your PC into `Mindset.exe` (in the `voix\kokoro` folder of
+  Evermind's data folder) after you install the voice. Both are compiled with the C# compiler that comes with Windows.
 - The `Evermind.zip` package contains no file from other authors. The voice, dictation and assistant modules are
   downloaded separately, only when you ask for them (see below); they are never in the package and never signed with
-  this certificate.
+  this certificate. For the same single Task Manager line, Evermind starts `whisper-server.exe` and `llama-server.exe`
+  through an unmodified copy of each, named `Mindset.exe`, next to the original in the module's folder.
 
 ## How a release is built and signed
 
 1. The version is tagged in this repository (`v<version>`).
-2. The [Release workflow](.github/workflows/release.yml) builds `Evermind.exe` on a GitHub hosted runner, from the
+2. The [Release workflow](.github/workflows/release.yml) builds `Mindset.exe` and `Evermind.exe` on a GitHub hosted runner, from the
    tagged source only (no executable is stored in this repository), and uploads the `Evermind` folder as a workflow
    artifact.
 3. The workflow sends a signing request to SignPath. SignPath checks that the artifact comes from this workflow and
@@ -128,21 +130,24 @@ Signature gratuite du code fournie par [SignPath.io](https://about.signpath.io),
 
 ## Ce qui est signé
 
-- `Evermind.exe` et les scripts PowerShell (`.ps1`) d'Evermind (`fichiers\Evermind.ps1` et
-  `fichiers\modules\*.ps1`), tous construits depuis ce dépôt.
+- `Mindset.exe` (le programme Evermind, nommé comme ceux de toute la suite Mindset pour que le Gestionnaire des tâches
+  de Windows la montre sur une seule ligne), `Evermind.exe` (un petit lanceur qui démarre `Mindset.exe`) et les scripts
+  PowerShell (`.ps1`) d'Evermind (`fichiers\Evermind.ps1` et `fichiers\modules\*.ps1`), tous construits depuis ce dépôt.
 - Pas signés : les autres fichiers de l'appli ne peuvent pas porter de signature (la fenêtre `interface.xaml`, le
   lanceur de secours `Lancer Evermind (secours).bat`, les sources C# `natif.cs` et `voix-kokoro.cs`). `natif.cs` est
-  compilé en mémoire au lancement d'Evermind ; `voix-kokoro.cs` est compilé sur ton PC en `EvermindVoix.exe` (dans le
-  dossier de données d'Evermind) après l'installation de la voix. Les deux sont compilés par le compilateur C# fourni
+  compilé en mémoire au lancement d'Evermind ; `voix-kokoro.cs` est compilé sur ton PC en `Mindset.exe` (dans le dossier
+  `voix\kokoro` des données d'Evermind) après l'installation de la voix. Les deux sont compilés par le compilateur C# fourni
   avec Windows.
 - Le paquet `Evermind.zip` ne contient aucun fichier d'autres auteurs. Les modules de voix, de dictée et de
   l'assistant sont téléchargés à part, seulement quand tu le demandes (voir plus bas) ; ils ne sont jamais dans le
-  paquet et jamais signés avec ce certificat.
+  paquet et jamais signés avec ce certificat. Pour la même ligne unique du Gestionnaire des tâches, Evermind lance
+  `whisper-server.exe` et `llama-server.exe` par une copie intacte de chacun, nommée `Mindset.exe`, à côté de l'original
+  dans le dossier du module.
 
 ## Comment une version est construite et signée
 
 1. La version reçoit son étiquette dans ce dépôt (`v<version>`).
-2. Le [workflow Release](.github/workflows/release.yml) construit `Evermind.exe` sur une machine de GitHub,
+2. Le [workflow Release](.github/workflows/release.yml) construit `Mindset.exe` et `Evermind.exe` sur une machine de GitHub,
    seulement depuis le code de cette étiquette (aucun programme n'est gardé dans ce dépôt), et dépose le dossier
    `Evermind` comme artefact.
 3. Le workflow envoie une demande de signature à SignPath, qui vérifie que l'artefact vient bien de ce workflow et de

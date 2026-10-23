@@ -22,15 +22,44 @@ $AssistantLib = Join-Path $AssistantDir 'v2\evermind-assistant\lib'
 $IaAncienModele = Join-Path $IaDir 'Qwen3-4B-Instruct-2507-Q4_K_M.gguf'   # (l'ancien cerveau, 2,5 Go : effacé)
 $KokoroDir = Join-Path $VoixDir 'kokoro'
 $KokoroModele = Join-Path $KokoroDir 'modele'
-$KokoroExe = Join-Path $KokoroDir 'EvermindVoix.exe'
+# (la voix d'Evermind, compilée ici sous le nom Mindset.exe : voir Get-CopieMindset ; elle s'appelait EvermindVoix.exe)
+$KokoroExe = Join-Path $KokoroDir 'Mindset.exe'
 # Les anciennes voix (Supertonic, Piper) ne servent plus : effacées pour rendre la place
 $VoixAncienne = Join-Path $VoixDir 'supertonic'
 if (-not $EnTest) {
-    foreach ($ancien in @($VoixAncienne, (Join-Path $VoixDir 'piper'), $IaAncienModele) + @(Get-ChildItem -LiteralPath $VoixDir -Filter 'fr_FR-*.onnx*' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }) +
+    foreach ($ancien in @($VoixAncienne, (Join-Path $VoixDir 'piper'), $IaAncienModele, (Join-Path $KokoroDir 'EvermindVoix.exe')) + @(Get-ChildItem -LiteralPath $VoixDir -Filter 'fr_FR-*.onnx*' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }) +
             # (les anciennes versions du modèle et du programme de l'assistant)
             @(Get-ChildItem -LiteralPath $IaDir -Filter 'evermind-0.6b-*.gguf' -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne $IaModele } | ForEach-Object { $_.FullName }) +
             @(Get-ChildItem -LiteralPath $AssistantDir -Directory -Filter 'v*' -ErrorAction SilentlyContinue | Where-Object { $AssistantLib -notlike "$($_.FullName)\*" } | ForEach-Object { $_.FullName })) {
         if (Test-Path -LiteralPath $ancien) { try { Remove-Item -LiteralPath $ancien -Recurse -Force -ErrorAction Stop } catch {} }
+    }
+}
+
+# Gestionnaire des tâches : toute la suite tient sur une seule ligne « Mindset », qui regroupe les programmes nommés
+# Mindset.exe. Un programme d'aide téléchargé (whisper-server, llama-server) est donc lancé par une copie de lui-même
+# nommée Mindset.exe, dans son propre dossier (ses dll sont à côté, chargées par leur nom : rien ne dépend du nom du
+# programme). La copie est refaite quand l'original change (nouvelle version du module) ; l'empreinte vérifiée au
+# téléchargement reste celle de l'original, qui n'est jamais modifié. Copie impossible (disque plein, ancienne copie
+# encore ouverte) : l'original est lancé, comme avant. Chaque programme lancé est ensuite suivi et arrêté par son
+# processus (numéro), jamais par son nom.
+function Get-CopieMindset([string]$Exe) {
+    try {
+        $src = Get-Item -LiteralPath $Exe -ErrorAction Stop
+        $copie = Join-Path $src.DirectoryName 'Mindset.exe'
+        if ($src.FullName -ieq $copie) { return $Exe }
+        $c = Get-Item -LiteralPath $copie -ErrorAction SilentlyContinue
+        if (-not $c -or $c.Length -ne $src.Length -or $c.LastWriteTimeUtc -ne $src.LastWriteTimeUtc) {
+            $tmp = "$copie.$PID.tmp"
+            Copy-Item -LiteralPath $src.FullName -Destination $tmp -Force -ErrorAction Stop
+            try {
+                (Get-Item -LiteralPath $tmp).LastWriteTimeUtc = $src.LastWriteTimeUtc
+                Move-Item -LiteralPath $tmp -Destination $copie -Force -ErrorAction Stop
+            } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+        }
+        $copie
+    } catch {
+        if (Test-Path -LiteralPath $Exe) { Write-Log "$([IO.Path]::GetFileName($Exe)) lancé sous son nom (copie Mindset.exe impossible : $($_.Exception.Message))" }
+        $Exe
     }
 }
 #   Pack : « voix » (dictée et voix Kokoro), « ia » (l'assistant qui comprend tout), « eveil » (« OK Evermind »)
@@ -43,7 +72,7 @@ $VoixFichiers = @(
        Extraire = '^Release/(whisper-cli\.exe|whisper-server\.exe|whisper\.dll|ggml[^/]*\.dll)$'; Vers = ''; Garder = $WhisperServeur }
     @{ Pack = 'voix'; Nom = 'modèle de français'; Url = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small-q5_1.bin'
        Sha256 = 'AE85E4A935D7A567BD102FE55AFC16BB595BDB618E11B2FC7591BC08120411BB'; Taille = 190085487; Garder = $WhisperModele }
-    # La voix : Kokoro (synthèse récente, prononciation française par espeak-ng), lancée par EvermindVoix.exe avec sherpa-onnx
+    # La voix : Kokoro (synthèse récente, prononciation française par espeak-ng), lancée par kokoro\Mindset.exe (compilé ici) avec sherpa-onnx
     @{ Pack = 'voix'; Nom = 'moteur de la voix'; Url = 'https://api.nuget.org/v3-flatcontainer/org.k2fsa.sherpa.onnx.runtime.win-x64/1.13.8/org.k2fsa.sherpa.onnx.runtime.win-x64.1.13.8.nupkg'
        Sha256 = '2257C06893D1D90792EA3157606DE33A51122D935B6913BED5442D2FFB9E9BD7'; Taille = 8535869; Extraire = '^runtimes/win-x64/native/(onnxruntime|sherpa-onnx-c-api)\.dll$'; Vers = 'kokoro'; Plat = $true; Garder = (Join-Path $KokoroDir 'sherpa-onnx-c-api.dll') }
     @{ Pack = 'voix'; Nom = 'moteur de la voix'; Url = 'https://api.nuget.org/v3-flatcontainer/org.k2fsa.sherpa.onnx/1.13.8/org.k2fsa.sherpa.onnx.1.13.8.nupkg'
@@ -330,7 +359,7 @@ function Update-VoixInstall {
 # ---------------------------------------------------------------------------
 # Parler (réponse à voix haute)
 # ---------------------------------------------------------------------------
-# La voix choisie dit la phrase : Kokoro (EvermindVoix.exe, toujours prêt une fois lancé),
+# La voix choisie dit la phrase : Kokoro (kokoro\Mindset.exe, toujours prêt une fois lancé),
 # ou Windows (si la voix n'est pas encore installée). Le son est fabriqué en un instant dans un fichier, puis joué.
 function Invoke-Parole([string]$Texte, [string]$Voix) {
     if ($EnTest -and -not $env:EVERMIND_TEST_PAROLE) { Write-Log "Parole : $(Convert-PourParler $Texte)"; return }
@@ -346,8 +375,9 @@ function Invoke-Parole([string]$Texte, [string]$Voix) {
 }
 
 # ---------------------------------------------------------------------------
-# Kokoro : EvermindVoix.exe garde le modèle chargé et fabrique chaque phrase en moins d'une seconde.
-# Il est compilé sur le PC à partir de voix-kokoro.cs (comme le reste du code natif d'Evermind),
+# Kokoro : kokoro\Mindset.exe garde le modèle chargé et fabrique chaque phrase en moins d'une seconde.
+# Il est compilé sur le PC à partir de voix-kokoro.cs (comme le reste du code natif d'Evermind), sous le nom
+# Mindset.exe pour la ligne unique « Mindset » du Gestionnaire des tâches (voir Get-CopieMindset),
 # et s'arrête après 10 minutes sans rien dire pour rendre la mémoire.
 # ---------------------------------------------------------------------------
 function Build-Kokoro {
@@ -979,7 +1009,7 @@ function Start-WhisperServeur {
     Add-Type -AssemblyName System.Net.Http
     $l = New-Object Net.Sockets.TcpListener ([Net.IPAddress]::Loopback, 0); $l.Start(); $port = $l.LocalEndpoint.Port; $l.Stop()
     $psi = New-Object Diagnostics.ProcessStartInfo
-    $psi.FileName = $WhisperServeur
+    $psi.FileName = Get-CopieMindset $WhisperServeur   # (nommé Mindset.exe : une seule ligne pour la suite)
     $psi.Arguments = "-m `"$WhisperModele`" --host 127.0.0.1 --port $port -l fr -nt -t $(Get-FilsWhisper)"
     $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.WorkingDirectory = $VoixDir
     $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true   # ses messages sont lus puis jetés

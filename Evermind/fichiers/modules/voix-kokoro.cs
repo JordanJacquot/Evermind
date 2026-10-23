@@ -1,9 +1,12 @@
-﻿// EvermindVoix.exe : la voix d'Evermind (Kokoro, synthèse vocale récente, sur le PC, sans Internet).
+﻿// kokoro\Mindset.exe : la voix d'Evermind (Kokoro, synthèse vocale récente, sur le PC, sans Internet).
 // Le texte est d'abord transformé en sons du français (espeak-ng), puis Kokoro les prononce : les mots sont
 // lus comme en français (« salut » se dit « salu »). Le moteur est sherpa-onnx (licence Apache 2.0,
 // github.com/k2-fsa/sherpa-onnx), compilé avec le compilateur C# de Windows (.NET Framework 4, C# 5).
 //
-// Lancement : EvermindVoix.exe <dossier du modèle> [fils de calcul]
+// (Il s'appelait EvermindVoix.exe. Nommé Mindset.exe, il est regroupé avec toute la suite sur une seule ligne
+// « Mindset » du Gestionnaire des tâches ; Evermind le suit et l'arrête par son processus, jamais par son nom.)
+//
+// Lancement : Mindset.exe <dossier du modèle> [fils de calcul]
 // Le modèle est chargé une seule fois, puis le programme attend des demandes, une par ligne (UTF-8) :
 //   PARLE <tab> voix (numéro de la voix) <tab> vitesse <tab> étapes (non utilisé) <tab> fichier.wav <tab> texte
 // et répond une ligne : « OK <tab> fichier.wav <tab> durée en secondes » ou « ERREUR <tab> message ».
@@ -13,6 +16,10 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using SherpaOnnx;
+
+// Le titre donne le nom de la ligne regroupée du Gestionnaire des tâches
+[assembly: System.Reflection.AssemblyTitle("Mindset")]
+[assembly: System.Reflection.AssemblyProduct("Evermind")]
 
 static class EvermindVoix
 {

@@ -13,7 +13,12 @@ param([switch]$Demarrage)   # -Demarrage : lancé avec Windows, la fenêtre ne s
 $AppVersion = '0.13.1'
 $UpdateRepo = 'JordanJacquot/Evermind'   # dépôt GitHub des mises à jour (modules\maj.ps1)
 $MainScript = $PSCommandPath
-$AppExe = Join-Path (Split-Path $PSScriptRoot -Parent) 'Evermind.exe'   # le programme qui exécute ce script
+# Le programme qui exécute ce script : Mindset.exe (nommé comme ceux de toute la suite, pour une seule ligne « Mindset »
+# dans le Gestionnaire des tâches). Evermind.exe, à côté, n'est plus qu'un relais qui le lance (gardé pour ce qui
+# l'appelle encore) ; il reste le programme d'une copie plus ancienne, sans Mindset.exe.
+$AppRelais = Join-Path (Split-Path $PSScriptRoot -Parent) 'Evermind.exe'
+$AppExe = Join-Path (Split-Path $PSScriptRoot -Parent) 'Mindset.exe'
+if (-not (Test-Path -LiteralPath $AppExe)) { $AppExe = $AppRelais }
 $EnTest = [bool]$env:EVERMIND_TEST      # test automatique (outils\tester.ps1) : rien n'est modifié sur le PC
 if ($EnTest -and $env:EVERMIND_TEST_DEMARRAGE) { $Demarrage = $true }   # (tests : lancé caché, comme avec Windows ou par Mindset)
 
@@ -76,7 +81,7 @@ if (-not $GereParMindset) {
     try {
         $appRoot = Split-Path $PSScriptRoot -Parent
         @(Get-ChildItem -LiteralPath $PSScriptRoot -File -Recurse -ErrorAction SilentlyContinue) +
-        @(Get-ChildItem -LiteralPath $appRoot -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(Evermind\.exe|LISEZMOI\.txt)$' }) |
+        @(Get-ChildItem -LiteralPath $appRoot -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(Evermind\.exe|Mindset\.exe|LISEZMOI\.txt)$' }) |
             Unblock-File -ErrorAction SilentlyContinue
     } catch {}
 }

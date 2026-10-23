@@ -216,7 +216,10 @@ if (Test-Path -LiteralPath $cles) {
     & robocopy.exe $cles (Join-Path $Cible 'fichiers\cles-publiques') /MIR /R:10 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { Note "liste des clés non remplacée (robocopy $LASTEXITCODE)" }
 }
-if (-not $PasDeRelance) { Start-Process -FilePath (Join-Path $Cible 'Evermind.exe') }
+# Relance par Mindset.exe (le programme Evermind), ou par le relais Evermind.exe s'il n'est pas là
+$exe = Join-Path $Cible 'Mindset.exe'
+if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $Cible 'Evermind.exe' }
+if (-not $PasDeRelance) { Start-Process -FilePath $exe }
 '@
     [IO.File]::WriteAllText($script, $code, (New-Object Text.UTF8Encoding($true)))
     $arg = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$script`"", '-Attendre', $PID, '-Source', "`"$($l.Source)`"", '-Cible', "`"$($l.Cible)`"", '-Journal', "`"$LogFile`"")

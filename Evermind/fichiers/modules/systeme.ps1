@@ -7,7 +7,8 @@
 $RunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $RunName = 'Evermind'
 
-# Commande qui lance Evermind : Evermind.exe, ou PowerShell s'il manque (lancé par le .bat de secours,
+# Commande qui lance Evermind : son programme (Mindset.exe, ou Evermind.exe d'une copie plus ancienne), ou PowerShell
+# s'il manque (lancé par le .bat de secours,
 # par exemple quand le « Contrôle intelligent des applications » de Windows bloque le .exe non signé)
 function Get-LaunchCommand([switch]$Demarrage) {
     $opt = if ($Demarrage) { ' -Demarrage' } else { '' }
@@ -21,12 +22,13 @@ function Test-AutoStart {
     [bool](Get-ItemProperty -LiteralPath $RunKey -Name $RunName -ErrorAction SilentlyContinue)
 }
 
-# L'entrée « Evermind » lance-t-elle cette copie-ci ? (Evermind.exe, ou ce script par PowerShell)
+# L'entrée « Evermind » lance-t-elle cette copie-ci ? (Mindset.exe, le relais Evermind.exe d'une ancienne entrée,
+# ou ce script par PowerShell)
 function Test-AutoStartIci {
     $cur = [string](Get-ItemProperty -LiteralPath $RunKey -Name $RunName -ErrorAction SilentlyContinue).$RunName
     if (-not $cur) { return $false }
     $chemins = @(@([regex]::Matches($cur, '"([^"]+)"') | ForEach-Object { $_.Groups[1].Value }) + ($cur.Trim() -replace '(?i)\s+-Demarrage$', '') | ForEach-Object { Get-CheminNormal $_ })
-    ($chemins -contains (Get-CheminNormal $AppExe)) -or ($chemins -contains (Get-CheminNormal $MainScript))
+    ($chemins -contains (Get-CheminNormal $AppExe)) -or ($chemins -contains (Get-CheminNormal $AppRelais)) -or ($chemins -contains (Get-CheminNormal $MainScript))
 }
 
 function Set-AutoStart([bool]$On) {
