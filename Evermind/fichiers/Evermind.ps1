@@ -1,6 +1,6 @@
 ﻿#Requires -Version 5.1
 <#
-    Evermind 0.14.0
+    Evermind 0.15.0
     L'agenda qui se souvient de tout pour toi : tu notes ton rendez-vous, il te le rappelle à voix haute.
 
     Les rendez-vous sont gardés dans %LOCALAPPDATA%\Evermind\rendez-vous.json (%LOCALAPPDATA%\Mindset\Evermind pour
@@ -10,7 +10,7 @@
 #>
 param([switch]$Demarrage)   # -Demarrage : lancé avec Windows, la fenêtre ne s'ouvre pas
 
-$AppVersion = '0.14.0'
+$AppVersion = '0.15.0'
 $UpdateRepo = 'JordanJacquot/Evermind'   # dépôt GitHub des mises à jour (modules\maj.ps1)
 $MainScript = $PSCommandPath
 # Le programme qui exécute ce script : Mindset.exe (nommé comme ceux de toute la suite, pour une seule ligne « Mindset »
