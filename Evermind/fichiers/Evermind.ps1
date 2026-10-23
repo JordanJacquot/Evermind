@@ -94,6 +94,7 @@ Initialize-AutoStart
 if (-not $EnTest -and -not $GereParMindset) { [void](Get-TrayIcon) }   # (géré par Mindset : c'est l'icône de Mindset)
 if ($env:EVERMIND_CAPTURE) { Start-Capture $env:EVERMIND_CAPTURE }
 if (-not $Demarrage) { $Window.Show() }
+Initialize-FiletErreurs   # une erreur imprévue est notée au journal, Evermind continue (systeme.ps1)
 [System.Windows.Threading.Dispatcher]::Run()
 
 # Mise à jour : la place est libérée, puis les nouveaux fichiers remplacent les anciens et Evermind se relance

@@ -743,3 +743,24 @@ public static class EMJeu
     // La mémoire d'un programme qu'il n'utilise pas en ce moment retourne à Windows (elle revient d'elle-même si besoin)
     public static void RendreMemoire(IntPtr hProcess) { try { EmptyWorkingSet(hProcess); } catch { } }
 }
+
+// ---------------------------------------------------------------------------
+// Filet contre les plantages : une erreur dans un fil d'arrière-plan (micro, voix...) arrête le programme sans
+// passer par la fenêtre. Elle est au moins notée au journal, pour savoir ce qui s'est passé.
+// ---------------------------------------------------------------------------
+public static class EMFilet
+{
+    static string journal;
+
+    public static void Fils(string fichier)
+    {
+        if (journal == null) AppDomain.CurrentDomain.UnhandledException += Noter;
+        journal = fichier;
+    }
+
+    static void Noter(object s, UnhandledExceptionEventArgs e)
+    {
+        try { File.AppendAllText(journal, DateTime.Now.ToString("s") + " Arrêt : erreur dans un fil d'arrière-plan : " + e.ExceptionObject + "\r\n", new UTF8Encoding(false)); }
+        catch { }
+    }
+}

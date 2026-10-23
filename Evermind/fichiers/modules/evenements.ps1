@@ -208,6 +208,45 @@ if ($env:EVERMIND_TEST_MINDSET_HOTE) {
     })
     $th.Start()
 }
+# Filet contre les plantages : une erreur qui revient (12 fois), puis une erreur dans un clic, une fois
+# le démarrage fini ; Evermind doit continuer jusqu'à sa capture. « demarrage » : une erreur avant que la fenêtre soit
+# prête, qui doit arrêter Evermind (elle n'est pas cachée).
+if ($env:EVERMIND_TEST_PLANTAGE -eq 'demarrage') { [void]$Window.Dispatcher.BeginInvoke([action]{ throw 'Erreur de test au démarrage' }) }
+elseif ($env:EVERMIND_TEST_PLANTAGE -eq 'fil') {
+    # « fil » : une erreur dans un fil d'arrière-plan, qui arrête le programme ; elle doit être notée au journal
+    # (aucune fenêtre d'erreur de Windows pour cet arrêt voulu)
+    Add-Type -Namespace EMTest -Name Erreurs -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetErrorMode(uint mode);'
+    [void][EMTest.Erreurs]::SetErrorMode(3)
+    $script:TestAttente = $true
+    $tp = New-Object System.Windows.Threading.DispatcherTimer; $tp.Interval = [TimeSpan]::FromMilliseconds(300)
+    $tp.Add_Tick({
+        param($s)
+        if (-not $script:FiletPret) { return }
+        $s.Stop()
+        (New-Object System.Threading.Thread ([System.Threading.ThreadStart]{ throw 'Erreur de test dans un fil' })).Start()
+    })
+    $tp.Start()
+}
+elseif ($env:EVERMIND_TEST_PLANTAGE) {
+    $script:TestAttente = $true; $script:TestPas = 0
+    $ui.BtnFermerAnnuler.Add_Click({ throw (New-Object IO.FileNotFoundException 'Fichier de test introuvable') })
+    $tp = New-Object System.Windows.Threading.DispatcherTimer; $tp.Interval = [TimeSpan]::FromMilliseconds(150)
+    $tp.Add_Tick({
+        param($s)
+        if (-not $script:FiletPret) { return }   # (une erreur avant la fin du démarrage arrêterait Evermind)
+        $script:TestPas++
+        # (lancée à part : un minuteur dont le tour échoue ne repart plus, c'est WPF qui veut ça)
+        if ($script:TestPas -le 12) { [void]$Window.Dispatcher.BeginInvoke([action]{ throw 'Erreur de test qui revient' }) }
+        # (un vrai clic, donné par WPF comme celui de la souris : un clic lancé d'ici garderait l'erreur pour lui)
+        if ($script:TestPas -eq 13) { (New-Object System.Windows.Automation.Peers.ButtonAutomationPeer $ui.BtnFermerAnnuler).GetPattern('Invoke').Invoke() }
+        if ($script:TestPas -eq 14) {
+            $t1 = New-Object System.Windows.Threading.DispatcherTimer; $t1.Interval = [TimeSpan]::FromMilliseconds(50)
+            $t1.Add_Tick({ throw 'Erreur de test dans un minuteur' }); $t1.Start()
+        }
+        if ($script:TestPas -ge 18) { $s.Stop(); $script:TestAttente = $false }
+    })
+    $tp.Start()
+}
 # Mindset qui quitte : quitter.demande écrit après le démarrage, Evermind doit se fermer tout seul (sans capture)
 if ($env:EVERMIND_TEST_QUITTER) {
     $script:TestAttente = $true

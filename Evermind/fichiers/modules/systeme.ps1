@@ -330,3 +330,64 @@ function Exit-App {
     try { $Window.Close() } catch {}
     [System.Windows.Threading.Dispatcher]::CurrentDispatcher.InvokeShutdown()
 }
+
+# ---------------------------------------------------------------------------
+# Filet contre les plantages
+# ---------------------------------------------------------------------------
+# Une erreur imprévue dans un clic, un minuteur ou le menu de l'icône ne ferme plus Evermind sans un mot : elle est
+# notée au journal (message, script, ligne) et Evermind continue ; un message simple s'affiche une seule fois.
+# Une erreur qui revient en boucle (un minuteur) n'est notée en entier que les 3 premières fois, puis seulement comptée.
+# Une erreur du démarrage (avant que la fenêtre soit prête) n'est pas cachée : Evermind s'arrête avec un message, comme avant.
+$script:FiletPret = $false      # le démarrage est fini (la fenêtre est prête, plus rien n'attend)
+$script:FiletVues = @{}         # combien de fois chaque erreur est revenue
+$script:FiletMessage = $false   # le message a déjà été montré
+
+# Ce qu'on sait d'une erreur : son message, et où elle est arrivée dans le code (script, ligne, appels)
+function Get-ErreurDetail($Ex) {
+    $msg = [string]$Ex.Message
+    $base = $Ex.GetBaseException()
+    if ($base -and $base -ne $Ex -and $base.Message -ne $msg) { $msg += " ($($base.GetType().Name) : $($base.Message))" }
+    $lieu = ''; $pile = ''
+    for ($e = $Ex; $e; $e = $e.InnerException) {
+        if ($e -is [System.Management.Automation.IContainsErrorRecord] -and $e.ErrorRecord.InvocationInfo -and $e.ErrorRecord.InvocationInfo.ScriptName) {
+            $ii = $e.ErrorRecord.InvocationInfo
+            $ligne = ([string]$ii.Line).Trim(); if ($ligne.Length -gt 200) { $ligne = $ligne.Substring(0, 200) + '...' }
+            $lieu = "$(Split-Path $ii.ScriptName -Leaf) ligne $($ii.ScriptLineNumber) : $ligne"
+            $pile = ([string]$e.ErrorRecord.ScriptStackTrace -split "`r?`n" | Where-Object { $_ }) -join ' / '
+            break
+        }
+    }
+    if (-not $lieu) { $pile = ([string]$Ex.StackTrace -split "`r?`n" | Select-Object -First 8 | ForEach-Object { $_.Trim() }) -join ' / ' }
+    [pscustomobject]@{ Message = $msg; Lieu = $lieu; Pile = $pile; Type = $Ex.GetType().FullName }
+}
+
+# Note l'erreur, puis dit si Evermind peut continuer ($true) ou doit s'arrêter ($false : pendant le démarrage)
+function Invoke-FiletErreur($Ex, [string]$Source) {
+    $quand = if ($script:FiletPret) { 'Erreur imprévue' } else { 'Erreur au démarrage' }
+    try {
+        $d = Get-ErreurDetail $Ex
+        $cle = "$($d.Message)|$($d.Lieu)"
+        $n = 1 + [int]$script:FiletVues[$cle]; $script:FiletVues[$cle] = $n
+        if ($n -le 3) { Write-Log "$quand ($Source) : $($d.Message) [$($d.Type)]$(if ($d.Lieu) { " | $($d.Lieu)" })$(if ($d.Pile) { " | appels : $($d.Pile)" })" }
+        elseif ($n -in 10, 100, 1000, 10000, 100000) { Write-Log "$quand ($Source) : la même erreur est revenue $n fois : $($d.Message)" }
+    } catch {}
+    if (-not $script:FiletPret -or $Ex -is [OutOfMemoryException]) { return $false }
+    if (-not $script:FiletMessage) {
+        $script:FiletMessage = $true
+        # (après la fin de ce qui a échoué : l'alerte d'Evermind, qui ne bloque rien)
+        try { [void]$Window.Dispatcher.BeginInvoke([System.Windows.Threading.DispatcherPriority]::Background, [action]{ Show-Alerte 'Un petit problème est survenu' 'Evermind continue. Si ça se répète, utilise « Signaler un problème ».' -Secondes 12 }) } catch {}
+    }
+    $true
+}
+
+# Juste avant d'ouvrir la fenêtre (Evermind.ps1)
+function Initialize-FiletErreurs {
+    # Clics, minuteurs, fenêtre : tout ce qui passe par la fenêtre d'Evermind
+    $Window.Dispatcher.Add_UnhandledException({ param($s, $e) $e.Handled = [bool](Invoke-FiletErreur $e.Exception 'fenêtre') })
+    # Le menu de l'icône près de l'horloge (sans ce filet, Windows montrerait une fenêtre d'erreur technique)
+    try { [System.Windows.Forms.Application]::add_ThreadException({ param($s, $e) [void](Invoke-FiletErreur $e.Exception 'icône') }) } catch {}
+    # Les fils d'arrière-plan (micro, voix...) : une erreur y arrête le programme, elle est au moins notée au journal
+    try { [EMFilet]::Fils($LogFile) } catch {}
+    # Le démarrage est fini quand plus rien n'attend (fenêtre dessinée, ou cachée près de l'horloge)
+    [void]$Window.Dispatcher.BeginInvoke([System.Windows.Threading.DispatcherPriority]::ApplicationIdle, [action]{ $script:FiletPret = $true })
+}

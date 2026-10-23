@@ -33,6 +33,9 @@ $ok = ($LASTEXITCODE -eq 0) -and $ok
 # Horaires de travail en postes : matin, journée, soir, nuit
 & (Join-Path $PSScriptRoot 'tester-horaires.ps1')
 $ok = ($LASTEXITCODE -eq 0) -and $ok
+# Démarrage avec Windows : le réglage gardé tel quel quand Mindset gère Evermind (Mindset le lit)
+& (Join-Path $PSScriptRoot 'tester-demarrage.ps1')
+$ok = ($LASTEXITCODE -eq 0) -and $ok
 # Une seule ligne « Mindset » dans le Gestionnaire des tâches : relais Evermind.exe, programmes d'aide sous le nom Mindset.exe
 & (Join-Path $PSScriptRoot 'tester-regroupement.ps1')
 $ok = ($LASTEXITCODE -eq 0) -and $ok
@@ -64,7 +67,7 @@ function Invoke-Scenario([string]$Nom, [hashtable]$Env, [switch]$Exemples, [stri
     if ($Exemples) { New-DonneesExemple $donnees }
     $capture = Join-Path $test "capture-$Nom.png"
     Remove-Item -LiteralPath $capture -ErrorAction SilentlyContinue
-    foreach ($k in 'EVERMIND_DOSSIERS', 'EVERMIND_PACKS', 'EVERMIND_THEME', 'EVERMIND_FERMER', 'EVERMIND_PHRASE', 'EVERMIND_AJOUTER', 'EVERMIND_FORMULAIRE', 'EVERMIND_REGLAGES', 'EVERMIND_CONFIRMATION', 'EVERMIND_FICHE', 'EVERMIND_FORMULAIRE_RV', 'EVERMIND_JOUR', 'EVERMIND_DECALER', 'EVERMIND_FICHE_SUPPRIMER', 'EVERMIND_CONFIRMATION_OUI', 'EVERMIND_CAPTURE_ALERTE', 'EVERMIND_ALERTE_RV', 'EVERMIND_MAJ_VERSION', 'EVERMIND_MAJ_ZIP', 'EVERMIND_MAJ_AUTO', 'EVERMIND_MAJ_INSTALLER', 'EVERMIND_MAJ_PAS_DE_RELANCE', 'EVERMIND_TEST_TELECHARGEMENT', 'EVERMIND_COULEURS', 'EVERMIND_VOIR', 'EVERMIND_LOGO', 'EVERMIND_TEST_PAROLE', 'EVERMIND_COMMANDE', 'EVERMIND_EVEIL_WAV', 'EVERMIND_DICTEE_WAV', 'EVERMIND_VOIX', 'EVERMIND_SUITE', 'EVERMIND_TEST_BLOCAGE', 'EVERMIND_TEST_TRAVAIL', 'EVERMIND_TEST_QUITTER', 'EVERMIND_TEST_MINDSET_HOTE', 'EVERMIND_TEST_DEMARRAGE') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
+    foreach ($k in 'EVERMIND_DOSSIERS', 'EVERMIND_PACKS', 'EVERMIND_THEME', 'EVERMIND_FERMER', 'EVERMIND_PHRASE', 'EVERMIND_AJOUTER', 'EVERMIND_FORMULAIRE', 'EVERMIND_REGLAGES', 'EVERMIND_CONFIRMATION', 'EVERMIND_FICHE', 'EVERMIND_FORMULAIRE_RV', 'EVERMIND_JOUR', 'EVERMIND_DECALER', 'EVERMIND_FICHE_SUPPRIMER', 'EVERMIND_CONFIRMATION_OUI', 'EVERMIND_CAPTURE_ALERTE', 'EVERMIND_ALERTE_RV', 'EVERMIND_MAJ_VERSION', 'EVERMIND_MAJ_ZIP', 'EVERMIND_MAJ_AUTO', 'EVERMIND_MAJ_INSTALLER', 'EVERMIND_MAJ_PAS_DE_RELANCE', 'EVERMIND_TEST_TELECHARGEMENT', 'EVERMIND_COULEURS', 'EVERMIND_VOIR', 'EVERMIND_LOGO', 'EVERMIND_TEST_PAROLE', 'EVERMIND_COMMANDE', 'EVERMIND_EVEIL_WAV', 'EVERMIND_DICTEE_WAV', 'EVERMIND_VOIX', 'EVERMIND_SUITE', 'EVERMIND_TEST_BLOCAGE', 'EVERMIND_TEST_TRAVAIL', 'EVERMIND_TEST_QUITTER', 'EVERMIND_TEST_MINDSET_HOTE', 'EVERMIND_TEST_DEMARRAGE', 'EVERMIND_TEST_PLANTAGE') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
     $env:EVERMIND_TEST = '1'; $env:EVERMIND_DONNEES = $donnees; $env:EVERMIND_CAPTURE = $capture
     $env:EVERMIND_VOIX = Join-Path $donnees 'voix-absente'
     foreach ($k in $Env.Keys) { Set-Item "env:$k" $Env[$k] }
@@ -250,6 +253,50 @@ if ((Test-Path -LiteralPath $exeRelais) -and (Test-Path -LiteralPath $exeHote)) 
         } else { $ok = $false }
     }
 } else { Write-Host '(programmes non testés : Evermind.exe et Mindset.exe pas construits, lance outils\construire.ps1)' -ForegroundColor DarkGray }
+# Filet contre les plantages : une erreur imprévue après le démarrage (qui revient 12 fois, dans un clic, dans un
+# minuteur) est notée au journal avec sa ligne, Evermind continue jusqu'à sa capture, et le message ne s'affiche qu'une fois
+if (Invoke-Scenario 'plantage' @{ EVERMIND_TEST_PLANTAGE = '1' } -Exemples) {
+    $j = $script:Journal; $pb = @()
+    $n = ([regex]::Matches($j, 'Erreur imprévue \(fenêtre\) : Erreur de test qui revient \[')).Count
+    if ($n -ne 3) { $pb += "erreur qui revient notée en entier $n fois au lieu de 3" }
+    if ($j -notmatch 'la même erreur est revenue 10 fois : Erreur de test qui revient') { $pb += 'répétitions pas comptées' }
+    if ($j -notmatch 'Erreur imprévue \(fenêtre\) : Fichier de test introuvable .*evenements\.ps1 ligne \d+') { $pb += 'erreur du clic absente ou sans sa ligne' }
+    if ($j -notmatch 'Erreur imprévue \(fenêtre\) : Erreur de test dans un minuteur .*evenements\.ps1 ligne \d+') { $pb += 'erreur du minuteur absente ou sans sa ligne' }
+    $n = ([regex]::Matches($j, 'Alerte : Un petit problème est survenu')).Count
+    if ($n -ne 1) { $pb += "message montré $n fois au lieu d'une" }
+    if ($pb) { Write-Host "ÉCHEC  plantage : $($pb -join ' ; ')" -ForegroundColor Red; $ok = $false }
+    else { Write-Host '       15 erreurs notées (3 en entier, puis comptées), Evermind a continué, un seul message' -ForegroundColor DarkGray }
+} else { $ok = $false }
+# Une erreur au démarrage n'est pas cachée : Evermind s'arrête (avec le message du programme), elle est au journal
+$donnees = Join-Path $test 'donnees-plantage-demarrage'
+Remove-Item -LiteralPath $donnees -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $donnees | Out-Null
+$env:EVERMIND_DONNEES = $donnees; $env:EVERMIND_TEST_PLANTAGE = 'demarrage'; $env:EVERMIND_CAPTURE = Join-Path $test 'capture-plantage-demarrage.png'
+Remove-Item -LiteralPath $env:EVERMIND_CAPTURE -ErrorAction SilentlyContinue
+$err = Join-Path $test 'erreurs-plantage-demarrage.txt'
+$p = Start-Process powershell.exe -ArgumentList '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', "`"$main`"" -PassThru -WindowStyle Hidden -RedirectStandardError $err
+$fini = $p.WaitForExit(60000)
+Remove-Item env:EVERMIND_TEST_PLANTAGE -ErrorAction SilentlyContinue
+$journal = [IO.File]::ReadAllText((Join-Path $donnees 'journal.txt'), [Text.Encoding]::UTF8)
+$stderr = if (Test-Path -LiteralPath $err) { [string](Get-Content -LiteralPath $err -Raw) } else { '' }
+if (-not $fini) { $p.Kill(); Write-Host 'ÉCHEC  plantage-demarrage : l''erreur au démarrage a été cachée, Evermind a continué' -ForegroundColor Red; $ok = $false }
+elseif ($stderr -notmatch 'Erreur de test au d' -or $journal -notmatch 'Erreur au démarrage \(fenêtre\) : Erreur de test au démarrage .*evenements\.ps1 ligne \d+' -or (Test-Path -LiteralPath $env:EVERMIND_CAPTURE)) {
+    Write-Host 'ÉCHEC  plantage-demarrage : erreur au démarrage pas visible ou pas notée' -ForegroundColor Red; $ok = $false
+} else { Write-Host 'OK     plantage-demarrage   (Evermind arrêté, erreur visible et notée au journal)' -ForegroundColor Green }
+# Une erreur dans un fil d'arrière-plan arrête le programme (Mindset.exe) : elle est au moins notée au journal
+if (Test-Path -LiteralPath $exeHote) {
+    $donnees = Join-Path $test 'donnees-plantage-fil'
+    Remove-Item -LiteralPath $donnees -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $donnees | Out-Null
+    $env:EVERMIND_DONNEES = $donnees; $env:EVERMIND_TEST_PLANTAGE = 'fil'
+    $p = Start-Process -FilePath $exeHote -PassThru
+    $fini = $p.WaitForExit(60000)
+    Remove-Item env:EVERMIND_TEST_PLANTAGE -ErrorAction SilentlyContinue
+    $journal = [IO.File]::ReadAllText((Join-Path $donnees 'journal.txt'), [Text.Encoding]::UTF8)
+    if (-not $fini) { $p.Kill(); Write-Host 'ÉCHEC  plantage-fil : Mindset.exe ne s''est pas arrêté' -ForegroundColor Red; $ok = $false }
+    elseif ($journal -notmatch 'Arrêt : erreur dans un fil d''arrière-plan : .*Erreur de test dans un fil') { Write-Host 'ÉCHEC  plantage-fil : l''arrêt n''est pas noté au journal' -ForegroundColor Red; $ok = $false }
+    else { Write-Host 'OK     plantage-fil   (arrêt noté au journal)' -ForegroundColor Green }
+}
 # Copie hors de Mindset (pas un dossier de travail) : la fenêtre « Evermind s'utilise maintenant avec Mindset », et rien ne démarre
 if (Invoke-Scenario 'blocage' @{ EVERMIND_TEST_BLOCAGE = '1' } -Exemples) {
     if ($script:Journal) { Write-Host 'ÉCHEC  blocage : Evermind a démarré quand même' -ForegroundColor Red; $ok = $false }

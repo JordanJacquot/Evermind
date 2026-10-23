@@ -1,5 +1,5 @@
 # Tests d'Evermind sur GitHub, à chaque envoi : analyse du code, vérifications des fichiers, puis les tests rapides
-# qui n'ont besoin ni d'écran ni d'Internet (compréhension des phrases, dossiers reliés, rappels, horaires).
+# qui n'ont besoin ni d'écran ni d'Internet (compréhension des phrases, dossiers reliés, rappels, horaires, démarrage).
 # outils\tester.ps1 (l'appli ouverte hors de l'écran, la voix et l'assistant) se lance seulement sur le PC.
 name: Tests
 
@@ -73,6 +73,10 @@ jobs:
 
       - name: "Horaires de travail"
         run: .\outils\tester-horaires.ps1
+
+      # Le réglage « Démarrage avec Windows » gardé tel quel quand Mindset gère Evermind (Mindset le lit)
+      - name: "Démarrage avec Windows sous Mindset"
+        run: .\outils\tester-demarrage.ps1
 
       # Une seule ligne « Mindset » dans le Gestionnaire des tâches : le relais Evermind.exe, les programmes d'aide
       # lancés sous le nom Mindset.exe, aucun processus cherché par son nom (petits programmes de test compilés ici)
