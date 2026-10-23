@@ -32,6 +32,8 @@ function Stop-Numero([int]$Numero) {
 $lances = New-Object System.Collections.Generic.List[int]
 try {
     New-Item -ItemType Directory -Force -Path $dossier | Out-Null
+    # (en nom long : sur GitHub, TEMP est en nom court « RUNNER~1 », que Windows rend en nom long dans les chemins)
+    $dossier = [IO.Path]::GetFullPath($dossier)
 
     # -----------------------------------------------------------------------
     # 1. Le relais : un faux Mindset.exe note ce qu'il reçoit, puis attend fin.txt (15 s au plus)
