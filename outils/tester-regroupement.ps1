@@ -3,7 +3,10 @@
 #   1. le relais Evermind.exe (outils\relais.cs) lance Mindset.exe de SON dossier avec les mêmes arguments, puis se ferme ;
 #   2. Get-CopieMindset (modules\voix.ps1) : un programme d'aide est lancé par sa copie Mindset.exe (ses dll à côté),
 #      refaite quand l'original change ; copie impossible, l'original est lancé ; arrêt par le numéro du processus ;
-#   3. aucun processus cherché ou arrêté par son nom dans le code d'Evermind (tout s'appelle maintenant Mindset.exe).
+#   3. aucun processus cherché ou arrêté par son nom dans le code d'Evermind (tout s'appelle maintenant Mindset.exe) ;
+#   4. le nom dans la barre des tâches : la fenêtre porte l'identité d'Evermind (le raccourci du menu Démarrer de même
+#      identité, écrit par Mindset, donne le nom « Evermind » au bouton), et l'épingle relance Mindset.exe de son dossier
+#      avec le nom « Evermind » et son icône (lu avec SHGetPropertyStoreForWindow sur une fenêtre de test hors de l'écran).
 # Tout se passe dans un dossier de %TEMP%, avec de petits programmes de test compilés ici : aucun vrai module, rien
 # d'Evermind ni de Mindset n'est touché.
 # Code de sortie : 0 si tout est bon, 1 sinon.
@@ -171,6 +174,75 @@ static class FauxServeur {
 $parNom = 'Get-Process\s+(?!-Id\b)\S|Stop-Process\s+(?!-Id\b)\S|GetProcessesByName|Process\]::GetProcesses\(|Process\.GetProcesses\(|taskkill|Win32_Process\b.*\bName\s*='
 $trouves = @(Get-ChildItem -LiteralPath (Join-Path $racine 'Evermind') -Recurse -File -Include '*.ps1', '*.cs', '*.bat' | Select-String -Pattern $parNom)
 Test-Point 'aucun processus trouvé par son nom' (-not $trouves.Count) "($(@($trouves | ForEach-Object { "$($_.Filename):$($_.LineNumber)" }) -join ', '))"
+
+# -----------------------------------------------------------------------
+# 4. Le nom dans la barre des tâches : les propriétés de la fenêtre
+# -----------------------------------------------------------------------
+try {
+    $modules = Join-Path $racine 'Evermind\fichiers\modules'
+    Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+    Add-Type -TypeDefinition ([IO.File]::ReadAllText((Join-Path $modules 'natif.cs'), [Text.Encoding]::UTF8))
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class EMTestFenetre
+{
+    [StructLayout(LayoutKind.Sequential, Pack = 4)] struct PK { public Guid f; public uint p; }
+    [StructLayout(LayoutKind.Explicit)] struct PV { [FieldOffset(0)] public ushort vt; [FieldOffset(8)] public IntPtr p; [FieldOffset(16)] public long x; }
+    [ComImport, Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IPropertyStore { void GetCount(out uint c); void GetAt(uint i, out PK k); void GetValue(ref PK k, out PV v); }
+    [DllImport("ole32.dll")] static extern int PropVariantClear(ref PV v);
+    [DllImport("shell32.dll", PreserveSig = false)] static extern void SHGetPropertyStoreForWindow(IntPtr h, ref Guid iid, [MarshalAs(UnmanagedType.Interface)] out IPropertyStore s);
+    // { identité, commande de relance, icône de relance, nom de relance }
+    public static string[] Lire(IntPtr h)
+    {
+        Guid iid = typeof(IPropertyStore).GUID; IPropertyStore s;
+        SHGetPropertyStoreForWindow(h, ref iid, out s);
+        try
+        {
+            string[] r = new string[4]; uint[] pids = { 5, 2, 3, 4 };
+            for (int i = 0; i < 4; i++)
+            {
+                PK k = new PK { f = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), p = pids[i] };
+                PV v; s.GetValue(ref k, out v);
+                try { r[i] = v.vt == 31 && v.p != IntPtr.Zero ? Marshal.PtrToStringUni(v.p) : ""; } finally { PropVariantClear(ref v); }
+            }
+            return r;
+        }
+        finally { Marshal.ReleaseComObject(s); }
+    }
+}
+'@
+    # Ce que fait Evermind à l'ouverture de sa fenêtre (interface.ps1), avec la vraie Get-LaunchCommand (systeme.ps1) :
+    # son identité (Evermind.ps1) et, installé, son hôte Mindset.exe (ici un faux, dans un dossier de %TEMP%)
+    $principal = [IO.File]::ReadAllText((Join-Path $racine 'Evermind\fichiers\Evermind.ps1'), [Text.Encoding]::UTF8)
+    $interface = [IO.File]::ReadAllText((Join-Path $modules 'interface.ps1'), [Text.Encoding]::UTF8)
+    $AppId = [regex]::Match($principal, "(?m)^\`$AppId = '([^']+)'").Groups[1].Value
+    Test-Point 'identité d''Evermind : JordanJacquot.Evermind (comme son raccourci du menu Démarrer écrit par Mindset)' ($AppId -ceq 'JordanJacquot.Evermind') "(« $AppId »)"
+    $appel = "SetWindowIdentity(`$h, `$AppId, (Get-LaunchCommand), `$IconPath, 'Evermind')"
+    Test-Point 'la fenêtre reçoit son identité, sa relance, son icône et le nom « Evermind » (interface.ps1)' ($interface.Contains($appel) -and $interface -match 'Add_SourceInitialized')
+    $tok = $null; $err = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $modules 'systeme.ps1'), [ref]$tok, [ref]$err)
+    Invoke-Expression ($ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-LaunchCommand' }, $false).Extent.Text)
+    $dossierFenetre = Join-Path $env:TEMP "evermind-fenetre-$PID"
+    New-Item -ItemType Directory -Force -Path $dossierFenetre | Out-Null
+    $AppExe = Join-Path $dossierFenetre 'Mindset.exe'; [IO.File]::WriteAllText($AppExe, 'programme')
+    $MainScript = Join-Path $dossierFenetre 'fichiers\Evermind.ps1'
+    $IconPath = Join-Path $modules '..\Evermind.ico'
+    $w = New-Object System.Windows.Window
+    $w.WindowStartupLocation = 'Manual'; $w.Left = -10000; $w.Top = 0; $w.Width = 200; $w.Height = 100
+    $w.ShowActivated = $false; $w.ShowInTaskbar = $false
+    $h = (New-Object System.Windows.Interop.WindowInteropHelper $w).EnsureHandle()
+    [EMNative]::SetWindowIdentity($h, $AppId, (Get-LaunchCommand), $IconPath, 'Evermind')
+    $p = [EMTestFenetre]::Lire($h)
+    $w.Close()
+    Remove-Item -LiteralPath $dossierFenetre -Recurse -Force -ErrorAction SilentlyContinue
+    Test-Point 'fenêtre : identité JordanJacquot.Evermind' ($p[0] -ceq 'JordanJacquot.Evermind') "(« $($p[0]) »)"
+    Test-Point 'fenêtre : l''épingle relance Mindset.exe de son dossier' ($p[1] -eq "`"$AppExe`"") "(« $($p[1]) »)"
+    Test-Point 'fenêtre : nom « Evermind » et son icône pour l''épingle' ($p[3] -ceq 'Evermind' -and $p[2] -eq $IconPath) "(« $($p[3]) », « $($p[2]) »)"
+} catch {
+    Test-Point 'nom dans la barre des tâches' $false "($($_.Exception.Message))"
+}
 
 if ($script:ok) { Write-Host 'Regroupement : tout est bon.' -ForegroundColor Green; exit 0 }
 Write-Host 'Regroupement : des tests ont échoué.' -ForegroundColor Red
