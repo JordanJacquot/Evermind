@@ -1,0 +1,181 @@
+# Construction d'une version d'Evermind sur GitHub, depuis le dépôt (jamais depuis un PC), puis signature
+# Authenticode gratuite par SignPath Foundation (même modèle que Mindset et Nevermind, issue #4 de Mindset).
+#
+# Déroulé :
+#   1. « construire » : compile Evermind.exe (outils\construire.ps1, depuis outils\lanceur.cs) et dépose le dossier
+#      Evermind comme artefact. Aucun exe n'est pris tout fait dans le dépôt (Evermind.exe y est ignoré par git).
+#   2. « signer » : seulement quand la variable SIGNPATH_ACTIVE vaut true (Settings > Secrets and variables >
+#      Actions > Variables). Envoie l'artefact à SignPath, attend l'approbation manuelle de Jordan dans SignPath,
+#      vérifie les signatures, puis dépose Evermind.zip (signé) comme artefact.
+#   3. Sur le PC de Jordan : outils\publier.ps1 récupère ce Evermind.zip, fait sa signature RSA (Evermind.zip.sig,
+#      clé privée qui ne quitte jamais le PC) et crée la Release. Ce workflow ne publie rien.
+#
+# Les modules téléchargés à part par Evermind (dictée, voix, assistant, « OK Evermind ») ne sont jamais dans le zip,
+# ni signés par nous. Rien ici n'utilise la clé RSA de la suite : elle ne doit jamais aller sur GitHub.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  construire:
+    name: "Construire Evermind"
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version4: ${{ steps.version.outputs.version4 }}
+      artifact-id: ${{ steps.depot.outputs.artifact-id }}
+    steps:
+      - name: "Récupérer le code"
+        uses: actions/checkout@v4
+
+      - name: "Numéro de version"
+        id: version
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ps1 = [IO.File]::ReadAllText('Evermind\fichiers\Evermind.ps1', [Text.Encoding]::UTF8)
+          if ($ps1 -notmatch "(?m)^\`$AppVersion = '(\d+(\.\d+){1,3})'") { throw 'Numéro de version introuvable dans Evermind.ps1' }
+          $v = $Matches[1]
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$v") {
+            throw "Le tag $env:GITHUB_REF_NAME ne correspond pas à la version de Evermind.ps1 ($v)."
+          }
+          $p = @($v.Split('.')); while ($p.Count -lt 4) { $p += '0' }
+          $v4 = $p -join '.'
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "version=$v`n")
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "version4=$v4`n")
+          Write-Host "Version $v ($v4)"
+
+      # Le dossier livré ne doit contenir aucun programme tout fait : Evermind.exe est construit ici
+      - name: "Aucun exe ni dll dans le dépôt"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $binaires = @(Get-ChildItem -LiteralPath 'Evermind' -Recurse -File -Include '*.exe', '*.dll')
+          if ($binaires.Count) { throw "Programmes trouvés dans le dépôt (ils doivent être construits ici) : $($binaires.FullName -join ', ')" }
+          Write-Host 'Aucun programme tout fait dans le dossier Evermind.'
+
+      - name: "Construire (outils\\construire.ps1)"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\outils\construire.ps1
+
+      - name: "Vérifier Evermind.exe"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exes = @(Get-ChildItem -LiteralPath 'Evermind' -Recurse -File -Filter '*.exe')
+          if ($exes.Count -ne 1 -or $exes[0].Name -ne 'Evermind.exe' -or $exes[0].DirectoryName -ne (Resolve-Path 'Evermind').Path) {
+            throw "Un seul exe attendu (Evermind\Evermind.exe), trouvés : $($exes.FullName -join ', ')"
+          }
+          $i = $exes[0].VersionInfo
+          Write-Host "Evermind.exe : produit $($i.ProductName), version du produit $($i.ProductVersion)"
+          if ($i.ProductName -ne 'Evermind') { throw "Nom de produit inattendu : $($i.ProductName)" }
+          if ($i.ProductVersion -ne '${{ steps.version.outputs.version4 }}') { throw "Version de Evermind.exe ($($i.ProductVersion)) différente de ${{ steps.version.outputs.version4 }}" }
+          $h = (Get-FileHash -LiteralPath $exes[0].FullName -Algorithm SHA256).Hash
+          [IO.File]::AppendAllText($env:GITHUB_STEP_SUMMARY, "Evermind.exe (non signé) : SHA-256 ``$h``" + "`n")
+
+      - name: "Préparer le dossier à signer"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dest = '_ci\a-signer'
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item -LiteralPath 'Evermind' -Destination $dest -Recurse
+          Get-ChildItem -LiteralPath $dest -Recurse -File | Measure-Object | ForEach-Object { Write-Host "$($_.Count) fichiers" }
+
+      # L'artefact contient un seul dossier « Evermind » (Evermind.exe, LISEZMOI.txt, fichiers\...).
+      # SignPath vérifie qu'il vient bien de ce workflow (origin verification).
+      - name: "Déposer l'artefact non signé"
+        id: depot
+        uses: actions/upload-artifact@v7
+        with:
+          name: Evermind-non-signe
+          path: _ci/a-signer
+          if-no-files-found: error
+          retention-days: 7
+
+  signer:
+    name: "Signer avec SignPath"
+    needs: construire
+    if: ${{ vars.SIGNPATH_ACTIVE == 'true' }}
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: "Vérifier la configuration SignPath"
+        env:
+          JETON: ${{ secrets.SIGNPATH_API_TOKEN }}
+          ORGANISATION: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+        run: |
+          if (-not $env:JETON) { Write-Host '::error::Le secret SIGNPATH_API_TOKEN est absent.'; exit 1 }
+          if (-not $env:ORGANISATION) { Write-Host '::error::La variable SIGNPATH_ORGANIZATION_ID est absente.'; exit 1 }
+          Write-Host 'Configuration SignPath présente.'
+
+      # La demande attend l'approbation manuelle de Jordan dans SignPath (politique « release-signing »).
+      # Sans artifact-configuration-slug, SignPath prend la configuration d'artefact par défaut du projet.
+      - name: "Demande de signature (approbation manuelle dans SignPath)"
+        id: signpath
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'Evermind' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
+          github-artifact-id: ${{ needs.construire.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: _ci/signe
+          parameters: |
+            version: "${{ needs.construire.outputs.version4 }}"
+
+      - name: "Vérifier les signatures"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $racine = '_ci\signe\Evermind'
+          if (-not (Test-Path -LiteralPath "$racine\Evermind.exe")) { throw "Dossier signé inattendu : $racine\Evermind.exe absent" }
+          $problemes = @()
+          $exes = @(Get-ChildItem -LiteralPath $racine -Recurse -File -Filter '*.exe')
+          if ($exes.Count -ne 1) { throw "1 exe attendu dans $racine, trouvés : $($exes.Name -join ', ')" }
+          $nos = $exes + @(Get-ChildItem -LiteralPath $racine -Recurse -File -Include '*.ps1', '*.psm1', '*.psd1')
+          foreach ($f in $nos) {
+            $s = Get-AuthenticodeSignature -LiteralPath $f.FullName
+            if ($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notmatch 'SignPath Foundation') { $problemes += "$($f.FullName) : $($s.Status) $($s.SignerCertificate.Subject)" }
+          }
+          # Evermind ne livre aucun fichier d'autres auteurs : rien d'autre ne doit être un programme
+          $autres = @(Get-ChildItem -LiteralPath $racine -Recurse -File -Include '*.dll', '*.msi', '*.sys')
+          foreach ($a in $autres) { $problemes += "$($a.FullName) : fichier inattendu dans le zip" }
+          if ($problemes) { $problemes | ForEach-Object { Write-Host "::error::$_" }; exit 1 }
+          Write-Host "$($nos.Count) fichiers signés par SignPath Foundation."
+
+      - name: "Construire Evermind.zip (signé)"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path '_ci\sortie' | Out-Null
+          $zip = '_ci\sortie\Evermind.zip'
+          Compress-Archive -Path '_ci\signe\Evermind' -DestinationPath $zip -Force
+          # Les clés publiques de la suite doivent être dans le zip : sans elles, Evermind refuse ses mises à jour
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $z = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $zip).Path)
+          try { $cles = @($z.Entries | Where-Object { $_.FullName.Replace('\', '/') -ilike 'Evermind/fichiers/cles-publiques/*.xml' }).Count } finally { $z.Dispose() }
+          if (-not $cles) { throw 'Le zip ne contient pas Evermind\fichiers\cles-publiques.' }
+          $h = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
+          "$h  Evermind.zip" | Out-File -FilePath '_ci\sortie\Evermind.zip.sha256' -Encoding ascii
+          [IO.File]::AppendAllText($env:GITHUB_STEP_SUMMARY, "Evermind.zip (signé par SignPath) : SHA-256 ``$h``" + "`n")
+          [IO.File]::AppendAllText($env:GITHUB_STEP_SUMMARY, "Demande SignPath : ${{ steps.signpath.outputs.signing-request-web-url }}" + "`n")
+
+      # Récupéré ensuite par outils\publier.ps1 sur le PC de Jordan (signature RSA et Release)
+      - name: "Déposer Evermind.zip signé"
+        uses: actions/upload-artifact@v7
+        with:
+          name: Evermind-zip-signe
+          path: _ci/sortie
+          if-no-files-found: error
+          retention-days: 30

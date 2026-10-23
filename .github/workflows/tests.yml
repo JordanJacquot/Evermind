@@ -1,0 +1,75 @@
+# Tests d'Evermind sur GitHub, à chaque envoi : analyse du code, vérifications des fichiers, puis les tests rapides
+# qui n'ont besoin ni d'écran ni d'Internet (compréhension des phrases, dossiers reliés, rappels, horaires).
+# outils\tester.ps1 (l'appli ouverte hors de l'écran, la voix et l'assistant) se lance seulement sur le PC.
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: "Récupérer le dépôt"
+        uses: actions/checkout@v4
+
+      - name: "Analyse du code (PSScriptAnalyzer, erreurs seulement)"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
+            Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
+            # (la galerie PowerShell répond parfois mal : jusqu'à 3 essais)
+            for ($n = 1; $n -le 3; $n++) {
+              try { Install-Module PSScriptAnalyzer -Repository PSGallery -Force -Scope CurrentUser; break }
+              catch { if ($n -eq 3) { throw }; Start-Sleep -Seconds 15 }
+            }
+          }
+          $erreurs = @(Invoke-ScriptAnalyzer -Path Evermind -Recurse -Severity Error) + @(Invoke-ScriptAnalyzer -Path outils -Recurse -Severity Error)
+          $erreurs | Format-Table -AutoSize RuleName, ScriptName, Line, Message | Out-String -Width 300 | Write-Host
+          if ($erreurs.Count) { Write-Host "$($erreurs.Count) erreur(s) trouvée(s) par PSScriptAnalyzer."; exit 1 }
+          Write-Host 'Aucune erreur.'
+
+      # Les mêmes vérifications que outils\publier.ps1 avant une publication, plus l'encodage des scripts
+      - name: "Vérifications (syntaxe, fenêtre, tirets, encodage)"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $problemes = @()
+          $scripts = @(Get-ChildItem -LiteralPath 'Evermind', 'outils' -Recurse -File -Filter '*.ps1')
+          foreach ($f in $scripts) {
+            $err = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$err)
+            foreach ($e in $err) { $problemes += "Syntaxe : $($f.Name) ligne $($e.Extent.StartLineNumber) : $($e.Message)" }
+            # UTF-8 avec BOM : sans lui, PowerShell 5.1 abîme les accents
+            $b = [IO.File]::ReadAllBytes($f.FullName)
+            if ($b.Length -lt 3 -or $b[0] -ne 0xEF -or $b[1] -ne 0xBB -or $b[2] -ne 0xBF) { $problemes += "Encodage : $($f.Name) n'est pas en UTF-8 avec BOM" }
+          }
+          try { [void][xml][IO.File]::ReadAllText('Evermind\fichiers\modules\interface.xaml', [Text.Encoding]::UTF8) } catch { $problemes += "interface.xaml : $($_.Exception.Message)" }
+          # Aucun tiret long (cadratin ni demi-cadratin) dans les textes
+          $tiret = '[' + [char]0x2013 + [char]0x2014 + ']'
+          $textes = Get-ChildItem -Path . -Recurse -File -Include '*.ps1', '*.cs', '*.xaml', '*.txt', '*.md', '*.bat', '*.yml' | Where-Object { $_.FullName -notmatch '\\(\.git|_test)\\' }
+          foreach ($t in @($textes | Select-String -Pattern $tiret -Encoding UTF8)) { $problemes += "Tiret long : $($t.Path) ligne $($t.LineNumber)" }
+          if ($problemes) { $problemes | ForEach-Object { Write-Host "::error::$_" }; exit 1 }
+          Write-Host "$($scripts.Count) scripts vérifiés, aucun problème."
+
+      - name: "Compréhension des phrases"
+        run: .\outils\tester-phrases.ps1
+
+      - name: "Grand catalogue des phrases"
+        run: .\outils\catalogue-phrases.ps1 -Exemples 3
+
+      - name: "Dossiers reliés aux rendez-vous"
+        run: .\outils\tester-fichiers.ps1
+
+      - name: "Rappels"
+        run: .\outils\tester-rappels.ps1
+
+      - name: "Horaires de travail"
+        run: .\outils\tester-horaires.ps1

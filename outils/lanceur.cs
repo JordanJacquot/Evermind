@@ -14,8 +14,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("Evermind")]
 [assembly: AssemblyProduct("Evermind")]
 [assembly: AssemblyDescription("L'agenda qui te rappelle tes rendez-vous à voix haute")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+// (le numéro de version est celui d'Evermind.ps1, ajouté par construire.ps1 à la compilation : la signature du code
+// vérifie que l'exe porte la version de l'appli)
 
 static class Lanceur
 {

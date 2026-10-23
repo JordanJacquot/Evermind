@@ -23,8 +23,17 @@ Copy-Item (Join-Path $icones 'Evermind.ico') (Join-Path $fich 'Evermind.ico') -F
 $exe = Join-Path $app 'Evermind.exe'
 # Evermind.exe exécute le code lui même : il a besoin du moteur PowerShell de Windows
 $sma = [psobject].Assembly.Location
-& $csc /nologo /target:winexe /optimize+ /platform:anycpu "/win32icon:$(Join-Path $icones 'Evermind.ico')" "/win32manifest:$manif" /reference:System.Windows.Forms.dll "/reference:$sma" "/out:$exe" $source
-if ($LASTEXITCODE) { throw "Échec de compilation de $exe" }
+# Il porte le numéro de version d'Evermind.ps1, ajouté à la compilation : publier.ps1 n'a qu'un numéro à changer, et
+# la signature du code (SignPath) vérifie que l'exe a bien la version de l'appli
+$version = if ([IO.File]::ReadAllText((Join-Path $fich 'Evermind.ps1'), [Text.Encoding]::UTF8) -match "(?m)^\`$AppVersion = '(\d+(\.\d+){1,3})'") { $Matches[1] } else { throw 'Numéro de version introuvable dans Evermind.ps1' }
+$morceaux = @($version.Split('.')); while ($morceaux.Count -lt 4) { $morceaux += '0' }
+$version4 = $morceaux -join '.'
+$infos = Join-Path $env:TEMP "evermind-version-$PID.cs"
+[IO.File]::WriteAllText($infos, "[assembly: System.Reflection.AssemblyVersion(`"$version4`")]`n[assembly: System.Reflection.AssemblyFileVersion(`"$version4`")]`n", (New-Object Text.UTF8Encoding $true))
+try {
+    & $csc /nologo /target:winexe /optimize+ /platform:anycpu "/win32icon:$(Join-Path $icones 'Evermind.ico')" "/win32manifest:$manif" /reference:System.Windows.Forms.dll "/reference:$sma" "/out:$exe" $source $infos
+    if ($LASTEXITCODE) { throw "Échec de compilation de $exe" }
+} finally { Remove-Item -LiteralPath $infos -Force -ErrorAction SilentlyContinue }
 
 # Le zip, dans release\ (pas suivi par git : outils\publier.ps1 le signe et le publie dans la Release GitHub,
 # où Mindset le prend pour installer et mettre à jour Evermind)

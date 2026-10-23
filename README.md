@@ -4,7 +4,9 @@ L'agenda qui se souvient de tout pour toi, petite sœur de [Nevermind](https://g
 Tu lui parles comme à quelqu'un : il note, décale, supprime, répond à tes questions, ouvre les bons dossiers à
 l'heure de tes réunions et te rappelle tes rendez-vous.
 
-Tout reste sur ton PC : la dictée, la voix et l'assistant tournent en local. Rien n'est envoyé sur Internet.
+Tout reste sur ton PC : la dictée, la voix et l'assistant tournent en local. Evermind n'envoie rien sur Internet tout
+seul : il ne s'y connecte que quand tu appuies sur un bouton (installer la voix ou l'assistant, ouvrir un lien). La liste
+complète : [Code signing policy](CODE_SIGNING.md#privacy-policy).
 
 ## Installer
 
@@ -45,10 +47,18 @@ Il faut Windows 10 ou 11 (64 bits) et au moins 8 Go de mémoire. Avec une carte 
   les demandes à l'assistant (`catalogue-assistant.ps1`), les dossiers et les rappels, puis l'app lancée hors de
   l'écran dans une cinquantaine de situations (captures dans `_test`).
 - Les erreurs de compréhension se corrigent par familles de phrases, avec un exemple ajouté aux catalogues.
-- Les fichiers téléchargés (Whisper, Kokoro, llama.cpp, Vosk, modèles) ont des versions et des empreintes fixées.
+- Les fichiers téléchargés (Whisper, Kokoro, llama.cpp, Vosk, Java, modèles) ont des versions et des empreintes fixées.
+- Sur GitHub : `.github\workflows\tests.yml` lance les tests rapides (sans fenêtre ni Internet) à chaque envoi ;
+  `release.yml` construit `Evermind.exe` à chaque étiquette de version, puis le fait signer par SignPath quand la
+  variable `SIGNPATH_ACTIVE` est posée.
 - Les scripts sont en UTF-8 avec BOM (sinon PowerShell 5.1 abîme les accents).
 - Les thèmes personnalisés (images de personnages) ne sont pas dans le dépôt.
 
+## Code signing policy
+
+Evermind.exe et les scripts d'Evermind seront signés gratuitement par SignPath.io, avec un certificat de la SignPath
+Foundation (demande en cours). Rôles et confidentialité : [Code signing policy](CODE_SIGNING.md).
+
 ## Licence
 
-Evermind est sous licence MIT (voir le fichier `LICENSE`) : tu peux lire, réutiliser, modifier et redistribuer le code, en gardant la mention de licence. Les composants d'autres auteurs gardent leur propre licence : les modules téléchargés à part (Whisper, Kokoro, llama.cpp, Vosk et leurs modèles), chacun sous sa propre licence.
+Evermind est sous licence MIT (voir le fichier `LICENSE`) : tu peux lire, réutiliser, modifier et redistribuer le code, en gardant la mention de licence. Les composants d'autres auteurs gardent leur propre licence : les modules téléchargés à part (Whisper, Kokoro, llama.cpp, Vosk, Java et leurs modèles), chacun sous sa propre licence (la liste : [Code signing policy](CODE_SIGNING.md#third-party-components-downloaded-separately-never-signed-by-us)).

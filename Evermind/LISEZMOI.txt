@@ -6,7 +6,7 @@ Installer
 1. Installe Mindset, le portail de la suite : https://github.com/JordanJacquot/Mindset/releases/latest
 2. Dans Mindset, installe Evermind. Mindset le garde à jour et le lance avec Windows.
 3. Dans Evermind, appuie sur « Installer la voix » (531 Mo : dictée et voix naturelle), puis, au même
-   endroit, sur « Installer l'assistant » (2,3 Go : l'assistant, qui comprend tout ce que tu dis).
+   endroit, sur « Installer l'assistant » (693 Mo : l'assistant, qui comprend tout ce que tu dis).
    Téléchargés une seule fois, ensuite tout marche sans Internet.
 Tu avais déjà un Evermind ? Mindset le reprend sans rien perdre : rendez-vous, réglages, voix et
 assistant restent.
@@ -22,7 +22,9 @@ Utiliser
 
 Bon à savoir
 ------------
-- Tout reste sur ton PC : rien n'est envoyé sur Internet.
+- Tout reste sur ton PC : Evermind n'envoie rien sur Internet tout seul. Il ne s'y connecte que
+  quand tu appuies sur un bouton (installer la voix ou l'assistant, ouvrir un lien ou un itinéraire).
+  La liste complète est sur la page « Code signing policy » d'Evermind, sur GitHub.
 - Tes rendez-vous sont dans %LOCALAPPDATA%\Mindset\Evermind.
 - Il faut Windows 10 ou 11 (64 bits) et au moins 8 Go de mémoire pour l'assistant.
   Avec une carte graphique, l'assistant répond plus vite.
