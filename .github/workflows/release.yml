@@ -60,7 +60,7 @@ jobs:
       - name: "Aucun exe ni dll dans le dépôt"
         run: |
           $ErrorActionPreference = 'Stop'
-          $binaires = @(Get-ChildItem -LiteralPath 'Evermind' -Recurse -File -Include '*.exe', '*.dll')
+          $binaires = @(Get-ChildItem -LiteralPath 'Evermind' -Recurse -File | Where-Object { $_.Extension -in '.exe', '.dll' })   # (-Include est ignoré avec -LiteralPath en PowerShell 5.1)
           if ($binaires.Count) { throw "Programmes trouvés dans le dépôt (ils doivent être construits ici) : $($binaires.FullName -join ', ')" }
           Write-Host 'Aucun programme tout fait dans le dossier Evermind.'
 
@@ -157,7 +157,7 @@ jobs:
             if ($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notmatch 'SignPath Foundation') { $problemes += "$($f.FullName) : $($s.Status) $($s.SignerCertificate.Subject)" }
           }
           # Evermind ne livre aucun fichier d'autres auteurs : rien d'autre ne doit être un programme
-          $autres = @(Get-ChildItem -LiteralPath $racine -Recurse -File -Include '*.dll', '*.msi', '*.sys')
+          $autres = @(Get-ChildItem -LiteralPath $racine -Recurse -File | Where-Object { $_.Extension -in '.dll', '.msi', '.sys' })
           foreach ($a in $autres) { $problemes += "$($a.FullName) : fichier inattendu dans le zip" }
           if ($problemes) { $problemes | ForEach-Object { Write-Host "::error::$_" }; exit 1 }
           Write-Host "$($nos.Count) fichiers signés par SignPath Foundation."
