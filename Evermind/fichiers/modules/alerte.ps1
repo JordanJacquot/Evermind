@@ -345,7 +345,8 @@ function Invoke-RappelsDus([datetime]$Maintenant = (Get-Date)) {
         $faits += [pscustomobject]@{ RV = $rv; Quand = $r.Quand; Code = 'report' }
     }
     $paroles = @(foreach ($f in $faits) { Show-AlerteRappel $f.RV $f.Quand $Maintenant })
-    if ($paroles.Count) { try { Invoke-Parole ($paroles -join ' ') } catch { Write-Log "Rappel non dit : $_" } }
+    # (pendant un jeu : la carte seulement, pas de voix par-dessus le jeu)
+    if ($paroles.Count -and -not $script:ModeJeu) { try { Invoke-Parole ($paroles -join ' ') } catch { Write-Log "Rappel non dit : $_" } }
     # Le dernier passage, retenu sur disque dès qu'un rappel est donné, et sinon toutes les 5 minutes
     $script:DernierPassage = $Maintenant
     if ($change -or [math]::Abs(($Maintenant - $script:RappelsEnregistres).TotalMinutes) -ge 5) { Save-Rappels $Maintenant }

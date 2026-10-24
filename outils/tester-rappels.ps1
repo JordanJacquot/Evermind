@@ -94,6 +94,12 @@ Test-Cas 'rappel gardé à l''écran jusqu''à un clic' ((Get-Vus 'Kiné').Count
 Test-Cas 'rappel dit à voix haute, une phrase pour deux' ($script:Dits.Count -eq 1 -and $script:Dits[0] -match 'Kiné' -and $script:Dits[0] -match 'Pharmacie de garde' -and $script:Dits[0] -match 'dans 1 h') "($($script:Dits -join ' / '))"
 [void](Invoke-RappelsDus $k.AddHours(9).AddSeconds(25))
 Test-Cas 'pas redit 20 s plus tard' ($script:Dits.Count -eq 1)
+# Pendant un jeu : la carte, mais pas de voix par-dessus le jeu
+Reset-Memoire
+$script:ModeJeu = $true
+[void](Invoke-RappelsDus $k.AddHours(9).AddSeconds(5))
+$script:ModeJeu = $false
+Test-Cas 'en jeu : rappel affiché mais pas dit' ((Get-Vus 'Kiné').Count -eq 1 -and $script:Dits.Count -eq 0) "($($script:Dits -join ' / '))"
 
 # Le PC dort de 7 h à 15 h 30 : ce qui reste à venir est rattrapé une fois, ce qui est fini ne l'est pas
 Reset-Memoire

@@ -163,7 +163,7 @@ function Invoke-OuverturesDues([datetime]$Maintenant = (Get-Date)) {
             $dit = "C'est l'heure : $nom. J'ouvre $quoi."
         }
         Show-Alerte $nom (Get-HeureAlerte $rv $it.Prochain $Maintenant) "C'est l'heure" (Get-TypeRV $rv) $rv $it.Prochain
-        Invoke-Parole $dit
+        if (-not $script:ModeJeu) { Invoke-Parole $dit }   # (pendant un jeu : la carte seulement, pas de voix)
         $faits += $rv
     }
     $faits

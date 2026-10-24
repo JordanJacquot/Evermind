@@ -88,7 +88,7 @@ $h = Add-RendezVous 'Appel Richard' $j.AddHours(14) $null 'travail' $false @{ Fi
 $script:ModeJeu = $true
 $faits = @(Invoke-OuverturesDues $j.AddHours(14))
 Test-Cas 'en jeu : rien ne s''ouvre' ($faits.Count -eq 2 -and $script:Ouvertures.Count -eq 0) "($($script:Ouvertures -join ', '))"
-Test-Cas 'en jeu : Evermind dit qu''il ouvrira après' (@($script:Dits | Where-Object { $_ -match "J'ouvrirai .* à la fin de ton jeu" }).Count -eq 2) "($($script:Dits -join ' | '))"
+Test-Cas 'en jeu : pas de voix par-dessus le jeu' (-not @($script:Dits | Where-Object { $_ -match 'Réunion Dupont|Appel Richard' }).Count) "($($script:Dits -join ' | '))"
 [void](Invoke-OuverturesDues $j.AddHours(14).AddMinutes(1))
 Test-Cas 'toujours en jeu : rien ne s''ouvre' ($script:Ouvertures.Count -eq 0)
 [void]$script:Agenda.Remove($h)   # supprimé pendant le jeu : il ne s'ouvrira pas
