@@ -324,9 +324,11 @@ function Exit-App {
     try { if ($script:VoixHotkeyOk) { [EMNative]::RemoveHotKey((New-Object System.Windows.Interop.WindowInteropHelper $Window).Handle, $VoixHotkeyId) } } catch {}
     try { if ($script:Bulle) { $script:Bulle.Win.Close() } } catch {}
     try { if ($script:Synth) { $script:Synth.Dispose() } } catch {}
-    try { Stop-Cerveau } catch {}
-    try { Stop-KokoroServeur } catch {}
+    # Whisper d'abord (arrêté tout de suite), puis la voix et l'assistant, qui ont quelques secondes pour finir
+    # proprement (s'ils n'ont pas le temps, Windows les arrête avec Evermind : voir Add-ProgrammeAide)
     try { Stop-WhisperServeur } catch {}
+    try { Stop-KokoroServeur } catch {}
+    try { Stop-Cerveau } catch {}
     try { Stop-Eveil } catch {}
     try { if ($script:LogoTimer) { $script:LogoTimer.Stop() } } catch {}
     try { if ($script:NotifyIcon) { $script:NotifyIcon.Visible = $false; $script:NotifyIcon.Dispose() } } catch {}

@@ -96,3 +96,7 @@ jobs:
           $h = (Get-Item -LiteralPath 'Evermind\Mindset.exe').VersionInfo; $r = (Get-Item -LiteralPath 'Evermind\Evermind.exe').VersionInfo
           Write-Host "Mindset.exe : titre $($h.FileDescription), produit $($h.ProductName) $($h.ProductVersion) ; Evermind.exe : titre $($r.FileDescription), produit $($r.ProductName)"
           if ($h.FileDescription -ne 'Mindset' -or $h.ProductName -ne 'Evermind' -or $r.ProductName -ne 'Evermind') { throw 'Titre ou produit inattendu' }
+
+      # Programmes d'aide arrêtés avec Evermind (même de force), micro débranché pendant l'écoute, son jamais gardé
+      - name: "Programmes d'aide et micro"
+        run: .\outils\tester-aides.ps1

@@ -9,6 +9,7 @@ $Manques = @{
     quand    = 'Il me manque le jour et l''heure. Ajoute par exemple « demain à 15 h ».'
     passe    = 'Ce moment est déjà passé. Choisis un autre jour ou une autre heure.'
     invalide = 'Cette date n''existe pas. Vérifie le jour et le mois.'
+    matin    = 'Le matin ou le soir ? Ajoute « du matin » ou « du soir » après l''heure.'
 }
 $PoliceIcone = 'Segoe UI Emoji'
 
@@ -219,6 +220,8 @@ function Update-Apercu {
     if ($p.Naissance -and $p.Quand) { $d += "🎂 aura $($p.Quand.Year - $p.Naissance) ans" }
     if ($p.Important) { $d += '★ important' }
     if ($d.Count) { $l.Add((New-Run "`n$($d -join '   ·   ')" '#C9C3DD')) }
+    # Jour de la semaine et date qui ne vont pas ensemble (« lundi 3 novembre ») : on dit le jour pris
+    if ($p.Remarque) { $l.Add((New-Run "`n⚠ $($p.Remarque)" '#FFB547' 'SemiBold')) }
     # Déjà quelque chose à ce moment-là ?
     if (-not $p.Manque -and -not $p.Journee) {
         $conf = @(Get-Conflits $p.Quand $p.Fin '')

@@ -131,6 +131,76 @@ $cas = @(
     , @('salon pendant 3 jours à partir du 5 novembre', '2026-11-05 journée au 2026-11-07', 'salon', '', 'sortie', 'fin=00:00')
     , @('séminaire du 12 au 14 novembre de 9 h à 17 h', '2026-11-12 09:00 au 2026-11-14 17:00', 'séminaire', '', 'rdv', 'fin=17:00')
     , @('cours de guitare les 3 et 10 novembre à 18 h', '2026-11-03 18:00 + 11-10', 'cours de guitare')
+    # Heures de 1 h à 6 h : tôt le matin (réveil, « cette nuit »), on demande (6 h, un départ), sinon l'après-midi
+    , @('demain à 6 h réveil', '2026-10-11 06:00', 'réveil')
+    , @('mets un réveil à 5 h 45 lundi', '2026-10-12 05:45', 'réveil')
+    , @('il faut que je me réveille à 4 h demain', '2026-10-11 04:00', 'me réveille')
+    , @('je me lève à 5 h demain', '2026-10-11 05:00', 'je me lève')
+    , @('demain tôt à 5 h footing', '2026-10-11 05:00', 'footing', '', 'sport')
+    , @('cette nuit à 2 h', '2026-10-11 02:00', '')
+    , @('cette nuit à 11 h film', '2026-10-10 23:00', 'film')
+    , @('à 2 h de la nuit demain biberon', '2026-10-11 02:00', 'biberon')
+    , @('lundi à 4 h 30 du matin taxi pour la gare', '2026-10-12 04:30', 'taxi pour la gare', '', 'voyage')
+    , @('demain à 6 h du soir apéro', '2026-10-11 18:00', 'apéro')
+    , @('demain à 5 h 30 aéroport', 'matin', 'aéroport', '', 'voyage')
+    , @('demain à 4 h départ en vacances', 'matin', 'départ en vacances', '', 'voyage')
+    , @('train pour Paris mardi à 5 h', 'matin', 'train pour Paris', '', 'voyage')
+    , @('vol pour Nice jeudi à 3 h 15', 'matin', 'vol pour Nice', '', 'voyage')
+    , @('demain à 6 h', 'matin', '')
+    , @('à 6 h foot demain', 'matin', 'foot', '', 'sport')
+    , @('mardi à 6 h 30 prise de sang', 'matin', 'prise de sang', '', 'sante')
+    , @('tous les jours à 6 h médicaments', 'matin', 'médicaments', '', 'sante')
+    , @('dimanche à 5 h vide-grenier', '2026-10-11 17:00', 'vide-grenier')
+    , @('je commence à 5 h demain', '2026-10-11 05:00', 'je commence')
+    # « la poste », « réunion d'équipe » : pas des horaires de travail (l'heure est lue comme d'habitude)
+    , @('aller à la poste lundi matin', '2026-10-12 09:00', 'aller à la poste')
+    , @('déposer le colis à la poste samedi matin', '2026-10-17 09:00', 'déposer le colis à la poste')
+    , @('à la poste demain à 3 h', '2026-10-11 15:00', 'la poste')
+    , @('réunion d''équipe mardi après-midi', '2026-10-13 14:00', 'réunion d''équipe', '', 'travail')
+    , @('réunion d''équipe jeudi à 2 h', '2026-10-15 14:00', 'réunion d''équipe', '', 'travail')
+    , @('réunion de travail jeudi à 2 h', '2026-10-15 14:00', 'réunion de travail', '', 'travail')
+    , @('entretien d''embauche demain à 3 h', '2026-10-11 15:00', 'entretien d''embauche', '', 'travail')
+    # « dans 1h30 », durées en deux morceaux
+    , @('dans 1h30 appeler Paul', '2026-10-10 20:00', 'appeler Paul')
+    , @('dans 1 h 30 appeler Paul', '2026-10-10 20:00', 'appeler Paul')
+    , @('dans une heure et demie appeler Paul', '2026-10-10 20:00', 'appeler Paul')
+    , @('dans 2 h 15 four', '2026-10-10 20:45', 'four')
+    , @('dans 2 heures et 10 minutes sortir le gâteau', '2026-10-10 20:40', 'sortir le gâteau')
+    , @('dans 1 heure 30 minutes étendre le linge', '2026-10-10 20:00', 'étendre le linge')
+    , @('dans deux heures et quart appeler Tom', '2026-10-10 20:45', 'appeler Tom')
+    , @('dans trois quarts d''heure pâtes', '2026-10-10 19:15', 'pâtes')
+    , @('dans 3 heures moins le quart bus', '2026-10-10 21:15', 'bus')
+    , @('rappelle-moi dans 1h45 de sortir le chien', '2026-10-10 20:15', 'sortir le chien')
+    , @('dans 45 min pizza', '2026-10-10 19:15', 'pizza')
+    # Jour de la semaine et date qui ne vont pas ensemble : le plus proche de la date (et on le dit, voir plus bas)
+    , @('lundi 3 novembre à 9 h médecin', '2026-11-02 09:00', 'médecin', '', 'sante')
+    , @('vendredi 13 novembre à 20 h concert', '2026-11-13 20:00', 'concert')
+    # Plusieurs jours de la semaine, plusieurs numéros sans le mois
+    , @('samedi et dimanche salon', '2026-10-17 journée au 2026-10-18', 'salon', '', 'sortie', 'fin=00:00')
+    , @('ce samedi et dimanche brocante', '2026-10-10 journée au 2026-10-11', 'brocante', '', 'rdv', 'fin=00:00')
+    , @('lundi, mercredi et vendredi piscine à 18 h', '2026-10-12 18:00 + 10-14,10-16', 'piscine', '', 'sport')
+    , @('vendredi et lundi congés', '2026-10-16 journée + 10-19', 'congés')
+    , @('mardi et jeudi à 2 h kiné', '2026-10-13 14:00 + 10-15', 'kiné', '', 'sante')
+    , @('lundi et mardi de la semaine prochaine formation', '2026-10-12 journée au 2026-10-13', 'formation', '', 'travail', 'fin=00:00')
+    , @('le 3 et le 10 à 18 h guitare', '2026-11-03 18:00 + 11-10', 'guitare')
+    , @('les 27, 28 et 29 salon', '2026-10-27 journée au 2026-10-29', 'salon', '', 'sortie', 'fin=00:00')
+    , @('le 30 et le 2 vacances', '2026-10-30 journée + 11-02', 'vacances', '', 'voyage')
+    # Dates avec un point ou un tiret, heure avec un point
+    , @('le 10.11 à 14 h impôts', '2026-11-10 14:00', 'impôts')
+    , @('le 10-11 à 14 h impôts', '2026-11-10 14:00', 'impôts')
+    , @('le 3.12.2026 à 10 h banque', '2026-12-03 10:00', 'banque')
+    , @('réunion le 2.11 à 9 h', '2026-11-02 09:00', 'réunion')
+    , @('le 31.11 à 10 h', 'invalide', '')
+    , @('à 10.30 dentiste demain', '2026-10-11 10:30', 'dentiste', '', 'sante')
+    , @('rendez-vous vers 9.15 lundi garage', '2026-10-12 09:15', 'garage')
+    , @('payer 12.50 euros demain à 15 h', '2026-10-11 15:00', 'payer 12.50 euros')
+    # « en huit », « en quinze »
+    , @('mercredi en huit à 10 h dentiste', '2026-10-21 10:00', 'dentiste', '', 'sante')
+    , @('lundi en huit coiffeur', '2026-10-19 journée', 'coiffeur')
+    , @('samedi en huit marché', '2026-10-17 journée', 'marché')
+    , @('demain en huit réunion à 14 h', '2026-10-18 14:00', 'réunion', '', 'travail')
+    , @('aujourd''hui en huit à 15 h dentiste', '2026-10-17 15:00', 'dentiste', '', 'sante')
+    , @('jeudi en quinze à 15 h garage', '2026-10-29 15:00', 'garage')
 )
 
 $ok = 0; $ko = 0
@@ -160,6 +230,30 @@ foreach ($c in $cas) {
         Write-Host ("        attendu : {0} | {1} | {2} | {3} | {4}" -f $c[1], $c[2], $attenduRep, $attenduType, $attenduDetails)
         Write-Host ("        obtenu  : {0} | {1} | {2} | {3} | {4}" -f $obtenu, $p.Titre, $rep, $p.Type, $details)
     }
+}
+# La case Heure du formulaire prend l'heure telle quelle (« 6 h » : 6 h, pas 18 h)
+foreach ($c in @(@('6 h', '06:00'), @('6h30', '06:30'), @('6', '06:00'), @('2h', '02:00'), @('5 h 45', '05:45'), @('15', '15:00'),
+                 @('18 h', '18:00'), @('3 h de l''après-midi', '15:00'), @('8 h du soir', '20:00'), @('midi et demi', '12:30'))) {
+    $h = Read-Heure $c[0]
+    $vu = if ($null -ne $h) { $h.ToString('hh\:mm') } else { 'rien' }
+    if ($vu -eq $c[1]) { $ok++ } else { $ko++; Write-Host ("ÉCHEC  case Heure « {0} » : attendu {1}, obtenu {2}" -f $c[0], $c[1], $vu) -ForegroundColor Red }
+}
+# Jour de la semaine et date qui ne vont pas ensemble : on le dit
+foreach ($c in @(@('lundi 3 novembre à 9 h médecin', 'mardi'), @('jeudi 13 octobre à 15 h dentiste', 'mardi'), @('mardi 3 novembre à 9 h médecin', ''))) {
+    $r = (Read-Phrase $c[0] $now).Remarque
+    $bon = if ($c[1]) { $r -match "est un $($c[1])" } else { -not $r }
+    if ($bon) { $ok++ } else { $ko++; Write-Host ("ÉCHEC  remarque pour « {0} » : « {1} »" -f $c[0], $r) -ForegroundColor Red }
+}
+# Pas des horaires de travail (« la poste », « réunion d'équipe ») ; et de vrais horaires, toujours compris
+if (-not (Get-Command Get-Setting -ErrorAction SilentlyContinue)) { function Get-Setting($Nom, $Defaut) { $Defaut } }
+foreach ($t in 'aller à la poste lundi matin', 'déposer le colis à la poste samedi matin', 'réunion d''équipe mardi après-midi',
+               'réunion de service lundi matin', 'repas de travail vendredi midi', 'réunion de travail lundi matin', 'le service après-vente lundi matin',
+               'match de l''équipe de France samedi soir', 'bureau de poste mercredi après-midi', 'pot de départ de l''équipe vendredi soir') {
+    if (-not (Get-HorairesTravail $t $now)) { $ok++ } else { $ko++; Write-Host "ÉCHEC  lu comme des horaires de travail : « $t »" -ForegroundColor Red }
+}
+foreach ($t in 'poste du soir tous les jeudis', 'équipe du matin le 20 octobre', 'poste matin lundi', 'je fais le poste de nuit jeudi',
+               'je suis d''équipe de nuit lundi et mardi', 'service du soir mardi', 'je bosse l''après-midi demain', 'mon poste est du matin lundi') {
+    if (Get-HorairesTravail $t $now) { $ok++ } else { $ko++; Write-Host "ÉCHEC  horaires de travail pas compris : « $t »" -ForegroundColor Red }
 }
 $col = if ($ko) { 'Red' } else { 'Green' }
 Write-Host "Phrases comprises : $ok / $($ok + $ko)" -ForegroundColor $col

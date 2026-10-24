@@ -31,6 +31,7 @@ function Start-Cerveau {
         $psi.StandardOutputEncoding = New-Object Text.UTF8Encoding $false
         $p = [Diagnostics.Process]::Start($psi)
     } catch { Write-Log "Assistant impossible à démarrer : $_"; return $false }
+    Add-ProgrammeAide $p 'Assistant'   # (le modèle qu'il lance ensuite s'arrête aussi avec Evermind)
     try { $p.PriorityClass = 'BelowNormal' } catch {}   # (un jeu passe avant ; le modèle, lancé par lui, aussi)
     $script:Cerveau = @{ Process = $p; Dernier = Get-Date }
     Write-Log 'Assistant démarré'

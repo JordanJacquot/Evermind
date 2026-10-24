@@ -162,7 +162,7 @@ function Update-EveilReglage {
     $dl = $script:VoixDl
     $ui.EveilEtat.Text = if ($dl -and -not $dl.Fini -and $dl.Pack -eq 'eveil') { 'Installation en cours...' }
         elseif (-not (Test-DicteeInstallee)) { 'Installe d''abord la voix (écran principal).' }
-        elseif ($on -and (Test-EveilActif)) { 'Actif : dis « OK Evermind », puis ta demande. Tout reste sur ton PC, rien n''est enregistré.' }
+        elseif ($on -and (Test-EveilActif)) { 'Actif : dis « OK Evermind », puis ta demande. Tout reste sur ton PC, et ta voix n''est jamais gardée.' }
         elseif ($on) { 'Activé, en attente du micro.' }
         else { 'Evermind écoute en continu, sur ton PC uniquement, et ne réagit qu''à « OK Evermind ». Petit téléchargement (57 Mo) la première fois.' }
 }

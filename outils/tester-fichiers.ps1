@@ -64,4 +64,38 @@ Import-Agenda
 $r = @($script:Agenda | Where-Object { $_.Titre -eq 'Réunion Richard' })[0]
 Test-Cas 'enregistré : dossiers et « ouvrir à l''heure »' ($r -and @($r.Fichiers).Count -eq 1 -and $r.OuvrirAuDebut)
 
+# 3. Rendez-vous sur plusieurs jours : les dossiers s'ouvrent au début seulement, pas à minuit les jours suivants
+$script:Agenda = New-Object System.Collections.ArrayList; $script:Ouverts = @{}; $script:Ouvertures.Clear(); $script:Dits = @()
+$j = (Get-Date).Date.AddDays(3)
+$v = Add-RendezVous 'Salon de l''auto' $j.AddHours(9) $null 'rdv' $false @{ Fichiers = @("$compta\Monsieur Richard"); OuvrirAuDebut = $true }
+$v.Fin = $j.AddDays(2).AddHours(18)
+$faits = @(Invoke-OuverturesDues $j.AddHours(9))
+Test-Cas 'plusieurs jours : ouvert au début' ($faits.Count -eq 1 -and $script:Ouvertures.Count -eq 1)
+$faits = @(Invoke-OuverturesDues $j.AddDays(1).AddSeconds(30))
+Test-Cas 'plusieurs jours : rien à minuit le 2e jour' (-not $faits.Count -and $script:Ouvertures.Count -eq 1) "($($script:Ouvertures.Count) ouverture(s))"
+$faits = @(Invoke-OuverturesDues $j.AddDays(2).AddMinutes(1))
+Test-Cas 'plusieurs jours : rien à minuit le dernier jour' (-not $faits.Count -and $script:Ouvertures.Count -eq 1)
+# Un rendez-vous qui revient chaque jour s'ouvre bien chaque jour (lui n'est pas « sur plusieurs jours »)
+$script:Agenda = New-Object System.Collections.ArrayList; $script:Ouverts = @{}; $script:Ouvertures.Clear()
+[void](Add-RendezVous 'Point du matin' $j.AddHours(8.5) ([pscustomobject]@{ Type = 'jour' }) 'travail' $false @{ Fichiers = @("$compta\Madame Dupont"); OuvrirAuDebut = $true })
+[void](Invoke-OuverturesDues $j.AddHours(8.5)); [void](Invoke-OuverturesDues $j.AddDays(1).AddHours(8.5))
+Test-Cas 'chaque jour : ouvert chaque jour' ($script:Ouvertures.Count -eq 2) "($($script:Ouvertures.Count) ouverture(s))"
+
+# 4. Pendant un jeu en plein écran : le rappel est donné, les dossiers attendent la fin du jeu
+$script:Agenda = New-Object System.Collections.ArrayList; $script:Ouverts = @{}; $script:Ouvertures.Clear(); $script:Dits = @()
+$g = Add-RendezVous 'Réunion Dupont' $j.AddHours(14) $null 'travail' $false @{ Fichiers = @("$compta\Madame Dupont"); OuvrirAuDebut = $true }
+$h = Add-RendezVous 'Appel Richard' $j.AddHours(14) $null 'travail' $false @{ Fichiers = @("$compta\Monsieur Richard"); OuvrirAuDebut = $true }
+$script:ModeJeu = $true
+$faits = @(Invoke-OuverturesDues $j.AddHours(14))
+Test-Cas 'en jeu : rien ne s''ouvre' ($faits.Count -eq 2 -and $script:Ouvertures.Count -eq 0) "($($script:Ouvertures -join ', '))"
+Test-Cas 'en jeu : Evermind dit qu''il ouvrira après' (@($script:Dits | Where-Object { $_ -match "J'ouvrirai .* à la fin de ton jeu" }).Count -eq 2) "($($script:Dits -join ' | '))"
+[void](Invoke-OuverturesDues $j.AddHours(14).AddMinutes(1))
+Test-Cas 'toujours en jeu : rien ne s''ouvre' ($script:Ouvertures.Count -eq 0)
+[void]$script:Agenda.Remove($h)   # supprimé pendant le jeu : il ne s'ouvrira pas
+$script:ModeJeu = $false
+[void](Invoke-OuverturesDues $j.AddHours(16))
+Test-Cas 'jeu fini : le dossier s''ouvre (une fois)' ($script:Ouvertures.Count -eq 1 -and $script:Ouvertures[0] -like '*\Madame Dupont') "($($script:Ouvertures -join ', '))"
+[void](Invoke-OuverturesDues $j.AddHours(16).AddSeconds(15))
+Test-Cas 'jeu fini : pas deux fois' ($script:Ouvertures.Count -eq 1)
+
 exit $(if ($ok) { 0 } else { 1 })

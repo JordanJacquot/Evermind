@@ -1,8 +1,10 @@
 ﻿# Evermind : ses propres alertes, aux couleurs d'Evermind et du thème choisi, à la place des bulles de Windows.
 #   Une carte glisse en bas à droite de l'écran, au-dessus de la barre des tâches, même quand la fenêtre est
 #   rangée près de l'horloge. Les alertes s'empilent, partent toutes seules (pas tant que la souris est dessus),
-#   et un clic ouvre Evermind sur le rendez-vous. « Dans 10 min » la fait revenir plus tard.
-# Et les rappels : la veille à 20 h, le matin même à 8 h, N minutes avant (codes de Format-Rappel), une seule fois.
+#   et un clic ouvre Evermind sur le rendez-vous. Un rappel, lui, est dit à voix haute et reste jusqu'à un clic.
+#   « Dans 10 min » le fait revenir plus tard (retenu sur disque : même après une relance).
+# Et les rappels : la veille à 20 h, le matin même à 8 h, N minutes avant (codes de Format-Rappel), une seule fois,
+# rattrapés au réveil du PC ou quand il est allumé tard.
 # Chargé par Evermind.ps1, après details.ps1.
 
 $script:Alertes = New-Object System.Collections.ArrayList
@@ -99,8 +101,9 @@ function New-AlerteFenetre($Titre, $Texte, $Etiquette, $Type, $RV, $Quand, $Seco
     [void]$g.Children.Add($x)
     [void]$tout.Children.Add($g)
 
-    # Le temps qui reste avant qu'elle parte : un fin trait lumineux qui raccourcit
+    # Le temps qui reste avant qu'elle parte : un fin trait lumineux qui raccourcit (aucun pour un rappel, qui reste)
     $barre = New-Object System.Windows.Controls.Border
+    if ($Secondes -le 0) { $barre.Visibility = 'Collapsed' }
     $barre.Height = 3; $barre.Margin = '18,0,18,9'; $barre.CornerRadius = 2; $barre.HorizontalAlignment = 'Stretch'
     $barre.Background = $bord.Clone()
     $echelle = New-Object System.Windows.Media.ScaleTransform 1, 1; $barre.RenderTransform = $echelle
@@ -122,9 +125,7 @@ function New-AlerteFenetre($Titre, $Texte, $Etiquette, $Type, $RV, $Quand, $Seco
         $plusTard.Add_MouseLeftButtonUp({
             param($s, $e) $e.Handled = $true
             $al = $s.Tag; Close-Alerte $al
-            $t = New-Object System.Windows.Threading.DispatcherTimer; $t.Interval = [TimeSpan]::FromMinutes(10); $t.Tag = $al
-            $t.Add_Tick({ param($s2) $s2.Stop(); $b = $s2.Tag; Show-Alerte $b.Titre $b.Texte $b.Etiquette $b.Type $b.RV $b.Quand 9 $b.Icone -Plus })
-            $t.Start()
+            Add-ReportRappel $al.RV $al.Quand (Get-Date).AddMinutes(10)
             Write-Log "Rappel remis à dans 10 min : $($al.Titre)"
         })
     }
@@ -140,6 +141,7 @@ function New-AlerteFenetre($Titre, $Texte, $Etiquette, $Type, $RV, $Quand, $Seco
         $al.Glisse.BeginAnimation([System.Windows.Media.TranslateTransform]::XProperty, $an)
         $al.Carte.BeginAnimation([System.Windows.UIElement]::OpacityProperty, (New-Object System.Windows.Media.Animation.DoubleAnimation 0, 1, ([TimeSpan]::FromMilliseconds(260))))
         if ($EnTest -and $env:EVERMIND_CAPTURE_ALERTE) { Save-CaptureAlerte $al; return }
+        if ($al.Total -le 0) { return }   # (un rappel : il reste jusqu'à un clic)
         # Le temps passe (sauf sous la souris)
         $al.Minuteur = New-Object System.Windows.Threading.DispatcherTimer
         $al.Minuteur.Interval = [TimeSpan]::FromMilliseconds(50); $al.Minuteur.Tag = $al
@@ -262,30 +264,91 @@ function Get-TexteDans([datetime]$Quand, [datetime]$Maintenant, [bool]$Journee) 
     switch ($jours) { 0 { "aujourd'hui" } 1 { 'demain' } default { "dans $jours jours" } }
 }
 
-# Les rappels à donner maintenant (chacun une seule fois, et seulement dans les 2 minutes : pas de vieux rappels
-# au démarrage). Plusieurs rappels du même rendez-vous en même temps : un seul, le plus proche du rendez-vous.
+# Ce qui est déjà donné, retenu sur disque (pas de doublon après une relance) : les rappels faits, les « Dans 10 min »
+# en attente, et le dernier passage (pour rattraper ce qui tombe pendant la veille du PC ou quand il est éteint).
+$RappelsFile = Join-Path $DataDir 'rappels.json'
+$script:RappelsFaits = @{}; $script:ReportsRappels = New-Object System.Collections.ArrayList; $script:DernierPassage = $null
+$script:RappelsEnregistres = [datetime]::MinValue
+$jr = Read-JsonFile $RappelsFile
+if ($jr) {
+    foreach ($c in @($jr.Faits)) { if ($c) { $script:RappelsFaits[[string]$c] = $true } }
+    foreach ($r in @($jr.Reports)) { try { if ($r) { [void]$script:ReportsRappels.Add([pscustomobject]@{ Id = [string]$r.Id; Quand = [datetime]::Parse($r.Quand); Revient = [datetime]::Parse($r.Revient) }) } } catch {} }
+    try { if ($jr.DernierPassage) { $script:DernierPassage = [datetime]::Parse($jr.DernierPassage) } } catch {}
+}
+
+function Save-Rappels([datetime]$Maintenant = (Get-Date)) {
+    # (on oublie ce qui a plus de 3 jours)
+    foreach ($c in @($script:RappelsFaits.Keys)) {
+        $q = [datetime]::MinValue
+        if (-not [datetime]::TryParse(($c -split '\|')[1], [ref]$q) -or $q -lt $Maintenant.AddDays(-3)) { $script:RappelsFaits.Remove($c) }
+    }
+    $script:RappelsEnregistres = $Maintenant
+    $d = [ordered]@{ DernierPassage = $(if ($script:DernierPassage) { $script:DernierPassage.ToString('s') }); Faits = @($script:RappelsFaits.Keys)
+                     Reports = @(foreach ($r in $script:ReportsRappels) { [ordered]@{ Id = $r.Id; Quand = $r.Quand.ToString('s'); Revient = $r.Revient.ToString('s') } }) }
+    try { Save-JsonFile $RappelsFile $d } catch { Write-Log "Rappels non enregistrés : $_" }
+}
+
+# « Dans 10 min » : le rappel revient plus tard (le planificateur le redonne, même après une relance)
+function Add-ReportRappel($RV, $Quand, [datetime]$Revient) {
+    if (-not $RV) { return }
+    $q = if ($Quand) { [datetime]$Quand } else { $RV.Quand }
+    [void]$script:ReportsRappels.Add([pscustomobject]@{ Id = [string]$RV.Id; Quand = $q; Revient = $Revient })
+    Save-Rappels
+}
+
+# Un rappel donné en retard a-t-il encore un sens ? Oui si le rendez-vous est encore à venir (ou commence à peine),
+# ou si c'est une chose à faire pas encore cochée.
+function Test-RappelUtile($rv, [datetime]$Quand, [datetime]$Maintenant) {
+    if ($rv.Fait) { return $false }
+    if ((Get-TypeRV $rv) -eq 'rappel') { return $true }
+    if ($rv.Journee) { return $Quand.Date -ge $Maintenant.Date }
+    $Quand -ge $Maintenant.AddMinutes(-2)
+}
+
+# Les rappels à donner maintenant, chacun une seule fois. Ceux tombés pendant que le PC dormait ou était éteint
+# (depuis le dernier passage, 2 jours au plus) sont rattrapés s'ils ont encore un sens. Plusieurs rappels du même
+# rendez-vous en même temps : un seul. Les rappels sont dits à voix haute, en une seule fois.
 function Invoke-RappelsDus([datetime]$Maintenant = (Get-Date)) {
-    if (-not $script:RappelsFaits) { $script:RappelsFaits = @{} }
-    $faits = @()
-    foreach ($it in @(Get-AgendaEntre $Maintenant.Date $Maintenant.AddDays(8))) {
+    $bas = $Maintenant.AddMinutes(-2)
+    if ($script:DernierPassage -and $script:DernierPassage -lt $bas) { $bas = $script:DernierPassage }
+    if ($bas -lt $Maintenant.AddDays(-2)) { $bas = $Maintenant.AddDays(-2) }
+    $change = $false
+    $parRV = [ordered]@{}
+    foreach ($it in @(Get-AgendaEntre $bas.Date $Maintenant.AddDays(8))) {
         $rv = $it.RV
         if ($rv.Fait) { continue }
         # Sur plusieurs jours : rappels pour le premier jour seulement
         if (-not $rv.Repetition -and (Test-PlusieursJours $rv) -and $it.Prochain.Date -ne $rv.Quand.Date) { continue }
+        $utile = Test-RappelUtile $rv $it.Prochain $Maintenant
         $dus = @(foreach ($code in @(Get-RappelsRV $rv)) {
             $m = Get-MomentRappel $code $it.Prochain
-            if ($null -eq $m -or $m -gt $Maintenant -or $m -lt $Maintenant.AddMinutes(-2)) { continue }
+            if ($null -eq $m -or $m -gt $Maintenant -or $m -lt $bas) { continue }
+            if ($m -lt $Maintenant.AddMinutes(-2) -and -not $utile) { continue }   # (en retard, et plus de sens)
             if (-not $rv.Journee -and $m -gt $it.Prochain) { continue }   # (« le matin même » d'un rendez-vous à 7 h)
             $cle = "$($rv.Id)|$($it.Prochain.ToString('s'))|$code"
             if ($script:RappelsFaits.ContainsKey($cle)) { continue }
-            $script:RappelsFaits[$cle] = $true
+            $script:RappelsFaits[$cle] = $true; $change = $true
             [pscustomobject]@{ Code = $code; Moment = $m }
         })
         if (-not $dus.Count) { continue }
-        $code = ($dus | Sort-Object Moment -Descending | Select-Object -First 1).Code
-        Show-AlerteRappel $rv $it.Prochain $Maintenant
-        $faits += [pscustomobject]@{ RV = $rv; Quand = $it.Prochain; Code = $code }
+        # (une chose à faire qui revient, manquée plusieurs fois : seulement la dernière fois)
+        $parRV[[string]$rv.Id] = [pscustomobject]@{ RV = $rv; Quand = $it.Prochain; Code = ($dus | Sort-Object Moment -Descending | Select-Object -First 1).Code }
     }
+    $faits = @($parRV.Values)
+    # Les « Dans 10 min » arrivés à leur heure
+    foreach ($r in @($script:ReportsRappels)) {
+        if ($r.Revient -gt $Maintenant) { continue }
+        $script:ReportsRappels.Remove($r); $change = $true
+        $rv = Get-RendezVous $r.Id
+        if (-not $rv -or $rv.Fait -or $parRV.Contains([string]$r.Id)) { continue }
+        if ($r.Revient -lt $Maintenant.AddMinutes(-2) -and -not (Test-RappelUtile $rv $r.Quand $Maintenant)) { continue }
+        $faits += [pscustomobject]@{ RV = $rv; Quand = $r.Quand; Code = 'report' }
+    }
+    $paroles = @(foreach ($f in $faits) { Show-AlerteRappel $f.RV $f.Quand $Maintenant })
+    if ($paroles.Count) { try { Invoke-Parole ($paroles -join ' ') } catch { Write-Log "Rappel non dit : $_" } }
+    # Le dernier passage, retenu sur disque dès qu'un rappel est donné, et sinon toutes les 5 minutes
+    $script:DernierPassage = $Maintenant
+    if ($change -or [math]::Abs(($Maintenant - $script:RappelsEnregistres).TotalMinutes) -ge 5) { Save-Rappels $Maintenant }
     $faits
 }
 
@@ -298,11 +361,22 @@ function Get-HeureAlerte($rv, [datetime]$Quand, [datetime]$Maintenant) {
     if ($jour) { "$jour, $h" } else { $h }
 }
 
+# Un rappel reste affiché jusqu'à un clic (0 seconde : il ne part pas tout seul). Rend la phrase à dire.
 function Show-AlerteRappel($rv, [datetime]$Quand, [datetime]$Maintenant) {
-    $dans = Get-TexteDans $Quand $Maintenant ([bool]$rv.Journee)
     $nom = Get-TitreAffiche $rv.Titre
+    # Déjà passé (une chose à faire manquée pendant que le PC dormait) : « Rappel manqué »
+    $passe = if ($rv.Journee) { $Quand.Date -lt $Maintenant.Date } else { $Quand -lt $Maintenant.AddMinutes(-2) }
+    if ($passe) {
+        $heure = Get-HeureAlerte $rv $Quand $Maintenant
+        Write-Log "Rappel manqué : $nom ($heure)"
+        Show-Alerte $nom $heure 'Rappel manqué' (Get-TypeRV $rv) $rv $Quand 0 -Plus
+        $moment = if ($Quand.Date -eq $Maintenant.Date) { 'à ' + (Format-Heure $Quand) } elseif ($Quand.Date -eq $Maintenant.Date.AddDays(-1)) { 'hier' } else { $Quand.ToString('dddd d MMMM', $Fr) }
+        return "Rappel manqué : $nom, c'était $moment."
+    }
+    $dans = Get-TexteDans $Quand $Maintenant ([bool]$rv.Journee)
     Write-Log "Rappel : $nom ($dans)"
-    Show-Alerte $nom (Get-HeureAlerte $rv $Quand $Maintenant) "Rappel  ·  $dans" (Get-TypeRV $rv) $rv $Quand 12 -Plus
+    Show-Alerte $nom (Get-HeureAlerte $rv $Quand $Maintenant) "Rappel  ·  $dans" (Get-TypeRV $rv) $rv $Quand 0 -Plus
+    "Rappel : $nom, $dans."
 }
 
 function Start-PlanificateurRappels {

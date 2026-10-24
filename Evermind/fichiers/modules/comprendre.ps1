@@ -223,7 +223,9 @@ function Get-ProchaineFois($Repetition, [datetime]$Premier, [datetime]$From) {
 #   'quand'   ni le jour ni l'heure
 #   'passe'   ce moment est déjà passé
 #   'invalide' cette date n'existe pas (31 février...)
-function Read-Phrase([string]$Text, $Now) {
+#   'matin'   une heure de 1 h à 6 h qui peut être le matin comme le soir (« à 6 h », « 5 h aéroport ») : on demande
+# HeureTelle : l'heure est prise telle quelle, « 6 h » reste 6 h (case Heure du formulaire)
+function Read-Phrase([string]$Text, $Now, [bool]$HeureTelle = $false) {
     if (-not $Now) { $Now = Get-Date }
     $Now = [datetime]$Now
     $today = $Now.Date
@@ -267,7 +269,7 @@ function Read-Phrase([string]$Text, $Now) {
 
     # 0. Détails dits dans la phrase : lien, importance, rappels voulus, âge, durée, lieu donné tel quel
     #    (retirés en premier : « 2 jours avant » ou « jusqu'à 18 h » ne doivent pas devenir la date ou l'heure)
-    $det = [ordered]@{ Lieu = ''; Avec = @(); Lien = ''; Important = $false; Rappels = $null; Naissance = $null; APreparer = @() }
+    $det = [ordered]@{ Lieu = ''; Avec = @(); Lien = ''; Important = $false; Rappels = $null; Naissance = $null; APreparer = @(); Remarque = '' }
     $finHeure = $null; $dureeMin = $null; $ageDit = $null
     if (($m = Get-Morceau $st '(?<![\w@])(?:https?://|www\.|discord\.gg/)[^\s]+').Success) { $det.Lien = $m.Value.TrimEnd('.,;') }
     if ((Get-Morceau $st "\b(?:c'est\s+|tr[èe]s\s+)?(?:important|urgent|prioritaire|[àa] ne (?:pas|surtout pas) (?:oublier|rater|louper))\b").Success) { $det.Important = $true }
@@ -419,11 +421,18 @@ function Read-Phrase([string]$Text, $Now) {
         }
     }
 
-    # 2. « dans 2 heures », « dans 30 minutes », « dans une demi-heure » : le moment exact
-    if (($m = Get-Morceau $st "\bdans\s+(?:(?<n>$RxNombre)\s+(?<u>heures?|h|minutes?|min)\b|(?<dh>une demi[- ]heure)|(?<qh>un quart d'heure))").Success) {
+    # 2. « dans 2 heures », « dans 30 minutes », « dans une demi-heure » : le moment exact. Aussi les durées en deux
+    #    morceaux : « dans 1h30 », « dans 1 h 30 », « dans 2 heures et 10 minutes », « dans une heure et demie »
+    $rxMinDans = "(?:\d{2}|\d{1,2}(?=\s*(?:minutes?|mn|min)\b)|$RxMinMot)"
+    if (($m = Get-Morceau $st "\bdans\s+(?:(?<n>$RxNombre)\s*(?<u>heures?\b|h(?![a-zà-ÿ]))(?:\s*(?:et\s+)?(?<m>$rxMinDans)(?:\s*(?:minutes?|mn|min)\b)?|\s+(?<f>et demie?|et quart|moins le quart|moins quart))?|(?<n>$RxNombre)\s*(?<u>minutes?|mn|min)\b|(?<dh>une demi[- ]heure)|(?<qh>un quart d'heure)|(?<tq>(?:trois|3) quarts? d'heure|3/4 d'heure))").Success) {
         $exact = if ($m.Groups['dh'].Success) { $Now.AddMinutes(30) }
                  elseif ($m.Groups['qh'].Success) { $Now.AddMinutes(15) }
-                 elseif ($m.Groups['u'].Value -match '^h') { $Now.AddHours((ConvertFrom-Nombre $m.Groups['n'].Value)) }
+                 elseif ($m.Groups['tq'].Success) { $Now.AddMinutes(45) }
+                 elseif ($m.Groups['u'].Value -match '^h') {
+                     $plus = if ($m.Groups['m'].Success) { [int](ConvertFrom-Nombre $m.Groups['m'].Value) }
+                             else { switch -Regex ($m.Groups['f'].Value.ToLower()) { 'demi' { 30 } 'et quart' { 15 } 'moins' { -15 } default { 0 } } }
+                     $Now.AddHours((ConvertFrom-Nombre $m.Groups['n'].Value)).AddMinutes($plus)
+                 }
                  else { $Now.AddMinutes((ConvertFrom-Nombre $m.Groups['n'].Value)) }
         $exact = $exact.AddSeconds(-$exact.Second).AddMilliseconds(-$exact.Millisecond)
     }
@@ -451,6 +460,24 @@ function Read-Phrase([string]$Text, $Now) {
                 @{ D = (& $num $_.Groups['d'].Value); Mo = $(if ($_.Groups['mo'].Success) { $MoisNoms[$_.Groups['mo'].Value.ToLower()] } else { 0 }) } } | Where-Object { $_.D -ge 1 -and $_.D -le 31 })
             for ($k = $items.Count - 1; $k -ge 0; $k--) { if (-not $items[$k].Mo) { $items[$k].Mo = if ($k -lt $items.Count - 1) { $items[$k + 1].Mo } else { $MoisNoms[$m.Groups['mo'].Value.ToLower()] } } }
             try { $jours = @($items | ForEach-Object { [datetime]::new((& $anDe $_.Mo $_.D $m.Groups['y'].Value), $_.Mo, $_.D) } | Sort-Object -Unique) } catch { $invalide = $true }
+        } elseif (($m = Get-Morceau $st "(?<![\p{L}'])(?:(?<ce>ce)\s+)?$RxJour(?:\s+prochain)?(?!\s*\d)(?:\s*(?:,|\bet\b)\s*(?:(?:ce|le)\s+)?$RxJour(?:\s+prochain)?(?!\s*\d))+\b").Success) {
+            # Des jours de la semaine dits ensemble, sans « tous les » : « samedi et dimanche », « lundi, mercredi et vendredi ».
+            # Chacun le prochain après celui d'avant (« vendredi et lundi » : le lundi d'après) ; « samedi » dit un samedi :
+            # celui d'après, « ce samedi » : aujourd'hui
+            $noms = @([regex]::Matches($m.Value.ToLower(), "\b$RxJour") | ForEach-Object { $JoursNoms[$_.Value] })
+            $d = if ($st.S -match "(?i)\b(?:de\s+)?la semaine prochaine\b") { $today.AddDays(6 - ((([int]$today.DayOfWeek) + 6) % 7)) }
+                 elseif ($m.Groups['ce'].Success) { $today.AddDays(-1) } else { $today }
+            $jours = @(foreach ($wdn in $noms) { do { $d = $d.AddDays(1) } while ([int]$d.DayOfWeek -ne $wdn); $d })
+        } elseif (($m = Get-Morceau $st "\b(?:les?\s+)(?<d>\d{1,2}|1er)(?:er)?(?:\s*(?:,|\bet\b)\s*(?:le\s+)?(?:\d{1,2}|1er)(?:er)?)+\b(?!\s*(?:h(?![a-zà-ÿ])|heures?\b|:|[/.]\d|jours?\b|semaines?\b|mois\b|ans?\b|minutes?\b|min\b|$RxMois))").Success) {
+            # « le 3 et le 10 », « les 27, 28 et 29 » sans le mois : le premier ce mois-ci (ou le suivant s'il est passé),
+            # chacun des autres le prochain après celui d'avant (« le 30 et le 2 » : le 2 du mois d'après)
+            $apres = $today.AddDays(-1)
+            $jours = @([regex]::Matches($m.Value, '\d{1,2}') | ForEach-Object {
+                $dn = [int]$_.Value; $c = $null
+                for ($k = 0; $k -le 12 -and -not $c; $k++) { $first = $apres.AddDays(1 - $apres.Day).AddMonths($k); $x = New-DateSure $first.Year $first.Month $dn; if ($x -and $x -gt $apres) { $c = $x } }
+                if ($c) { $apres = $c }
+                $c } | Where-Object { $_ } | Sort-Object -Unique)
+            if (-not $jours.Count) { $invalide = $true }
         }
         if ($jours -and $jours.Count) {
             $date = $jours[0]
@@ -471,7 +498,11 @@ function Read-Phrase([string]$Text, $Now) {
         }
     }
 
-    # 3. Jours relatifs
+    # 3. Jours relatifs. « mercredi en huit » : le mercredi de la semaine d'après ; « demain en quinze » : 2 semaines plus tard
+    $enHuit = 0
+    if (($m = Get-Morceau $st "(?<=\b(?:$RxJour|demain|aujourd'?\s?hui)(?:\s+prochain)?)\s+en\s+(?<n>huit|8|quinze|15)\b(?!\s*(?:jours?|h(?![a-zà-ÿ])|heures?)\b)").Success) {
+        $enHuit = if ($m.Groups['n'].Value -match '^(huit|8)$') { 7 } else { 14 }
+    }
     if (($m = Get-Morceau $st "\bdans\s+(?<n>$RxNombre)\s+(?<u>jours?|semaines?|mois|ans?)\b").Success) {
         $n = ConvertFrom-Nombre $m.Groups['n'].Value
         $date = switch -Regex ($m.Groups['u'].Value.ToLower()) { '^j' { $today.AddDays($n) } '^s' { $today.AddDays(7 * $n) } '^m' { $today.AddMonths($n) } default { $today.AddYears($n) } }
@@ -481,7 +512,9 @@ function Read-Phrase([string]$Text, $Now) {
 
     # 4. Dates : « le 27/02 », « le 27 février 2027 », « vendredi 27 février », « le 27 »
     if (-not $date) {
+        # (« le 10.11 », « le 10-11-2026 » aussi, mais pas une heure : « à 10.30 »)
         if (($m = Get-Morceau $st '\b(?:le\s+)?(?<d>\d{1,2})/(?<mo>\d{1,2})(?:/(?<y>\d{2,4}))?\b').Success -or
+            ($m = Get-Morceau $st "(?<!\b(?:à|a|vers|de|pour)\s+|[\d.,]|\d[.-]\d{1,2}[.-])\b(?:le\s+)?(?<d>\d{1,2})(?<sep>[.-])(?<mo>0?[1-9]|1[0-2])(?:\k<sep>(?<y>\d{4}|\d{2}))?\b(?![.,-]\d)(?!\s*(?:h(?![a-zà-ÿ])|heures?\b|minutes?\b|min\b|jours?\b|semaines?\b|mois\b|ans?\b|€|euros?\b|%|kg\b|km\b|litres?\b))").Success -or
             ($m = Get-Morceau $st "\b(?:(?:le|du|ce)\s+)?(?:(?<wdx>$RxJour)\s+)?(?<d>$RxNombre)\s+(?<mo>$RxMois)(?:\s+(?<y>\d{4}))?\b").Success) {
             $d = ConvertFrom-Nombre $m.Groups['d'].Value
             $mo = if ($m.Groups['mo'].Value -match '^\d+$') { [int]$m.Groups['mo'].Value } else { $MoisNoms[$m.Groups['mo'].Value.ToLower()] }
@@ -508,10 +541,16 @@ function Read-Phrase([string]$Text, $Now) {
         }
     }
 
-    # Jour de la semaine qui ne colle pas avec le numéro (« jeudi 13 » alors que le 13 est un mardi) : le jour de la semaine l'emporte
+    # Jour de la semaine qui ne colle pas avec le numéro (« jeudi 13 » alors que le 13 est un mardi) : ce jour de la semaine,
+    # le plus près de la date dite (« lundi 3 novembre » : lundi 2 novembre, pas lundi prochain), et on le dit
     if ($date -and $m -and $m.Groups['wdx'].Success) {
         $wdv = $JoursNoms[$m.Groups['wdx'].Value.ToLower()]
-        if ([int]$date.DayOfWeek -ne $wdv) { $ecart = (($wdv - [int]$today.DayOfWeek) + 7) % 7; $date = $today.AddDays($ecart) }
+        if ([int]$date.DayOfWeek -ne $wdv) {
+            $dite = $date
+            $ecart = (($wdv - [int]$date.DayOfWeek) + 7) % 7; if ($ecart -gt 3) { $ecart -= 7 }
+            $date = $date.AddDays($ecart); if ($date -lt $today) { $date = $date.AddDays(7) }
+            $det.Remarque = "Le $($dite.ToString('d MMMM', $Fr) -replace '^1 ', '1er ') est un $($dite.ToString('dddd', $Fr)), pas un $($m.Groups['wdx'].Value.ToLower()) : j'ai pris le $($date.ToString('dddd d MMMM', $Fr)). Corrige si ce n'est pas le bon jour."
+        }
     }
 
     # 5. Jour de la semaine : « mardi », « mardi prochain », « ce samedi », « mercredi de la semaine prochaine »
@@ -525,17 +564,20 @@ function Read-Phrase([string]$Text, $Now) {
                 $date = $lundi.AddDays(($wd + 6) % 7)
             } else {
                 $ecart = (($wd - [int]$today.DayOfWeek) + 7) % 7
-                if ($ecart -eq 0 -and -not $m.Groups['ce'].Success) { $ecart = 7 }   # « mardi » dit un mardi : celui d'après
+                if ($ecart -eq 0 -and -not $m.Groups['ce'].Success -and -not $enHuit) { $ecart = 7 }   # « mardi » dit un mardi : celui d'après
                 $date = $today.AddDays($ecart)
             }
         }
     } elseif ($semaineProchaine -and -not $date) {
         $date = $today.AddDays(7 - ((([int]$today.DayOfWeek) + 6) % 7))   # lundi de la semaine prochaine
     }
+    if ($enHuit -and $date -and -not $rep) { $date = $date.AddDays($enHuit) }
 
     if ((Get-Morceau $st '\b(?:toute la journ[ée]e|la journ[ée]e enti[èe]re|journ[ée]e enti[èe]re)\b').Success) { $journee = $true }
 
     # 6. Heure : « à midi et demi », « à 15 h 30 », « 15h30 », « à 3 h de l'après-midi », « quinze heures trente »
+    #    (et « à 10.30 », avec un point)
+    $st.S = $st.S -replace "(?i)\b(à|a|vers|pour)\s+(\d{1,2})\.(\d{2})\b(?![.,]\d)", '$1 $2 h $3'
     $rxQualif = "(?:\s+(?<q>du matin|de l'apr[èe]s[- ]midi|de l'aprem|du soir|de la nuit))?"
     if (($m = Get-Morceau $st "(?:\b(?:à|a|vers|pour)\s+)?(?<ce>\bce\s+)?(?<![-'\w])(?<mm>midi|minuit)(?:\s+(?<f>$RxFrac)|\s*(?<m>\d{2})\b)?").Success) {
         $h = if ($m.Groups['mm'].Value -match '^midi$') { 12 } else { 0 }
@@ -565,16 +607,28 @@ function Read-Phrase([string]$Text, $Now) {
         $periode = $m.Groups['p'].Value.ToLower()
         if ($m.Groups['ce'].Success -and -not $date) { $date = $today }
     }
+    # « cette nuit à 2 h », « dans la nuit » : la nuit qui vient (2 h reste 2 h ; 11 h devient 23 h)
+    if (-not $periode -and (Get-Morceau $st "\b(?:cette|dans la|en pleine)\s+nuit(?:\s+d[eu](?=\s+$RxJour))?\b").Success) { $periode = 'nuit' }
+    # « demain tôt à 5 h » : le matin (le mot ne reste pas dans le titre)
+    if (-not $periode -and $heure -and (Get-Morceau $st "\b(?:tr[èe]s\s+)?(?:t[ôo]t(?:\s+le\s+matin)?|de bonne heure)\b").Success) { $periode = 'matin' }
     if (-not $periode -and $periodeRep) { $periode = $periodeRep }   # « tous les matins »
     $moment = if ($qualif) { $qualif } else { $periode }
+    $doute = $false
     if ($heure) {
         # « 8 h » le soir ou l'après-midi veut dire 20 h ; sans précision, « à 3 h » pour un rendez-vous veut dire 15 h
-        if ($moment -match 'soir|midi|aprem' -and $heure.Hours -lt 12) { $heure = $heure.Add([timespan]::FromHours(12)) }
-        # (sauf dans une plage qui finit après 7 h, « de 6 h à 14 h », et pour le travail : « je commence à 6 h »)
-        elseif (-not $moment -and $heureChiffres -and $heure.Hours -ge 1 -and $heure.Hours -le 6 -and
+        if (($moment -match 'soir|midi|aprem' -or ($moment -match 'nuit' -and $heure.Hours -ge 8)) -and $heure.Hours -lt 12) { $heure = $heure.Add([timespan]::FromHours(12)) }
+        # (sauf dans une plage qui finit après 7 h, « de 6 h à 14 h », pour le travail : « je commence à 6 h », et dans
+        # la case Heure, où l'heure est prise telle quelle)
+        elseif (-not $moment -and -not $HeureTelle -and $heureChiffres -and $heure.Hours -ge 1 -and $heure.Hours -le 6 -and
                 -not ($null -ne $finHeure -and $finHeure.Hours -gt $heure.Hours -and $finHeure.Hours -ge 7) -and
-                $Text -notmatch "(?i)\b(?:travail\w*|bosse\w*|boulot|taf|poste|[ée]quipe|embauche|je commence|je finis|je d[ée]bute|shift)\b") { $heure = $heure.Add([timespan]::FromHours(12)) }
-    } elseif ($moment) {
+                -not (Test-ParleTravail $Text $true)) {
+            # Ce qui se fait tôt le matin (« réveil », « me lever », « tôt ») : le matin. Un départ (« aéroport », « train »)
+            # ou 6 h : le matin comme le soir sont possibles, on demande. Sinon, l'après-midi.
+            if ($Text -match $RxTotMatin) { }
+            elseif ($heure.Hours -eq 6 -or $Text -match $RxDepart) { $doute = $true }
+            else { $heure = $heure.Add([timespan]::FromHours(12)) }
+        }
+    } elseif ($moment -and $moment -ne 'nuit') {
         $heure = switch -Regex ($moment) { 'matin' { [timespan]::new(9, 0, 0) } 'midi|aprem' { [timespan]::new(14, 0, 0) } default { [timespan]::new(20, 0, 0) } }
     }
 
@@ -620,6 +674,7 @@ function Read-Phrase([string]$Text, $Now) {
     $res = [ordered]@{ Titre = $titre; Quand = $null; Repetition = $null; Manque = ''; Jour = $date; Heure = $(if ($journee) { $null } else { $heure })
                        Type = $type; Journee = [bool]$journee }
     if ($invalide) { $res.Manque = 'invalide'; return (Complete-Phrase $res $det $finHeure $dureeMin $ageDit) }
+    if ($doute) { $res.Manque = 'matin'; return (Complete-Phrase $res $det $finHeure $dureeMin $ageDit) }   # « à 6 h » : du matin ou du soir ?
     if ($rep) {
         if (-not $heure -and $exact) { $heure = $exact.TimeOfDay }
         if ($rep.Type -eq 'an' -and -not $date) { $res.Manque = 'jour'; return (Complete-Phrase $res $det $finHeure $dureeMin $ageDit) }
@@ -689,7 +744,7 @@ function Read-Heure([string]$Text) {
     $t = $Text.Trim()
     if (-not $t) { return $null }
     if ($t -match '^\d{1,2}$') { $t += ' h' }
-    $p = Read-Phrase "le 1/1/2099 à $t" ([datetime]'2026-01-01')
+    $p = Read-Phrase "le 1/1/2099 à $t" ([datetime]'2026-01-01') $true   # (« 6 h » dans la case : 6 h, pas 18 h)
     if ($p.Manque -or -not $p.Quand -or $p.Journee) { return $null }
     $p.Quand.TimeOfDay
 }
@@ -964,11 +1019,30 @@ function Get-CreneauCle([string]$Mot) {
     switch -Regex ($Mot.ToLower()) { '^mat' { 'matin' } '^jour' { 'journee' } '^ap' { 'apresmidi' } '^soir' { 'soir' } '^nuit' { 'nuit' } }
 }
 
+# La phrase parle-t-elle de ses heures de travail (« je suis du matin », « poste du soir », « équipe de nuit ») ?
+# Pas « aller à la poste », « réunion d'équipe », « réunion de service », « repas de travail ».
+# Heure : en plus, ce qui dit le début ou la fin d'une journée de travail (« je commence à 6 h », « j'embauche à 5 h »).
+$RxCreneauMot = "(?:matin|journ|apr[èe]s|aprem|soir|nuit)"
+function Test-ParleTravail([string]$Texte, [bool]$Heure = $false) {
+    $t = ' ' + (($Texte -replace "[’‘`´]", "'").ToLower()) + ' '
+    $t = $t -replace "\b(?:r[ée]unions?|repas|d[ée]jeuners?|d[îi]ners?|pots?|soir[ée]es?|f[êe]tes?|sorties?|s[ée]ances?|groupes?|points?|rendez-vous|rdv|entretiens?|s[ée]minaires?|formations?|chefs?|coll[èe]gues?|sports?|activit[ée]s?|v[êe]tements?|tenues?|chaussures?|sacs?|ordinateurs?|t[ée]l[ée]phones?|bureaux?|maillots?|matchs?|photos?)\s+(?:de\s+|d'|du\s+)(?:l'|la\s+|mon\s+|ma\s+|notre\s+)?(?:travail|boulot|taf|[ée]quipe|service|bureau)\b", ' '
+    $t = $t -replace "\b(?:la|une|des|aux?|bureaux? de|guichet de)\s+postes?\b|\b[ée]quipe\s+(?:de|d')\s*(?:france|foot\w*|basket|hand\w*|rugby)\b|\bservices?\s+(?:client|apr[èe]s[- ]vente|public|des\s+\w+|de\s+(?!nuit|jour|matin|soir|l'|la\s)\w+)\b", ' '
+    if ($t -match "\b(?:travail\w*|bosse\w*|boulot|taf|shift|horaires?|planning)\b" -or
+        $t -match "\bje suis (?:du|de|d'|en) ?$RxCreneauMot" -or
+        $t -match "\bpostes?\s+(?:du\s+|de\s+|d'|en\s+)?$RxCreneauMot" -or
+        $t -match "\b(?:[ée]quipes?|services?)\s+(?:du\s+|de\s+(?:la\s+|l')?|d')$RxCreneauMot" -or
+        $t -match "\b(?:mon|mes|ma)\s+(?:postes?|[ée]quipes?|services?)\b|\bje suis (?:de|d'|en)\s*(?:service|poste|[ée]quipe|garde)\b") { return $true }
+    $Heure -and $t -match "\b(?:j'embauche|je d[ée]bauche|je commence|je finis|je d[ée]bute|je prends mon poste)\b"
+}
+# Heures de 1 h à 6 h : ce qui se fait tôt le matin, et les départs (matin ou soir : on demande)
+$RxTotMatin = "(?i)\b(?:r[ée]veils?|r[ée]veiller|(?:me|se|nous|te)\s+r[ée]veill\w*|(?:me|se|nous|te)\s+l[èe]v\w*|lever|debout|t[ôo]t|de bonne heure|aube|aurore|petit[- ]d[ée]j\w*|matinal\w*)\b"
+$RxDepart   = "(?i)\b(?:a[ée]roport|avion|vol|d[ée]collage|embarquement|train|tgv|ter|gare|d[ée]part|partir|pars|taxi|navette|covoiturage|ferry|bateau)\b"
+
 function Get-HorairesTravail([string]$Texte, $Now) {
     if (-not $Now) { $Now = Get-Date }
     $today = ([datetime]$Now).Date
     $t = ' ' + (($Texte -replace "[’‘`´]", "'").ToLower()) + ' '
-    if ($t -notmatch "\b(?:travail\w*|bosse\w*|boulot|taf|poste|[ée]quipe|service|shift|horaires?|planning)\b|\bje suis (?:du|de|d'|en) ?(?:matin|journ|apr|aprem|soir|nuit)") { return $null }
+    if (-not (Test-ParleTravail $Texte)) { return $null }
     if ($t -match '\b\d{1,2}\s*(?:h\b|heures?\b|h\d{2}\b|:\d{2})') { return $null }
     $rxC = "(?:(?:du|de|en|le|la|l'|au|d')\s*)?(?<c>matin(?:[ée]e)?s?|journ[ée]es?|apr[èe]s[- ]midis?|aprems?|soir(?:[ée]e)?s?|nuits?)\b"
     $items = New-Object System.Collections.ArrayList

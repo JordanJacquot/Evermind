@@ -34,6 +34,8 @@ if (-not $EnTest) {
         if (Test-Path -LiteralPath $ancien) { try { Remove-Item -LiteralPath $ancien -Recurse -Force -ErrorAction Stop } catch {} }
     }
 }
+# Les anciennes versions gardaient le son de la dernière phrase dictée : il est effacé (rien n'est enregistré)
+try { [IO.File]::Delete((Join-Path $DataDir 'derniere-dictee.wav')) } catch {}
 
 # Gestionnaire des tâches : toute la suite tient sur une seule ligne « Mindset », qui regroupe les programmes nommés
 # Mindset.exe. Un programme d'aide téléchargé (whisper-server, llama-server) est donc lancé par une copie de lui-même
@@ -61,6 +63,13 @@ function Get-CopieMindset([string]$Exe) {
         if (Test-Path -LiteralPath $Exe) { Write-Log "$([IO.Path]::GetFileName($Exe)) lancé sous son nom (copie Mindset.exe impossible : $($_.Exception.Message))" }
         $Exe
     }
+}
+
+# Un programme d'aide qui vient d'être lancé (Whisper, la voix, l'assistant) s'arrêtera avec Evermind, même si
+# Evermind est arrêté de force (job de Windows, voir EMJob dans natif.cs) : il ne reste jamais seul en mémoire.
+function Add-ProgrammeAide($Process, [string]$Nom) {
+    if (-not $Process -or -not ('EMJob' -as [type])) { return }   # (outils de test qui ne chargent pas le code natif)
+    if (-not [EMJob]::Ajouter($Process)) { Write-Log "$Nom : pas relié à Evermind ($([EMJob]::Erreur))" }
 }
 #   Pack : « voix » (dictée et voix Kokoro), « ia » (l'assistant qui comprend tout), « eveil » (« OK Evermind »)
 #   Extraire : fichiers gardés d'un zip (tout le reste est ignoré), rangés dans le sous-dossier Vers (Plat : sans leurs dossiers)
@@ -403,6 +412,7 @@ function Start-KokoroServeur {
     $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
     $psi.StandardOutputEncoding = New-Object Text.UTF8Encoding($false)
     $p = [Diagnostics.Process]::Start($psi)
+    Add-ProgrammeAide $p 'Voix Kokoro'
     $in = New-Object IO.StreamWriter($p.StandardInput.BaseStream, (New-Object Text.UTF8Encoding($false)))
     $in.AutoFlush = $true
     try { $p.PriorityClass = 'BelowNormal' } catch {}   # (un jeu passe avant)
@@ -888,12 +898,23 @@ function Stop-EcouteSansSuite {
     $script:Ecoute = $null
     $script:EcouteTimer.Stop()
     try { $e.Mic.Stop() } catch {}
+    Remove-SonDictee $e.Prefixe; Remove-SonDictee $script:EveilDebut   # (le début de phrase après « OK Evermind »)
     $ui.BtnMicro.Tag = $null; $ui.MicHalo.Opacity = 0
 }
 
 function Step-Ecoute {
     $e = $script:Ecoute
     if (-not $e) { $script:EcouteTimer.Stop(); return }
+    # Micro débranché (ou coupé) pendant l'écoute : plus aucun son n'arrive, et la durée enregistrée ne bouge plus.
+    # L'horloge, elle, avance : l'écoute s'arrête au bout de 3 secondes sans son, et jamais après 30 secondes, pour ne
+    # pas laisser « OK Evermind » en pause pour toujours.
+    $sansSon = $e.Debut.ElapsedMilliseconds - $e.Mic.Millis
+    if ($sansSon -gt 3000 -or $e.Debut.ElapsedMilliseconds -gt 30000) {
+        $e.MicPerdu = $sansSon -gt 3000
+        Write-Log "Écoute arrêtée : $(if ($e.MicPerdu) { 'plus aucun son ne vient du micro (débranché ?)' } else { 'trop longue' })"
+        if ($e.Silencieux) { Stop-EcouteSansSuite } else { Stop-Ecoute }
+        return
+    }
     # En attente de la confirmation de « OK Evermind » : on garde tout ce qui est dit (25 secondes au plus)
     if ($e.Silencieux) { if ($e.Mic.Millis -gt 25000) { Stop-EcouteSansSuite }; return }
     # « OK Evermind, supprime le foot » dit d'une traite : rien de plus après la confirmation, ce qui a été compris suffit
@@ -930,9 +951,16 @@ function Stop-Ecoute {
     $ui.BtnMicro.Tag = $null; $ui.MicHalo.Opacity = 0
     $e.Mic.Stop()
     Invoke-Bip $false
+    if (-not $e.Mic.HeardVoice) { Remove-SonDictee $e.Prefixe }   # rien à relire : le début de phrase est effacé
     if (-not $e.Mic.HeardVoice -and $e.Source -eq 'eveil') {
         if ($e.Reste) { Invoke-Dictee $e.Reste; return }      # la demande était déjà dans la phrase « OK Evermind, ... »
         Hide-Bulle; Set-VoixEtat ''; return                    # réveillé pour rien : on se tait
+    }
+    if (-not $e.Mic.HeardVoice -and $e.MicPerdu) {
+        Set-VoixEtat 'Je n''entends plus le micro. Vérifie qu''il est bien branché, puis réessaie.'
+        Show-Bulle 'Je n''entends plus le micro.' 4000
+        Invoke-Parole 'Je n''entends plus le micro.'
+        return
     }
     if (-not $e.Mic.HeardVoice) {
         Set-VoixEtat 'Je n''ai rien entendu. Réessaie en parlant un peu plus fort.'
@@ -941,10 +969,17 @@ function Stop-Ecoute {
         return
     }
     $wav = Join-Path $env:TEMP "evermind-$PID.wav"
-    try { $e.Mic.SaveWav($wav) } catch { Write-Log "Enregistrement : $_"; return }
+    try { $e.Mic.SaveWav($wav) } catch { Write-Log "Enregistrement : $_"; Remove-SonDictee $e.Prefixe; return }
     # Après « OK Evermind » : le début de la phrase (entendu par l'écoute) et la suite (le micro) sont relus ensemble
     if ($e.Prefixe -and (Test-Path -LiteralPath $e.Prefixe)) { try { Join-Wav $e.Prefixe $wav } catch { Write-Log "Assemblage de la phrase : $_" } }
+    Remove-SonDictee $e.Prefixe
     Start-Transcription $wav
+}
+
+# Efface le son d'une phrase (le son n'est jamais gardé, seulement le temps que Whisper l'écrive)
+function Remove-SonDictee([string]$Fichier) {
+    if (-not $Fichier) { return }
+    try { [IO.File]::Delete($Fichier) } catch {}
 }
 
 # Met le son de $Debut devant celui de $Fichier (même format : 16 bits mono, même fréquence)
@@ -982,9 +1017,10 @@ function Start-Transcription([string]$Wav, [string]$Mode) {
         $sans = $attendu.Normalize([Text.NormalizationForm]::FormD) -replace '\p{Mn}', ''   # les accents passent mal en ligne de commande
         $psi.Arguments = "-m `"$WhisperModele`" -f `"$Wav`" -l fr -nt -np -t $(Get-FilsWhisper) -otxt -of `"$out`" --prompt `"$sans`""
         $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.WorkingDirectory = $VoixDir
-        try { $t.Process = [Diagnostics.Process]::Start($psi); $t.Out = "$out.txt" }
+        try { $t.Process = [Diagnostics.Process]::Start($psi); $t.Out = "$out.txt"; Add-ProgrammeAide $t.Process 'Whisper' }
         catch {
             Write-Log "Dictée impossible : $_"
+            Remove-SonDictee $Wav
             if (-not $Mode) { Set-VoixEtat "La dictée n'a pas pu démarrer ($($_.Exception.Message))."; Show-Bulle 'La dictée n''a pas marché.' 3000 }
             return
         }
@@ -1014,6 +1050,7 @@ function Start-WhisperServeur {
     $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.WorkingDirectory = $VoixDir
     $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true   # ses messages sont lus puis jetés
     $p = [Diagnostics.Process]::Start($psi)
+    Add-ProgrammeAide $p 'Whisper'
     try { $p.PriorityClass = 'BelowNormal' } catch {}   # (un jeu passe avant)
     $client = New-Object Net.Http.HttpClient
     $client.Timeout = [TimeSpan]::FromSeconds(60)
@@ -1088,8 +1125,9 @@ function Step-Transcription {
     }
     $script:Transcription = $null
     $script:TranscriptionTimer.Stop()
-    # Le dernier enregistrement est gardé (derniere-dictee.wav) pour comprendre une phrase mal entendue
-    try { Move-Item -LiteralPath $t.Wav -Destination (Join-Path $DataDir 'derniere-dictee.wav') -Force } catch {}
+    # Le son n'est jamais gardé : la phrase est effacée dès qu'elle est écrite (le réglage « OK Evermind » promet que
+    # rien n'est enregistré). Le début de phrase gardé à part après « OK Evermind » est effacé à la fin de l'écoute.
+    Remove-SonDictee $t.Wav
     Write-Log "Dictée ($([math]::Round($t.Debut.Elapsed.TotalSeconds, 1)) s) : $($texte.Trim())"
     switch ($t.Mode) {
         'eveil' { Invoke-Reveil $texte }
@@ -1152,6 +1190,7 @@ function Invoke-DicteeRegles([string]$Texte) {
         'jour'  { 'Je n''ai pas compris le jour. Tu peux le corriger dans Evermind.' }
         'quand' { 'Je n''ai pas compris le jour ni l''heure. Tu peux corriger dans Evermind.' }
         'passe' { 'Ce moment est déjà passé.' }
+        'matin' { 'Je ne sais pas si c''est le matin ou le soir. Tu peux le corriger dans Evermind.' }
         default { 'Cette date n''existe pas.' }
     }
     Set-VoixEtat "Tu as dit : « $t »"

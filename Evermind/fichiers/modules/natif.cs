@@ -764,3 +764,53 @@ public static class EMFilet
         catch { }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Les programmes d'aide (Whisper, la voix Kokoro, l'assistant et le modèle qu'il lance) sont mis dans un « job » de
+// Windows : quand Evermind s'arrête, même de force (Mindset qui le ferme, plantage), Windows les arrête avec lui.
+// Le job se ferme avec Evermind (rien ne le ferme avant) : c'est ce qui arrête les programmes qu'il contient.
+// Seuls ces programmes y sont mis : un dossier ou un fichier ouvert par Evermind reste ouvert après lui.
+// ---------------------------------------------------------------------------
+public static class EMJob
+{
+    [StructLayout(LayoutKind.Sequential)]
+    struct LIMITES { public long PerProcessUserTimeLimit, PerJobUserTimeLimit; public uint LimitFlags; public UIntPtr MinimumWorkingSetSize, MaximumWorkingSetSize; public uint ActiveProcessLimit; public UIntPtr Affinity; public uint PriorityClass, SchedulingClass; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct COMPTEURS { public ulong ReadOperationCount, WriteOperationCount, OtherOperationCount, ReadTransferCount, WriteTransferCount, OtherTransferCount; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct LIMITES_ETENDUES { public LIMITES Base; public COMPTEURS Io; public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed; }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern IntPtr CreateJobObject(IntPtr attributs, string nom);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetInformationJobObject(IntPtr job, int classe, ref LIMITES_ETENDUES info, uint taille);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+    const int ExtendedLimitInformation = 9;
+    const uint KILL_ON_JOB_CLOSE = 0x2000;
+    static IntPtr job = IntPtr.Zero;
+    static readonly object verrou = new object();
+    public static string Erreur = "";   // la dernière erreur (pour le journal)
+
+    // true si le programme s'arrêtera avec Evermind
+    public static bool Ajouter(System.Diagnostics.Process p)
+    {
+        lock (verrou)
+        {
+            try
+            {
+                if (job == IntPtr.Zero)
+                {
+                    IntPtr j = CreateJobObject(IntPtr.Zero, null);
+                    if (j == IntPtr.Zero) { Erreur = "création du job (code " + Marshal.GetLastWin32Error() + ")"; return false; }
+                    LIMITES_ETENDUES info = new LIMITES_ETENDUES();
+                    info.Base.LimitFlags = KILL_ON_JOB_CLOSE;
+                    if (!SetInformationJobObject(j, ExtendedLimitInformation, ref info, (uint)Marshal.SizeOf(typeof(LIMITES_ETENDUES))))
+                    { Erreur = "réglage du job (code " + Marshal.GetLastWin32Error() + ")"; return false; }
+                    job = j;
+                }
+                if (!AssignProcessToJobObject(job, p.Handle)) { Erreur = "ajout au job (code " + Marshal.GetLastWin32Error() + ")"; return false; }
+                return true;
+            }
+            catch (Exception e) { Erreur = e.Message; return false; }
+        }
+    }
+}

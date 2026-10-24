@@ -136,24 +136,48 @@ function Get-NomFichier([string]$Chemin) {
 # ---------------------------------------------------------------------------
 # À l'heure du rendez-vous : ses fichiers s'ouvrent tout seuls (s'il le demande), une seule fois
 # ---------------------------------------------------------------------------
+#   Sur plusieurs jours : seulement au début (le premier jour à son heure), pas à minuit les jours suivants.
+#   Pendant un jeu en plein écran : le rappel est donné, mais les dossiers attendent la fin du jeu (une fenêtre de
+#   l'Explorateur ne doit pas passer devant le jeu).
 function Invoke-OuverturesDues([datetime]$Maintenant = (Get-Date)) {
     if (-not $script:Ouverts) { $script:Ouverts = @{} }
     $faits = @()
+    [void](Invoke-OuverturesEnAttente)
     foreach ($it in @(Get-AgendaEntre $Maintenant.AddMinutes(-2) $Maintenant.AddSeconds(1))) {
         $rv = $it.RV
         if (-not $rv.OuvrirAuDebut -or -not @($rv.Fichiers).Count -or $rv.Journee) { continue }
+        if (-not $rv.Repetition -and (Test-PlusieursJours $rv) -and $it.Prochain.Date -ne ([datetime]$rv.Quand).Date) { continue }   # un jour suivant
         $cle = "$($rv.Id)|$($it.Prochain.ToString('s'))"
         if ($script:Ouverts.ContainsKey($cle)) { continue }
         $script:Ouverts[$cle] = $true
-        $n = Open-FichiersRV $rv
         $nom = Get-TitreAffiche $rv.Titre
         $quoi = if (@($rv.Fichiers).Count -eq 1) { Get-NomFichier $rv.Fichiers[0] } else { "ses $(@($rv.Fichiers).Count) dossiers et fichiers" }
-        Write-Log "C'est l'heure : $nom, $n ouvert(s)"
+        if ($script:ModeJeu) {
+            if (-not $script:OuverturesEnAttente) { $script:OuverturesEnAttente = New-Object System.Collections.ArrayList }
+            [void]$script:OuverturesEnAttente.Add($rv)
+            Write-Log "C'est l'heure : $nom, ouverture à la fin du jeu"
+            $dit = "C'est l'heure : $nom. J'ouvrirai $quoi à la fin de ton jeu."
+        } else {
+            $n = Open-FichiersRV $rv
+            Write-Log "C'est l'heure : $nom, $n ouvert(s)"
+            $dit = "C'est l'heure : $nom. J'ouvre $quoi."
+        }
         Show-Alerte $nom (Get-HeureAlerte $rv $it.Prochain $Maintenant) "C'est l'heure" (Get-TypeRV $rv) $rv $it.Prochain
-        Invoke-Parole "C'est l'heure : $nom. J'ouvre $quoi."
+        Invoke-Parole $dit
         $faits += $rv
     }
     $faits
+}
+
+# Le jeu est fini : les dossiers qui attendaient s'ouvrent (rien n'est ouvert tant que le jeu est au premier plan)
+function Invoke-OuverturesEnAttente {
+    if ($script:ModeJeu -or -not $script:OuverturesEnAttente -or -not $script:OuverturesEnAttente.Count) { return 0 }
+    $liste = @($script:OuverturesEnAttente)
+    $script:OuverturesEnAttente.Clear()
+    $n = 0
+    foreach ($rv in $liste) { if (@($script:Agenda | Where-Object { $_.Id -eq $rv.Id }).Count) { $n += Open-FichiersRV $rv } }   # (sauf s'il a été supprimé entre temps)
+    Write-Log "Fin du jeu : $n dossier(s) ou fichier(s) ouvert(s)"
+    $n
 }
 
 function Start-PlanificateurFichiers {
