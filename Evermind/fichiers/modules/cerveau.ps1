@@ -174,6 +174,7 @@ function Get-QuestionIA([string]$Texte, $Relance) {
 
 function Invoke-Commande([string]$Texte, [string]$Source, $Relance) {
     if ($script:Demande) { return $true }   # une question à la fois
+    if (Invoke-AnnuleTexte $Texte $Source) { return $true }   # « annule » : la pile d'Evermind, pas celle de l'assistant
     # « Ouvre le dossier de Monsieur Richard », « je suis du matin lundi » : lus par les règles d'Evermind PC
     $ouv = Get-OuvertureTexte $Texte
     if ($ouv) { Invoke-ActionsIA ([pscustomobject]@{ actions = @($ouv); reponse = '' }) @{} $Texte $Source; return $true }
@@ -185,17 +186,20 @@ function Invoke-Commande([string]$Texte, [string]$Source, $Relance) {
     }
     if (-not (Start-Cerveau)) { return $false }
     $c = $script:Cerveau
+    # (l'agenda envoyé est gardé : à la réponse, seules les différences avec lui sont appliquées)
+    $envoye = ConvertTo-Json -InputObject @(Get-AgendaDonnees) -Depth 8 -Compress
     $demande = [ordered]@{ texte = $Texte; agenda = @(Get-AgendaDonnees); maintenant = (Get-Date).ToString($DateFormat, [Globalization.CultureInfo]::InvariantCulture) }
     $octets = [Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject $demande -Depth 10 -Compress) + "`n")
     try { $c.Process.StandardInput.BaseStream.Write($octets, 0, $octets.Length); $c.Process.StandardInput.BaseStream.Flush() }
     catch { Write-Log "Assistant injoignable : $_"; Stop-Cerveau; return $false }
-    $script:Demande = @{ Lecture = $c.Process.StandardOutput.ReadLineAsync(); Process = $c.Process; Texte = $Texte; Source = $Source; Debut = [Diagnostics.Stopwatch]::StartNew() }
+    $script:Demande = @{ Lecture = $c.Process.StandardOutput.ReadLineAsync(); Process = $c.Process; Texte = $Texte; Source = $Source; Envoye = $envoye; Debut = [Diagnostics.Stopwatch]::StartNew() }
     if ($Source -eq 'voix') { Show-Bulle 'Je réfléchis...' }
     Set-VoixEtat "Je réfléchis à : « $Texte »"
     if (-not $script:DemandeTimer) {
         $script:DemandeTimer = New-Object System.Windows.Threading.DispatcherTimer
         $script:DemandeTimer.Interval = [TimeSpan]::FromMilliseconds(100)
-        $script:DemandeTimer.Add_Tick({ Step-Demande })
+        # (try : une erreur arrêterait cette minuterie pour de bon, et plus aucune demande n'aurait de réponse)
+        $script:DemandeTimer.Add_Tick({ try { Step-Demande } catch { Write-Log "Assistant : $_"; $script:Demande = $null } })
     }
     $script:DemandeTimer.Start()
     $true
@@ -224,26 +228,107 @@ function Step-Demande {
         if ($d.Source -eq 'voix') { Invoke-DicteeRegles $d.Texte } else { Show-FormMessage 'L''assistant n''a pas répondu. Réessaie dans un instant.' $Colors.bad }
         return
     }
-    Invoke-ReponseAssistant $r $d.Texte $d.Source
+    Invoke-ReponseAssistant $r $d.Texte $d.Source $d.Envoye
 }
 
-# La réponse de l'assistant : le nouvel agenda remplace l'ancien (mis de côté pour « annule »), puis Evermind dit ce
-# qu'il a fait
-function Invoke-ReponseAssistant($R, [string]$Texte, [string]$Source) {
+# Un rendez-vous relu comme Evermind le lit puis réécrit comme dans le fichier, chaque détail en texte JSON : deux
+# versions se comparent alors détail par détail
+function Get-RVComparable($x) {
+    $d = ConvertTo-DonneesRV (ConvertTo-RendezVous $x)
+    $c = [ordered]@{}
+    foreach ($k in @($d.Keys)) { $c[$k] = ConvertTo-Json -InputObject $d[$k] -Depth 8 -Compress }
+    @{ Donnees = $d; Json = $c }
+}
+
+# La réponse de l'assistant ne remplace jamais tout l'agenda : seules ses DIFFÉRENCES avec l'agenda qu'on lui a envoyé
+# sont appliquées (ajouts, détails changés, suppressions), sur l'agenda actuel. Ce que l'utilisateur a changé pendant
+# que l'assistant réfléchissait reste, et un rendez-vous que l'assistant n'a pas su lire n'est pas perdu.
+# Un rendez-vous absent de sa réponse n'est enlevé que si la demande était bien une suppression (et, quand il en manque
+# plusieurs, si chacun est nommé ou dans la période demandée) ; sinon rien n'est touché.
+# Retourne @{ Ok; Raison; Ajouts; Changes; Suppressions }.
+function Merge-AgendaAssistant([string]$EnvoyeJson, $Recu, [string]$Texte, [string]$Reponse) {
+    $res = @{ Ok = $false; Raison = ''; Ajouts = 0; Changes = 0; Suppressions = 0 }
+    $sans = { param($s) ' ' + (([string]$s).ToLower().Normalize([Text.NormalizationForm]::FormD) -replace '\p{Mn}', '') + ' ' }
+    $avant = [ordered]@{}
+    try { foreach ($x in @(ConvertFrom-Json $EnvoyeJson)) { foreach ($y in @($x)) { if ($y -and $y.Id) { $avant[[string]$y.Id] = Get-RVComparable $y } } } }
+    catch { $res.Raison = "agenda envoyé illisible ($_)"; return $res }
+    $apres = [ordered]@{}
+    try { foreach ($x in @($Recu)) { if ($x -and $x.Id -and -not $apres.Contains([string]$x.Id)) { $apres[[string]$x.Id] = Get-RVComparable $x } } }
+    catch { $res.Raison = "réponse illisible ($_)"; return $res }
+    # Les rendez-vous absents de la réponse : une vraie suppression demandée ?
+    $manquants = @($avant.Keys | Where-Object { -not $apres.Contains($_) })
+    if ($manquants.Count) {
+        $voulus = @()
+        if ((Get-IntentionsTexte $Texte).Supp) {
+            if ($manquants.Count -eq 1) { $voulus = $manquants }
+            else {
+                $periode = @(Get-SuppressionsPeriode $Texte | Where-Object { $_ -and $_.Cible } | ForEach-Object { $_.Cible.Id })
+                $dits = & $sans "$Texte $Reponse"
+                $voulus = @($manquants | Where-Object {
+                    $id = $_; $titre = [string]$avant[$id].Donnees.Titre
+                    $mots = @(Get-MotsTitre $titre)
+                    $periode -contains $id -or ($mots.Count -and @($mots | Where-Object { $dits -match "\b$_" }).Count) -or
+                        (-not $mots.Count -and $dits.Contains((& $sans $titre).Trim()))
+                })
+            }
+        }
+        $refuses = @($manquants | Where-Object { $voulus -notcontains $_ })
+        if ($refuses.Count) {
+            $res.Raison = "rendez-vous absents de la réponse sans suppression demandée : $(@($refuses | ForEach-Object { $avant[$_].Donnees.Titre }) -join ', ')"
+            return $res
+        }
+    }
+    # Tout est lisible et voulu : appliqué sur l'agenda actuel
+    Save-Annulation
+    foreach ($id in $manquants) {
+        $r = Get-RendezVous $id
+        if ($r) { $script:Agenda.Remove($r); $res.Suppressions++ }
+    }
+    foreach ($id in @($apres.Keys)) {
+        $n = $apres[$id]
+        if (-not $avant.Contains($id)) {
+            if (Get-RendezVous $id) { continue }
+            [void]$script:Agenda.Add((ConvertTo-RendezVous ([pscustomobject]$n.Donnees))); $res.Ajouts++
+            continue
+        }
+        $a = $avant[$id]
+        $changes = @($n.Json.Keys | Where-Object { $n.Json[$_] -ne $a.Json[$_] })
+        if (-not $changes.Count) { continue }
+        $r = Get-RendezVous $id
+        if (-not $r) { Write-Log "Assistant : « $($n.Donnees.Titre) » supprimé entre-temps, son changement n'est pas appliqué"; continue }
+        # Seuls les détails que l'assistant a changés ; les autres gardent leur valeur actuelle
+        $d = ConvertTo-DonneesRV $r
+        foreach ($k in $changes) { $d[$k] = $n.Donnees[$k] }
+        $script:Agenda[$script:Agenda.IndexOf($r)] = ConvertTo-RendezVous ([pscustomobject]$d)
+        $res.Changes++
+    }
+    if ($res.Ajouts -or $res.Changes -or $res.Suppressions) { Save-Agenda }
+    Write-Log "Assistant : $($res.Ajouts) ajout(s), $($res.Changes) changement(s), $($res.Suppressions) suppression(s)"
+    $res.Ok = $true
+    $res
+}
+
+# La réponse de l'assistant : ses changements sont appliqués (l'agenda d'avant est mis de côté pour « annule »), puis
+# Evermind dit ce qu'il a fait
+function Invoke-ReponseAssistant($R, [string]$Texte, [string]$Source, [string]$Envoye) {
     if (-not $R.compris) {
         # Ni les règles ni le modèle n'ont compris : à la voix, Evermind s'ouvre pour corriger (comme sans assistant)
         if ($Source -eq 'voix') { Invoke-DicteeRegles $Texte; return }
         $R = [pscustomobject]@{ compris = $false; dit = 'Je n''ai pas compris, tu peux reformuler ?'; ecrit = 'Je n''ai pas compris, tu peux reformuler ?'; change = $false; aCorriger = $null }
     }
     if ($R.change -and $null -ne $R.agenda) {
-        # Le nouvel agenda est relu entièrement avant de remplacer l'ancien : en cas de problème, rien n'est perdu
-        try {
-            $nouveau = New-Object System.Collections.ArrayList
-            foreach ($x in $R.agenda) { if ($x) { [void]$nouveau.Add((ConvertTo-RendezVous $x)) } }
-        } catch { Write-Log "Assistant : agenda illisible ($_)"; Show-FormMessage 'Je n''ai pas réussi à faire ce changement.' $Colors.bad; return }
-        Save-Annulation
-        $script:Agenda = $nouveau
-        Save-Agenda
+        $m = $null
+        try { $m = Merge-AgendaAssistant $Envoye $R.agenda $Texte "$($R.ecrit) $($R.dit)" } catch { Write-Log "Assistant : changement impossible ($_)" }
+        if (-not $m -or -not $m.Ok) {
+            if ($m) { Write-Log "Assistant : rien n'est touché, $($m.Raison)" }
+            $t = 'Je n''ai rien changé : je n''étais pas sûr de bien faire, et je ne veux rien effacer par erreur. Tu peux le redire autrement ?'
+            Set-VoixEtat "Tu as dit : « $Texte »"
+            Show-FormMessage $t $Colors.bad
+            if ($Source -eq 'voix') { Show-Bulle $t 6000 }
+            Invoke-Parole $t
+            Update-Agenda
+            return
+        }
     }
     $ecrit = [string]$R.ecrit
     $dit = [string]$R.dit
@@ -332,26 +417,27 @@ function Get-PhraseNote($r) {
     @{ Ecrit = "$($r.Titre), $(Format-QuandRV $r $prochain)"; Dit = "$($r.Titre), $(Format-QuandParle $prochain $r)" }
 }
 
-# Copie de l'agenda avant un changement, pour « annule » (les 20 dernières)
-function Save-Annulation {
-    if (-not $script:Annulations) { $script:Annulations = New-Object System.Collections.ArrayList }
-    [void]$script:Annulations.Add((ConvertTo-Json -InputObject (Get-AgendaDonnees) -Depth 8 -Compress))
-    while ($script:Annulations.Count -gt 20) { $script:Annulations.RemoveAt(0) }
-}
+# (Save-Annulation et Restore-Annulation, la pile de « annule », sont dans donnees.ps1)
 
-function Restore-Annulation {
-    if (-not $script:Annulations -or -not $script:Annulations.Count) { return $false }
-    $json = $script:Annulations[$script:Annulations.Count - 1]
-    $script:Annulations.RemoveAt($script:Annulations.Count - 1)
-    # La copie est relue entièrement avant de remplacer l'agenda : en cas de problème, rien n'est perdu
-    try {
-        $liste = ConvertFrom-Json $json      # (sans @() : PowerShell 5.1 rendrait la liste comme un seul élément)
-        $nouveau = New-Object System.Collections.ArrayList
-        foreach ($x in $liste) { if ($x) { [void]$nouveau.Add((ConvertTo-RendezVous $x)) } }
-    } catch { Write-Log "Annulation impossible : $_"; return $false }
-    $script:Agenda = $nouveau
-    Save-Agenda
-    Write-Log 'Dernière action annulée'
+# « annule », « annule ça », « reviens en arrière » tout seul : défaire la dernière action, d'où qu'elle vienne. Fait ici,
+# avec la pile d'Evermind, jamais par l'assistant (sa propre copie de l'agenda effacerait ce qui a changé entre-temps).
+# « annule le foot » n'en est pas un : c'est une suppression.
+$RxAnnule = "^\W*(?:euh\W*)?(?:(?:est-ce que )?(?:tu (?:peux|pourrais)|peux-tu|pourrais-tu)\s+)?(?:annule[rsz]?|d[ée]fai[st]|d[ée]faire|reviens en arri[èe]re|revenir en arri[èe]re|retour en arri[èe]re)(?:\s*-?\s*moi)?(?:\s+(?:[çc]a|cela|tout [çc]a|ce que tu (?:viens de faire|as fait)|(?:ma|ta|la) derni[èe]re (?:action|chose|modification)|(?:mon|ton|le) dernier (?:changement|truc)|s'il te pla[îi]t|stp))*\W*$"
+function Test-AnnuleTexte([string]$Texte) { $Texte.Trim() -match "(?i)$RxAnnule" }
+
+# Retourne $true si la phrase était un « annule » (fait et dit), sinon $false
+function Invoke-AnnuleTexte([string]$Texte, [string]$Source) {
+    if (-not (Test-AnnuleTexte $Texte)) { return $false }
+    $fait = $false
+    try { $fait = Restore-Annulation } catch { Write-Log "Annulation impossible : $_" }
+    $t = if ($fait) { 'C''est annulé, j''ai remis ton agenda comme avant.' } else { 'Il n''y a rien à annuler.' }
+    Write-Log "« $Texte » : $t"
+    Set-VoixEtat "Tu as dit : « $Texte »"
+    Show-FormMessage $t $(if ($fait) { $Colors.ok } else { '#C9C3DD' })
+    if ($Source -eq 'barre') { $ui.InPhrase.Text = '' }
+    if ($Source -eq 'voix') { Show-Bulle $t 5000 }
+    if ($Source -ne 'barre') { Invoke-Parole $t }
+    Update-Agenda
     $true
 }
 

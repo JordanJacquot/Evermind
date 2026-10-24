@@ -176,6 +176,11 @@ function Update-Apercu {
     $text = $ui.InPhrase.Text
     $ui.ApercuLigne.Inlines.Clear()
     if (-not $text.Trim()) { $ui.ApercuLigne.Visibility = 'Collapsed'; $script:Phrase = $null; return }
+    if (Test-AnnuleTexte $text) {
+        $script:Phrase = $null
+        $ui.ApercuLigne.Inlines.Add((New-Run 'Je comprends : défaire ta dernière action. Appuie sur Entrée.' '#C58CFF' 'SemiBold'))
+        $ui.ApercuLigne.Visibility = 'Visible'; return
+    }
     if ((Test-EstCommande $text) -and (Test-CerveauInstalle)) {
         $script:Phrase = $null
         $ui.ApercuLigne.Inlines.Add((New-Run 'Je comprends : une demande pour l''assistant. Appuie sur Entrée.' '#C58CFF' 'SemiBold'))
@@ -225,6 +230,7 @@ function Update-Apercu {
 # Ajoute ce que la phrase a donné (barre rapide ou voix)
 # Des jours séparés (« les 3 et 10 novembre ») : un événement par jour ; le premier est retourné
 function Add-DepuisPhrase($p) {
+    Save-Annulation
     $premier = $null
     foreach ($c in (Get-CreationsPhrase $p)) {
         $det = Get-DetailsPhrase $p; $det.Fin = $c.Fin
@@ -237,6 +243,7 @@ function Add-DepuisPhrase($p) {
 # Horaires de travail en postes (Get-HorairesTravail) : un événement par poste, « Travail (matin) » de 6 h à 14 h...
 # Un poste déjà noté au même moment n'est pas recréé. Retourne ce qui a été créé (@{ RV; Quand; Creneau; Heures }).
 function Add-HorairesTravail($Liste) {
+    Save-Annulation
     $faits = @()
     foreach ($h in @($Liste)) {
         $p = Read-Phrase $h.Phrase
@@ -304,6 +311,8 @@ function Get-QuandsPhrase($p) { @(Get-CreationsPhrase $p | ForEach-Object { $_.Q
 function Invoke-Ajouter {
     # Une demande (« décale le dentiste à jeudi », « qu'est-ce que j'ai demain ? ») va à l'assistant
     $texte = $ui.InPhrase.Text.Trim()
+    # « annule » : la dernière action est défaite (avec ou sans assistant)
+    if ($texte -and (Invoke-AnnuleTexte $texte 'barre')) { return }
     if ($texte -and (Test-EstCommande $texte) -and (Test-CerveauInstalle) -and (Invoke-Commande $texte 'barre')) { return }
     # « je suis du matin lundi et mardi » : des postes de travail
     $hor = if ($texte) { Get-HorairesTravail $texte } else { $null }
@@ -538,7 +547,7 @@ function New-RendezVousRow($Item) {
         if ($type -eq 'rappel') {
             $rond.Cursor = 'Hand'; $rond.Tag = $r.Id; $rond.ToolTip = if ($r.Fait) { 'Pas encore fait' } else { 'C''est fait' }
             if ($r.Fait) { $rond.Child.Text = '✓'; $rond.Child.FontFamily = 'Segoe UI Symbol'; $rond.Background = Get-Teinte '#3DDC97' 0x40; $rond.BorderBrush = Get-Brush '#3DDC97'; $rond.Child.Foreground = Get-Brush '#3DDC97' }
-            $rond.Add_MouseLeftButtonUp({ param($s, $e) $e.Handled = $true; $rv = Get-RendezVous ([string]$s.Tag); Set-RendezVousDetail $rv.Id 'Fait' (-not $rv.Fait); Update-Agenda })
+            $rond.Add_MouseLeftButtonUp({ param($s, $e) $e.Handled = $true; $rv = Get-RendezVous ([string]$s.Tag); Save-Annulation; Set-RendezVousDetail $rv.Id 'Fait' (-not $rv.Fait); Update-Agenda })
         }
         [void]$g.Children.Add($rond)
     } else {
@@ -744,7 +753,7 @@ function Set-FJournee([bool]$On) {
 
 function Set-FRepet([string]$Type) {
     $script:FRepet = $Type
-    foreach ($k in @(@('une', 'FRepUne'), @('semaine', 'FRepSemaine'), @('mois', 'FRepMois'), @('an', 'FRepAn'))) {
+    foreach ($k in @(@('une', 'FRepUne'), @('jour', 'FRepJour'), @('semaine', 'FRepSemaine'), @('mois', 'FRepMois'), @('an', 'FRepAn'))) {
         $ui[$k[1]].Tag = if ($k[0] -eq $Type) { 'on' } else { $null }
     }
     if (-not $script:FormOuverture -and $ui.FDernierPanel) { $ui.FDernierPanel.Visibility = if ($script:FJournee -and $script:FType -ne 'anniv' -and $Type -eq 'une') { 'Visible' } else { 'Collapsed' } }
@@ -771,7 +780,7 @@ function Open-Formulaire($Jour, $RV, [switch]$Copie, [switch]$Decaler) {
     if ($RV) {
         $titre = $RV.Titre; $jourForm = $RV.Quand.Date; $type = Get-TypeRV $RV; $journee = [bool]$RV.Journee
         if (-not $journee) { $heure = Format-Heure $RV.Quand }
-        if ($RV.Repetition) { $rep = [string]$RV.Repetition.Type; if ($rep -eq 'jour') { $rep = 'une' }; $script:FJusqua = [string]$RV.Repetition.Jusqua }
+        if ($RV.Repetition) { $rep = [string]$RV.Repetition.Type; $script:FJusqua = [string]$RV.Repetition.Jusqua }
     } elseif ($ui.InPhrase.Text.Trim()) {
         # Ce qui est déjà écrit (ou dit) dans la barre pré-remplit le formulaire
         $p = Read-Phrase $ui.InPhrase.Text
@@ -782,7 +791,7 @@ function Open-Formulaire($Jour, $RV, [switch]$Copie, [switch]$Decaler) {
             if ($p.Jour) { $jourForm = $p.Jour }
             if ($null -ne $p.Heure) { $heure = Format-Heure ([datetime]::Today + $p.Heure) }
         }
-        if ($p.Repetition -and $p.Repetition.Type -ne 'jour') { $rep = [string]$p.Repetition.Type; $script:FJusqua = [string]$p.Repetition.Jusqua; $script:FRepPhrase = $p.Repetition }
+        if ($p.Repetition) { $rep = [string]$p.Repetition.Type; $script:FJusqua = [string]$p.Repetition.Jusqua; $script:FRepPhrase = $p.Repetition }
     }
     $script:FRepetDepart = $rep
     $ui.FormTitre.Text = if ($Copie) { 'Copie du rendez-vous' } elseif ($Decaler) { 'Décaler le rendez-vous' } elseif ($RV) { 'Modifier le rendez-vous' } else { 'Nouveau rendez-vous' }
@@ -844,12 +853,13 @@ function Save-Formulaire {
     }
     $quand = $script:FChoix + $h
     $rep = switch ($script:FRepet) {
+        'jour'    { [ordered]@{ Type = 'jour' } }
         'semaine' { [ordered]@{ Type = 'semaine'; Jour = [int]$quand.DayOfWeek } }
         'mois'    { [ordered]@{ Type = 'mois'; Jour = $quand.Day } }
         'an'      { [ordered]@{ Type = 'an'; Jour = $quand.Day; Mois = $quand.Month } }
         default   { $null }
     }
-    # Même sorte de répétition qu'avant : elle garde son rythme, ses jours, son rang, sa date de fin et ses jours sautés
+    # Même sorte de répétition qu'avant : elle garde son rythme (« tous les 2 jours »), ses jours, son rang, sa date de fin et ses jours sautés
     if ($rep -and $script:FRepetDepart -eq $script:FRepet) {
         $avant = if ($script:FormEdition) { $script:FormEdition.Repetition } else { $script:FRepPhrase }
         if ($avant) {
@@ -867,6 +877,7 @@ function Save-Formulaire {
     if ($type -eq 'anniv') { $titre = Get-TitreAnniversaire $titre }
     try {
         $titre = Get-TitreAffiche $titre
+        Save-Annulation
         $r = if ($edition) { Update-RendezVous $edition.Id $titre $quand $rep $type $script:FJournee $lu.Detail } else { Add-RendezVous $titre $quand $rep $type $script:FJournee $lu.Detail }
     } catch { Write-Log "Enregistrement impossible : $_"; Show-FMessage "Je n'ai pas réussi à l'enregistrer. ($($_.Exception.Message))"; return }
     # Remis à plus tard : il n'est plus validé ni fait

@@ -80,13 +80,21 @@ function Save-JsonFile([string]$Path, $Object) {
 }
 
 # Lit un fichier JSON. Un fichier abîmé est mis de côté (rien n'est jamais effacé) et on repart de la sauvegarde.
+# Un fichier vide (coupé net par une panne) compte comme abîmé : sinon on repartirait de rien, et la sauvegarde
+# suivante écraserait la bonne copie « .bak ».
 function Read-JsonFile([string]$Path) {
     foreach ($p in $Path, "$Path.bak") {
         if (-not [IO.File]::Exists($p)) { continue }
-        try { return ([IO.File]::ReadAllText($p, [Text.Encoding]::UTF8) | ConvertFrom-Json) }
+        try {
+            $j = [IO.File]::ReadAllText($p, [Text.Encoding]::UTF8) | ConvertFrom-Json
+            if ($null -eq $j) { throw 'fichier vide' }
+            if ($p -ne $Path) { Write-Log "Fichier repris de sa sauvegarde : $p" }
+            return $j
+        }
         catch {
             Write-Log "Fichier illisible ($p) : $_"
-            try { Copy-Item -LiteralPath $p -Destination "$p.abime-$(Get-Date -Format yyyyMMdd-HHmmss)" -Force } catch {}
+            $copie = "$p.abime-$(Get-Date -Format yyyyMMdd-HHmmss)"
+            try { Copy-Item -LiteralPath $p -Destination $copie -Force; Write-Log "Fichier abîmé mis de côté : $copie" } catch { Write-Log "Fichier abîmé non copié ($p) : $_" }
         }
     }
     $null
@@ -159,34 +167,69 @@ function ConvertTo-RendezVous($Raw) {
     }
 }
 
+# Un rendez-vous illisible (date abîmée...) n'est jamais perdu : il n'est pas affiché, mais il reste tel quel dans le
+# fichier à chaque sauvegarde ($script:AgendaIllisibles), pour pouvoir le réparer plus tard.
 function Import-Agenda {
     $script:Agenda = New-Object System.Collections.ArrayList
+    $script:AgendaIllisibles = New-Object System.Collections.ArrayList
     $j = Read-JsonFile $AgendaFile
     if (-not $j) { return }
     foreach ($r in @($j.RendezVous)) {
         if (-not $r) { continue }
         try { [void]$script:Agenda.Add((ConvertTo-RendezVous $r)) }
-        catch { Write-Log "Rendez-vous illisible ignoré : $($r | ConvertTo-Json -Compress)" }
+        catch {
+            [void]$script:AgendaIllisibles.Add($r)
+            Write-Log "Rendez-vous illisible, gardé tel quel dans le fichier : $($r | ConvertTo-Json -Compress -Depth 8)"
+        }
     }
 }
 
 # L'agenda tel qu'il est écrit dans le fichier (sert aussi à « annule », qui en garde une copie)
-function Get-AgendaDonnees {
+function Get-AgendaDonnees { @(foreach ($r in $script:Agenda) { ConvertTo-DonneesRV $r }) }
+
+# Un rendez-vous tel qu'il est écrit dans le fichier
+function ConvertTo-DonneesRV($r) {
     $ic = [Globalization.CultureInfo]::InvariantCulture
-    @(foreach ($r in $script:Agenda) {
-        [ordered]@{ Id = $r.Id; Titre = $r.Titre; Type = $r.Type; Journee = [bool]$r.Journee
-                    Quand = $r.Quand.ToString($DateFormat, $ic); Fin = $(if ($r.Fin) { $r.Fin.ToString($DateFormat, $ic) } else { $null })
-                    Repetition = $r.Repetition; Lieu = $r.Lieu; Avec = @($r.Avec); Lien = $r.Lien; Notes = $r.Notes
-                    APreparer = @($r.APreparer | ForEach-Object { [ordered]@{ Texte = $_.Texte; Fait = [bool]$_.Fait } })
-                    Rappels = $(if ($null -ne $r.Rappels) { , @($r.Rappels) } else { $null })
-                    Important = [bool]$r.Important; Fait = [bool]$r.Fait; Naissance = $r.Naissance
-                    Fichiers = @($r.Fichiers); OuvrirAuDebut = [bool]$r.OuvrirAuDebut; Cree = $r.Cree }
-    })
+    [ordered]@{ Id = $r.Id; Titre = $r.Titre; Type = $r.Type; Journee = [bool]$r.Journee
+                Quand = $r.Quand.ToString($DateFormat, $ic); Fin = $(if ($r.Fin) { $r.Fin.ToString($DateFormat, $ic) } else { $null })
+                Repetition = $r.Repetition; Lieu = $r.Lieu; Avec = @($r.Avec); Lien = $r.Lien; Notes = $r.Notes
+                APreparer = @($r.APreparer | ForEach-Object { [ordered]@{ Texte = $_.Texte; Fait = [bool]$_.Fait } })
+                Rappels = $(if ($null -ne $r.Rappels) { , @($r.Rappels) } else { $null })
+                Important = [bool]$r.Important; Fait = [bool]$r.Fait; Naissance = $r.Naissance
+                Fichiers = @($r.Fichiers); OuvrirAuDebut = [bool]$r.OuvrirAuDebut; Cree = $r.Cree }
 }
 
 function Save-Agenda {
-    Save-JsonFile $AgendaFile ([ordered]@{ Version = 2; RendezVous = @(Get-AgendaDonnees) })
+    Save-JsonFile $AgendaFile ([ordered]@{ Version = 2; RendezVous = @(@(Get-AgendaDonnees) + @($script:AgendaIllisibles | Where-Object { $_ })) })
     if (Get-Command Write-EtatMindset -ErrorAction SilentlyContinue) { try { Write-EtatMindset } catch {} }   # (carte de Mindset, systeme.ps1)
+}
+
+# « annule » : une copie de l'agenda est gardée avant chaque changement, d'où qu'il vienne (formulaire, suppression,
+# case « c'est fait », barre, voix, assistant). « annule » remet la dernière (les 20 dernières sont gardées).
+function Save-Annulation {
+    if (-not $script:Annulations) { $script:Annulations = New-Object System.Collections.ArrayList }
+    $json = ConvertTo-Json -InputObject @(Get-AgendaDonnees) -Depth 8 -Compress
+    # (la même copie deux fois de suite ne servirait à rien : « annule » semblerait ne rien faire)
+    if ($script:Annulations.Count -and $script:Annulations[$script:Annulations.Count - 1] -eq $json) { return }
+    [void]$script:Annulations.Add($json)
+    while ($script:Annulations.Count -gt 20) { $script:Annulations.RemoveAt(0) }
+}
+
+function Restore-Annulation {
+    if (-not $script:Annulations -or -not $script:Annulations.Count) { return $false }
+    $json = $script:Annulations[$script:Annulations.Count - 1]
+    # La copie est relue entièrement avant de remplacer l'agenda : en cas de problème, rien n'est perdu
+    try {
+        $liste = ConvertFrom-Json $json      # (sans @() : PowerShell 5.1 rendrait la liste comme un seul élément)
+        $nouveau = New-Object System.Collections.ArrayList
+        foreach ($x in $liste) { if ($x) { [void]$nouveau.Add((ConvertTo-RendezVous $x)) } }
+    } catch { Write-Log "Annulation impossible : $_"; return $false }
+    $ancien = $script:Agenda
+    $script:Agenda = $nouveau
+    try { Save-Agenda } catch { $script:Agenda = $ancien; Write-Log "Annulation non enregistrée : $_"; return $false }
+    $script:Annulations.RemoveAt($script:Annulations.Count - 1)
+    Write-Log 'Dernière action annulée'
+    $true
 }
 
 # $Detail : table avec les détails à mettre (Fin, Lieu, Avec...) ; ceux qui manquent restent vides

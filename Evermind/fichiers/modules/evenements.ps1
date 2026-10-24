@@ -46,6 +46,7 @@ $ui.BtnNouveau.Add_Click({ Open-Formulaire })
 $ui.FMoisPrec.Add_Click({ $script:FMois = $script:FMois.AddMonths(-1); Update-FCalendrier })
 $ui.FMoisSuiv.Add_Click({ $script:FMois = $script:FMois.AddMonths(1); Update-FCalendrier })
 $ui.FRepUne.Add_Click({ Set-FRepet 'une' })
+$ui.FRepJour.Add_Click({ Set-FRepet 'jour' })
 $ui.FRepSemaine.Add_Click({ Set-FRepet 'semaine' })
 $ui.FRepMois.Add_Click({ Set-FRepet 'mois' })
 $ui.FRepAn.Add_Click({ Set-FRepet 'an' })
@@ -111,7 +112,7 @@ Start-DansMindsetSurveillance   # affiché dans la fenêtre de Mindset : pas de 
 if ($script:ShowSignal) {
     $script:ShowWatch = New-Object System.Windows.Threading.DispatcherTimer
     $script:ShowWatch.Interval = [TimeSpan]::FromMilliseconds(400)
-    $script:ShowWatch.Add_Tick({ if ($script:ShowSignal.WaitOne(0)) { Show-MainWindow } })
+    $script:ShowWatch.Add_Tick({ try { if ($script:ShowSignal.WaitOne(0)) { Show-MainWindow } } catch { Write-Log "Affichage demandé : $_" } })
     $script:ShowWatch.Start()
 }
 

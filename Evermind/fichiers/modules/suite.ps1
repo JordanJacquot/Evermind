@@ -84,9 +84,7 @@ function Write-SuiteTheme([string]$Id) {
         if ($j -isnot [Management.Automation.PSCustomObject]) { throw 'contenu inattendu' }
         foreach ($k in 'theme', 'modifie') { if (-not $j.PSObject.Properties[$k]) { $j | Add-Member -NotePropertyName $k -NotePropertyValue $null } }
         $j.theme = $Id; $j.modifie = (Get-Date).ToString('s')
-        $tmp = "$SuiteFile.tmp"
-        [IO.File]::WriteAllText($tmp, (ConvertTo-Json -InputObject $j -Depth 8), $Utf8NoBom)
-        Move-Item -LiteralPath $tmp -Destination $SuiteFile -Force
+        Save-JsonFile $SuiteFile $j
         $script:SuiteDate = (New-Object IO.FileInfo $SuiteFile).LastWriteTimeUtc   # (notre propre écriture n'est pas un changement)
         Write-Log "Thème de la suite écrit dans suite.json : $Id"
     } catch { Write-Log "suite.json : thème non écrit ($($_.Exception.Message))" }

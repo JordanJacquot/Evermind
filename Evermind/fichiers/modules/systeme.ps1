@@ -287,22 +287,25 @@ function Start-QuitterSurveillance {
     if ($script:QuitterTimer) { return }
     $script:QuitterTimer = New-Object System.Windows.Threading.DispatcherTimer
     $script:QuitterTimer.Interval = [TimeSpan]::FromSeconds(1)
-    $script:QuitterTimer.Add_Tick({
-        # Mindset demande la fiche d'un rendez-vous (clic sur sa carte)
-        if ([IO.File]::Exists($RdvFichier)) {
-            $t = ''; try { $t = ([IO.File]::ReadAllText($RdvFichier)).Trim(); [IO.File]::Delete($RdvFichier) } catch {}
-            try { Show-RdvDemande $t } catch { Write-Log "Fiche demandée par Mindset : $_" }
-        }
-        # Les prochains rendez-vous pour Mindset : au démarrage, puis toutes les 10 minutes (une fois passée, une fois suivante)
-        $script:EtatTicks++
-        if ($script:EtatTicks % 600 -eq 1) { try { Write-EtatMindset } catch {} }
-        if (-not [IO.File]::Exists($QuitterFichier)) { return }
-        $script:QuitterTimer.Stop()
-        try { [IO.File]::Delete($QuitterFichier) } catch {}
-        Write-Log 'Fermeture demandée par Mindset'
-        Exit-App
-    })
+    # (try : une erreur arrêterait cette minuterie pour de bon, et Evermind n'entendrait plus les ordres de Mindset)
+    $script:QuitterTimer.Add_Tick({ try { Step-QuitterSurveillance } catch { Write-Log "Ordres de Mindset : $_" } })
     $script:QuitterTimer.Start()
+}
+
+function Step-QuitterSurveillance {
+    # Mindset demande la fiche d'un rendez-vous (clic sur sa carte)
+    if ([IO.File]::Exists($RdvFichier)) {
+        $t = ''; try { $t = ([IO.File]::ReadAllText($RdvFichier)).Trim(); [IO.File]::Delete($RdvFichier) } catch {}
+        try { Show-RdvDemande $t } catch { Write-Log "Fiche demandée par Mindset : $_" }
+    }
+    # Les prochains rendez-vous pour Mindset : au démarrage, puis toutes les 10 minutes (une fois passée, une fois suivante)
+    $script:EtatTicks++
+    if ($script:EtatTicks % 600 -eq 1) { try { Write-EtatMindset } catch {} }
+    if (-not [IO.File]::Exists($QuitterFichier)) { return }
+    $script:QuitterTimer.Stop()
+    try { [IO.File]::Delete($QuitterFichier) } catch {}
+    Write-Log 'Fermeture demandée par Mindset'
+    Exit-App
 }
 
 function Restart-App {

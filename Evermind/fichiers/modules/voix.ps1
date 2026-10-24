@@ -859,7 +859,7 @@ function Start-Ecoute([string]$Source, [switch]$Silencieux) {
     if (-not $script:EcouteTimer) {
         $script:EcouteTimer = New-Object System.Windows.Threading.DispatcherTimer
         $script:EcouteTimer.Interval = [TimeSpan]::FromMilliseconds(80)
-        $script:EcouteTimer.Add_Tick({ Step-Ecoute })
+        $script:EcouteTimer.Add_Tick({ try { Step-Ecoute } catch { Write-Log "Écoute : $_" } })
     }
     $script:EcouteTimer.Start()
 }
@@ -993,7 +993,7 @@ function Start-Transcription([string]$Wav, [string]$Mode) {
     if (-not $script:TranscriptionTimer) {
         $script:TranscriptionTimer = New-Object System.Windows.Threading.DispatcherTimer
         $script:TranscriptionTimer.Interval = [TimeSpan]::FromMilliseconds(40)
-        $script:TranscriptionTimer.Add_Tick({ Step-Transcription })
+        $script:TranscriptionTimer.Add_Tick({ try { Step-Transcription } catch { Write-Log "Dictée : $_" } })
     }
     $script:TranscriptionTimer.Start()
     Step-Transcription
@@ -1101,6 +1101,7 @@ function Step-Transcription {
 function Invoke-Dictee([string]$Texte) {
     $t = ($Texte -replace '\[[^\]]*\]|\([^)]*\)', ' ' -replace '\s+', ' ').Trim()
     $t = ($t -replace "(?i)^\W*$RxReveil\b\W*", '').Trim()   # « OK Evermind, ... » : seulement la demande
+    if ($t -match '\w' -and (Invoke-AnnuleTexte $t 'voix')) { return }   # « annule » : avec ou sans assistant
     if ($t -match '\w' -and (Test-CerveauInstalle) -and (Invoke-Commande $t 'voix')) { return }
     Invoke-DicteeRegles $t
 }

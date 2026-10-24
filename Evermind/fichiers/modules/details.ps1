@@ -341,7 +341,7 @@ function New-ListeAPreparer($RV) {
             $rv = $script:FicheRV
             $liste = @($rv.APreparer | ForEach-Object { [pscustomobject]@{ Texte = $_.Texte; Fait = [bool]$_.Fait } })
             $liste[[int]$s.Tag].Fait = -not $liste[[int]$s.Tag].Fait
-            Set-RendezVousDetail $rv.Id 'APreparer' $liste
+            Save-Annulation; Set-RendezVousDetail $rv.Id 'APreparer' $liste
             Show-Fiche $rv $script:FicheQuand
             Update-Agenda
         })
@@ -384,7 +384,7 @@ function New-ListeFichiers($RV) {
     # « Ouvrir au début » : un interrupteur, enregistré tout de suite
     $ch = New-Object System.Windows.Controls.CheckBox
     $ch.Style = $Window.FindResource('Switch'); $ch.IsChecked = [bool]$RV.OuvrirAuDebut; $ch.VerticalAlignment = 'Center'
-    $ch.Add_Click({ param($s) Set-RendezVousDetail $script:FicheRV.Id 'OuvrirAuDebut' ([bool]$s.IsChecked); Write-Log "Ouvrir au début : $([bool]$s.IsChecked) ($($script:FicheRV.Titre))" })
+    $ch.Add_Click({ param($s) Save-Annulation; Set-RendezVousDetail $script:FicheRV.Id 'OuvrirAuDebut' ([bool]$s.IsChecked); Write-Log "Ouvrir au début : $([bool]$s.IsChecked) ($($script:FicheRV.Titre))" })
     $lt = New-Object System.Windows.Controls.TextBlock
     $lt.Text = if ($RV.Journee) { 'Les ouvrir le matin même (rendez-vous sans heure)' } else { 'Les ouvrir tout seul à l''heure du rendez-vous' }
     $lt.FontSize = 14; $lt.Foreground = Get-Brush '#C9C3DD'; $lt.Margin = '10,0,0,0'; $lt.VerticalAlignment = 'Center'
@@ -401,7 +401,7 @@ function New-SuggestionFichiers($RV, [string[]]$Trouves) {
     foreach ($chemin in $Trouves) {
         $dp = New-Object System.Windows.Controls.DockPanel; $dp.Margin = '0,0,0,4'
         $b = New-Button 'Relier' 'BtnPrimary'; $b.Tag = $chemin; $b.Margin = '12,0,0,0'; $b.VerticalAlignment = 'Center'
-        $b.Add_Click({ param($s) $rv = $script:FicheRV; Set-RendezVousDetail $rv.Id 'Fichiers' (@($rv.Fichiers) + [string]$s.Tag); Write-Log "Dossier relié : $($s.Tag)"; Show-Fiche $rv $script:FicheQuand })
+        $b.Add_Click({ param($s) $rv = $script:FicheRV; Save-Annulation; Set-RendezVousDetail $rv.Id 'Fichiers' (@($rv.Fichiers) + [string]$s.Tag); Write-Log "Dossier relié : $($s.Tag)"; Show-Fiche $rv $script:FicheQuand })
         [System.Windows.Controls.DockPanel]::SetDock($b, 'Right'); [void]$dp.Children.Add($b)
         $t = New-Object System.Windows.Controls.TextBlock
         $t.Text = "J'ai trouvé $(Get-NomFichier $chemin), dans $(Split-Path $chemin -Parent). Le relier à ce rendez-vous ?"
@@ -501,7 +501,7 @@ function Initialize-Fiche {
     $ui.BtnFicheDupliquer.Add_Click({ $rv = $script:FicheRV; Close-Fiche; Open-Formulaire -RV $rv -Copie })
     $ui.BtnFicheFait.Add_Click({
         $rv = $script:FicheRV
-        Set-RendezVousDetail $rv.Id 'Fait' (-not $rv.Fait)
+        Save-Annulation; Set-RendezVousDetail $rv.Id 'Fait' (-not $rv.Fait)
         Show-Fiche $rv $script:FicheQuand
         Update-Agenda
     })

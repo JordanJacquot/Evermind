@@ -607,6 +607,7 @@
                 <TextBlock Text="Ça revient ?" Style="{StaticResource Label}"/>
                 <WrapPanel>
                   <Button x:Name="FRepUne" Style="{StaticResource Chip}" Content="Une seule fois"/>
+                  <Button x:Name="FRepJour" Style="{StaticResource Chip}" Content="Tous les jours"/>
                   <Button x:Name="FRepSemaine" Style="{StaticResource Chip}" Content="Chaque semaine"/>
                   <Button x:Name="FRepMois" Style="{StaticResource Chip}" Content="Chaque mois"/>
                   <Button x:Name="FRepAn" Style="{StaticResource Chip}" Content="Chaque année"/>

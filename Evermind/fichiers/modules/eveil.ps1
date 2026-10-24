@@ -40,7 +40,7 @@ function Start-Eveil {
     if (-not $script:EveilTimer) {
         $script:EveilTimer = New-Object System.Windows.Threading.DispatcherTimer
         $script:EveilTimer.Interval = [TimeSpan]::FromMilliseconds(150)
-        $script:EveilTimer.Add_Tick({ Step-Eveil })
+        $script:EveilTimer.Add_Tick({ try { Step-Eveil } catch { Write-Log "Écoute « OK Evermind » : $_" } })
     }
     $script:EveilTimer.Start()
     Write-Log "Écoute « OK Evermind » active (micro : $(if ([EMMicros]::Choisi -ne [uint32]::MaxValue) { @([EMMicros]::Noms())[[EMMicros]::Choisi] } else { 'celui de Windows' }))"

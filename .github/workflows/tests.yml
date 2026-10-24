@@ -74,6 +74,11 @@ jobs:
       - name: "Horaires de travail"
         run: .\outils\tester-horaires.ps1
 
+      # Ne jamais perdre de rendez-vous : fichier abîmé, rendez-vous illisible gardé, répétition gardée par le formulaire,
+      # réponse de l'assistant appliquée par différences (faux assistant), « annule » après une suppression à la main
+      - name: "Sûreté des données"
+        run: .\outils\tester-donnees.ps1
+
       # Le réglage « Démarrage avec Windows » gardé tel quel quand Mindset gère Evermind (Mindset le lit)
       - name: "Démarrage avec Windows sous Mindset"
         run: .\outils\tester-demarrage.ps1
