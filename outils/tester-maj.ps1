@@ -38,6 +38,8 @@ function New-ZipTest([string]$Nom, [string]$Version, [string]$Cle = 'neuve.xml')
     $d = Join-Path $test "src-$Nom"
     New-Item -ItemType Directory -Force (Join-Path $d 'Evermind\fichiers\cles-publiques') | Out-Null
     [IO.File]::WriteAllText((Join-Path $d 'Evermind\Evermind.exe'), 'faux programme')
+    [IO.File]::WriteAllText((Join-Path $d 'Evermind\Mindset.exe'), 'nouveau programme')
+    [IO.File]::WriteAllText((Join-Path $d 'Evermind\LISEZMOI.txt'), 'nouveau lisezmoi')
     $ligne = if ($Version) { "`$AppVersion = '$Version'" } else { '# (pas de version)' }
     [IO.File]::WriteAllText((Join-Path $d 'Evermind\fichiers\Evermind.ps1'), "# Evermind de test`r`n$ligne`r`n", (New-Object Text.UTF8Encoding $true))
     [IO.File]::WriteAllText((Join-Path $d "Evermind\fichiers\cles-publiques\$Cle"), '<RSAKeyValue/>')
@@ -100,6 +102,7 @@ function New-Installe([string]$Nom) {
     $c = Join-Path $test "installe-$Nom"
     New-Item -ItemType Directory -Force (Join-Path $c 'fichiers\cles-publiques') | Out-Null
     [IO.File]::WriteAllText((Join-Path $c 'Evermind.exe'), 'ancien programme')
+    [IO.File]::WriteAllText((Join-Path $c 'LISEZMOI.txt'), 'ancien lisezmoi')   # (pas de Mindset.exe : une ancienne version)
     [IO.File]::WriteAllText((Join-Path $c 'fichiers\Evermind.ps1'), "`$AppVersion = '0.17.0'`r`n")
     [IO.File]::WriteAllText((Join-Path $c 'fichiers\ancien-seulement.txt'), 'ancien')
     [IO.File]::WriteAllText((Join-Path $c 'fichiers\cles-publiques\vieille.xml'), '<RSAKeyValue/>')
@@ -117,6 +120,8 @@ $v1 = [IO.File]::ReadAllText((Join-Path $c1 'fichiers\Evermind.ps1'))
 Test-Cas 'remplacement : nouvelle version en place' ($v1 -match "0\.18\.0" -and -not (Test-Path -LiteralPath (Join-Path $c1 'fichiers.ancien'))) "($v1)"
 Test-Cas 'remplacement : rien de l''ancienne version ne traîne' (-not (Test-Path -LiteralPath (Join-Path $c1 'fichiers\ancien-seulement.txt')))
 Test-Cas 'remplacement : la liste des clés est la nouvelle' (@(Get-ChildItem -LiteralPath (Join-Path $c1 'fichiers\cles-publiques') | ForEach-Object Name) -join ',' -eq 'neuve.xml')
+Test-Cas 'remplacement : les programmes et le LISEZMOI sont les nouveaux' ([IO.File]::ReadAllText((Join-Path $c1 'Evermind.exe')) -eq 'faux programme' -and [IO.File]::ReadAllText((Join-Path $c1 'Mindset.exe')) -eq 'nouveau programme' -and [IO.File]::ReadAllText((Join-Path $c1 'LISEZMOI.txt')) -eq 'nouveau lisezmoi')
+Test-Cas 'remplacement : aucun dossier de côté oublié' (-not @(Get-ChildItem -LiteralPath $c1 -Directory | Where-Object { $_.Name -ne 'fichiers' }).Count) "($(@(Get-ChildItem -LiteralPath $c1 -Directory).Name -join ', '))"
 # La copie échoue (un fichier de la nouvelle version reste pris) : l'ancienne version est remise telle quelle
 $c2 = New-Installe 'rate'
 $pris = Join-Path $src18 'fichiers\pris.txt'; [IO.File]::WriteAllText($pris, 'pris')
@@ -126,6 +131,15 @@ $v2 = [IO.File]::ReadAllText((Join-Path $c2 'fichiers\Evermind.ps1'))
 Test-Cas 'copie ratée : l''ancienne version remise, sans mélange' ($v2 -match "0\.17\.0" -and (Test-Path -LiteralPath (Join-Path $c2 'fichiers\ancien-seulement.txt')) -and (Test-Path -LiteralPath (Join-Path $c2 'fichiers\cles-publiques\vieille.xml')) -and -not (Test-Path -LiteralPath (Join-Path $c2 'fichiers\cles-publiques\neuve.xml'))) "($v2)"
 Test-Cas 'copie ratée : aucun dossier de côté oublié' (-not @(Get-ChildItem -LiteralPath $c2 -Directory | Where-Object { $_.Name -ne 'fichiers' }).Count) "($(@(Get-ChildItem -LiteralPath $c2 -Directory).Name -join ', '))"
 Test-Cas 'copie ratée : noté au journal' ((Test-Path -LiteralPath $journal) -and [IO.File]::ReadAllText($journal) -match 'ancienne version remise')
+# Audit du 25/10, 25h : les fichiers à côté de « fichiers » sont remis aussi (jamais un nouvel Evermind.exe avec l'ancien code)
+Test-Cas 'copie ratée : Evermind.exe et LISEZMOI.txt anciens, le nouveau Mindset.exe retiré' ([IO.File]::ReadAllText((Join-Path $c2 'Evermind.exe')) -eq 'ancien programme' -and [IO.File]::ReadAllText((Join-Path $c2 'LISEZMOI.txt')) -eq 'ancien lisezmoi' -and -not (Test-Path -LiteralPath (Join-Path $c2 'Mindset.exe'))) "($([IO.File]::ReadAllText((Join-Path $c2 'Evermind.exe'))) / $([IO.File]::ReadAllText((Join-Path $c2 'LISEZMOI.txt'))) / Mindset.exe $(Test-Path -LiteralPath (Join-Path $c2 'Mindset.exe')))"
+# L'ancien dossier « fichiers » ne peut pas être mis de côté (un de ses fichiers est pris) : rien n'est remplacé
+$c3 = New-Installe 'pris'
+$verrou = [IO.File]::Open((Join-Path $c3 'fichiers\ancien-seulement.txt'), 'Open', 'Read', 'None')
+try { Invoke-Remplacer $src18 $c3 } finally { $verrou.Dispose() }
+$v3 = [IO.File]::ReadAllText((Join-Path $c3 'fichiers\Evermind.ps1'))
+Test-Cas 'ancien dossier pris : rien n''est remplacé' ($v3 -match '0\.17\.0' -and [IO.File]::ReadAllText((Join-Path $c3 'Evermind.exe')) -eq 'ancien programme' -and [IO.File]::ReadAllText((Join-Path $c3 'LISEZMOI.txt')) -eq 'ancien lisezmoi' -and -not (Test-Path -LiteralPath (Join-Path $c3 'Mindset.exe'))) "($v3 / $([IO.File]::ReadAllText((Join-Path $c3 'Evermind.exe'))))"
+Test-Cas 'ancien dossier pris : aucun dossier de côté oublié' (-not @(Get-ChildItem -LiteralPath $c3 -Directory | Where-Object { $_.Name -ne 'fichiers' }).Count) "($(@(Get-ChildItem -LiteralPath $c3 -Directory).Name -join ', '))"
 
 $rsa.Dispose()
 Remove-Item $test -Recurse -Force -ErrorAction SilentlyContinue

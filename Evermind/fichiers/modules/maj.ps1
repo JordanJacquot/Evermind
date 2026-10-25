@@ -228,8 +228,10 @@ function Install-MajPrete {
 }
 
 # Le petit programme qui remplace les fichiers, une fois Evermind fermé. L'ancien dossier « fichiers » est d'abord
-# renommé à côté (même disque : immédiat) ; si la copie échoue, il est remis tel quel et l'ancienne version relancée :
-# jamais un mélange des deux versions.
+# renommé à côté (même disque : immédiat), et les fichiers à côté de lui (Evermind.exe, Mindset.exe, LISEZMOI.txt...)
+# copiés de côté ; si la copie échoue, tout est remis tel quel (les nouveaux fichiers en trop sont retirés) et
+# l'ancienne version relancée : jamais un mélange des deux versions. Si l'ancien dossier ne peut pas être mis de côté
+# (un fichier encore pris), rien n'est remplacé : l'ancienne version repart, la mise à jour sera proposée à nouveau.
 function Get-CodeRemplacement {
     @'
 param([int]$Attendre, [string]$Source, [string]$Cible, [string]$Journal, [switch]$PasDeRelance)
@@ -237,30 +239,51 @@ function Note([string]$t) { try { Add-Content -LiteralPath $Journal -Value "$(Ge
 # Evermind se ferme : on attend qu'il soit parti (ses fichiers ne sont plus utilisés)
 try { Wait-Process -Id $Attendre -Timeout 60 -ErrorAction SilentlyContinue } catch {}
 Start-Sleep -Milliseconds 700
-$fichiers = Join-Path $Cible 'fichiers'; $ancien = Join-Path $Cible 'fichiers.ancien'
+$fichiers = Join-Path $Cible 'fichiers'; $ancien = Join-Path $Cible 'fichiers.ancien'; $racineAncienne = Join-Path $Cible 'racine.ancien'
 # (une fois précédente interrompue : l'ancien dossier est remis s'il n'y a plus que lui)
 if (-not (Test-Path -LiteralPath $fichiers) -and (Test-Path -LiteralPath $ancien)) { try { [IO.Directory]::Move($ancien, $fichiers) } catch {} }
-Remove-Item -LiteralPath $ancien -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $ancien, $racineAncienne -Recurse -Force -ErrorAction SilentlyContinue
 $mis = $false
 for ($i = 0; $i -lt 10 -and -not $mis; $i++) {
     try { [IO.Directory]::Move($fichiers, $ancien); $mis = $true } catch { Start-Sleep -Seconds 1 }
 }
-if (-not $mis) { Note 'ancien dossier non mis de côté (un fichier est encore pris) : copie par dessus' }
-# Les nouveaux fichiers (robocopy réessaie si un fichier est encore pris)
-& robocopy.exe $Source $Cible /E /R:10 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
-$code = $LASTEXITCODE
-if ($code -ge 8) {
+$code = 0
+if (-not $mis) { Note 'ancien dossier non mis de côté (un fichier est encore pris) : rien n''est remplacé, l''ancienne version repart' }
+else {
+    # Les fichiers à côté de « fichiers » (Evermind.exe, Mindset.exe, LISEZMOI.txt...) : copiés de côté, et la liste
+    # de ceux qui n'existaient pas encore (retirés si la copie échoue)
+    $racineOk = $true; $nouveaux = @()
+    try {
+        New-Item -ItemType Directory -Force -Path $racineAncienne | Out-Null
+        foreach ($f in @(Get-ChildItem -LiteralPath $Source -File)) {
+            $la = Join-Path $Cible $f.Name
+            if (Test-Path -LiteralPath $la -PathType Leaf) { Copy-Item -LiteralPath $la -Destination (Join-Path $racineAncienne $f.Name) -Force -ErrorAction Stop }
+            else { $nouveaux += $la }
+        }
+    } catch { $racineOk = $false; Note "fichiers du dossier pas copiés de côté ($_) : rien n'est remplacé" }
+    # Les nouveaux fichiers (robocopy réessaie si un fichier est encore pris)
+    if ($racineOk) { & robocopy.exe $Source $Cible /E /R:10 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null; $code = $LASTEXITCODE }
+    else { $code = 16 }
+}
+if ($mis -and $code -ge 8) {
     Note "remplacement impossible (robocopy $code)"
-    if ($mis) {
-        $rate = Join-Path $Cible "fichiers.rate-$(Get-Date -Format yyyyMMdd-HHmmss)"
-        try {
-            if (Test-Path -LiteralPath $fichiers) { [IO.Directory]::Move($fichiers, $rate) }
-            [IO.Directory]::Move($ancien, $fichiers)
-            Note 'ancienne version remise'
-            Remove-Item -LiteralPath $rate -Recurse -Force -ErrorAction SilentlyContinue
-        } catch { Note "ancienne version non remise : $_" }
-    }
-} else {
+    $rate = Join-Path $Cible "fichiers.rate-$(Get-Date -Format yyyyMMdd-HHmmss)"
+    try {
+        if (Test-Path -LiteralPath $fichiers) { [IO.Directory]::Move($fichiers, $rate) }
+        [IO.Directory]::Move($ancien, $fichiers)
+        Remove-Item -LiteralPath $rate -Recurse -Force -ErrorAction SilentlyContinue
+        # Les fichiers d'à côté : les anciens remis (un fichier encore pris n'a pas été remplacé : il est resté ancien),
+        # les nouveaux en trop retirés
+        $restes = @()
+        foreach ($f in @(Get-ChildItem -LiteralPath $racineAncienne -File -ErrorAction SilentlyContinue)) {
+            $la = Join-Path $Cible $f.Name
+            $pareil = (Test-Path -LiteralPath $la) -and ((Get-FileHash -LiteralPath $la).Hash -eq (Get-FileHash -LiteralPath $f.FullName).Hash)
+            if (-not $pareil) { try { Copy-Item -LiteralPath $f.FullName -Destination $la -Force -ErrorAction Stop } catch { $restes += $f.Name } }
+        }
+        foreach ($la in $nouveaux) { try { Remove-Item -LiteralPath $la -Force -ErrorAction Stop } catch { if (Test-Path -LiteralPath $la) { $restes += (Split-Path $la -Leaf) } } }
+        if ($restes.Count) { Note "ancienne version remise, sauf : $($restes -join ', ')" } else { Note 'ancienne version remise' }
+    } catch { Note "ancienne version non remise : $_" }
+} elseif ($mis) {
     Note 'fichiers remplacés'
     # Les clés publiques : exactement la liste de la nouvelle version (/MIR), pour qu'une clé retirée disparaisse
     # vraiment (une version plus ancienne, et sa vieille liste, est refusée avant d'arriver ici)
@@ -269,8 +292,9 @@ if ($code -ge 8) {
         & robocopy.exe $cles (Join-Path $Cible 'fichiers\cles-publiques') /MIR /R:10 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
         if ($LASTEXITCODE -ge 8) { Note "liste des clés non remplacée (robocopy $LASTEXITCODE)" }
     }
-    if ($mis) { Remove-Item -LiteralPath $ancien -Recurse -Force -ErrorAction SilentlyContinue }
+    Remove-Item -LiteralPath $ancien -Recurse -Force -ErrorAction SilentlyContinue
 }
+Remove-Item -LiteralPath $racineAncienne -Recurse -Force -ErrorAction SilentlyContinue
 # Relance par Mindset.exe (le programme Evermind), ou par le relais Evermind.exe s'il n'est pas là
 $exe = Join-Path $Cible 'Mindset.exe'
 if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $Cible 'Evermind.exe' }
