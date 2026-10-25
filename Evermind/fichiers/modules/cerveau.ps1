@@ -73,7 +73,7 @@ function Get-ContexteIA {
         if ($r.Notes) { $l += ". Notes : $($r.Notes -replace '\s+', ' ')" }
         if ($r.Important) { $l += '. Important' }
         if (@($r.Fichiers).Count) { $l += ". Dossiers : $(@($r.Fichiers | ForEach-Object { Split-Path $_ -Leaf }) -join ', ')$(if ($r.OuvrirAuDebut) { ' (ouverts à l''heure)' })" }
-        if ($r.Fait) { $l += '. Déjà fait' }
+        if (Test-FaitRV $r $it.Prochain) { $l += '. Déjà fait' }
         $lignes += $l
     }
     if (-not $lignes) { $lignes = @('(son agenda est vide)') }
@@ -238,6 +238,8 @@ function Get-RVComparable($x) {
     $d = ConvertTo-DonneesRV (ConvertTo-RendezVous $x)
     $c = [ordered]@{}
     foreach ($k in @($d.Keys)) { $c[$k] = ConvertTo-Json -InputObject $d[$k] -Depth 8 -Compress }
+    # (les fois cochées d'une chose qui revient, que l'assistant n'a pas recopiées, ne comptent pas comme un changement)
+    if (-not $x.PSObject.Properties['FaitPour'] -and -not ($x -is [Collections.IDictionary] -and $x.Contains('FaitPour'))) { $c.Remove('FaitPour') }
     @{ Donnees = $d; Json = $c }
 }
 
@@ -279,8 +281,9 @@ function Merge-AgendaAssistant([string]$EnvoyeJson, $Recu, [string]$Texte, [stri
             return $res
         }
     }
-    # Tout est lisible et voulu : appliqué sur l'agenda actuel
+    # Tout est lisible et voulu : appliqué sur l'agenda actuel (remis tel quel si l'enregistrement échoue)
     Save-Annulation
+    $agendaAvant = $script:Agenda.Clone()
     foreach ($id in $manquants) {
         $r = Get-RendezVous $id
         if ($r) { $script:Agenda.Remove($r); $res.Suppressions++ }
@@ -303,7 +306,7 @@ function Merge-AgendaAssistant([string]$EnvoyeJson, $Recu, [string]$Texte, [stri
         $script:Agenda[$script:Agenda.IndexOf($r)] = ConvertTo-RendezVous ([pscustomobject]$d)
         $res.Changes++
     }
-    if ($res.Ajouts -or $res.Changes -or $res.Suppressions) { Save-Agenda }
+    if ($res.Ajouts -or $res.Changes -or $res.Suppressions) { try { Save-Agenda } catch { $script:Agenda = $agendaAvant; throw } }
     Write-Log "Assistant : $($res.Ajouts) ajout(s), $($res.Changes) changement(s), $($res.Suppressions) suppression(s)"
     $res.Ok = $true
     $res
@@ -764,8 +767,13 @@ function Invoke-ActionsIA($ReponseIA, $Codes, [string]$Texte, [string]$Source) {
             }
         }
         elseif ($a.action -eq 'fait') {
-            Set-RendezVousDetail $rv.Id 'Fait' $true
-            [void]$dits.Add("Bien joué, $nom c'est fait."); [void]$ecrits.Add("Fait : $nom.")
+            # Une chose qui revient : la fois en cours ou la dernière en retard, jamais une fois à venir
+            $fois = Get-FoisAFaire $rv
+            if ($rv.Repetition -and -not $fois) { [void]$dits.Add("$nom n'a pas encore commencé, il n'y a rien à cocher."); [void]$ecrits.Add("Pas encore commencé : $nom.") }
+            else {
+                Set-FaitRV $rv.Id $fois $true
+                [void]$dits.Add("Bien joué, $nom c'est fait."); [void]$ecrits.Add("Fait : $nom$(if ($rv.Repetition) { ' (' + (Format-QuandRV $rv $fois) + ')' }).")
+            }
         }
         elseif ($a.action -eq 'modifier') {
             # « même heure » : seule la date change, quelle que soit l'heure que l'IA a cru lire

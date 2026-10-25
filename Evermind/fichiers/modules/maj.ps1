@@ -45,6 +45,40 @@ function Test-VersionPlusRecente([string]$En, [string]$Ici) {
     try { [version]($En.TrimStart('vV')) -gt [version]($Ici.TrimStart('vV')) } catch { $false }
 }
 
+# La version écrite DANS le zip ($AppVersion de Evermind.ps1) : elle doit être celle annoncée par la page des versions
+# et plus récente que celle d'ici. Sans ce contrôle, un ancien zip, bien signé, republié sous un nouveau numéro, ferait
+# revenir une vieille version (et son ancienne liste de clés). Rend la raison du refus, ou rien.
+function Get-RefusVersionZip([string]$Script, [string]$Annoncee, [string]$Ici) {
+    $v = ''
+    try {
+        $m = [regex]::Match([IO.File]::ReadAllText($Script, [Text.Encoding]::UTF8), '(?m)^\s*\$AppVersion\s*=\s*''([^'']+)''')
+        if ($m.Success) { $v = $m.Groups[1].Value.Trim() }
+    } catch {}
+    $lue = $null
+    if (-not $v -or -not [version]::TryParse($v, [ref]$lue)) { return 'son numéro de version est illisible' }
+    if ($v -ne $Annoncee.TrimStart('vV')) { return "elle s'annonce comme la $($Annoncee.TrimStart('vV')) mais contient la $v" }
+    if (-not (Test-VersionPlusRecente $v $Ici)) { return "elle n'est pas plus récente que la tienne ($v)" }
+    $null
+}
+
+# Après le téléchargement : signature, dézippage à part depuis les octets vérifiés, contenu, version. Rend
+# @{ Dossier ; Refus ; Erreur } (Refus : à ne pas réessayer, le fichier n'est pas bon). Utilisé en arrière plan.
+function Expand-ZipMaj([byte[]]$Octets, [byte[]]$Signature, [string]$Cle, [string]$Dest, [string]$Annoncee, [string]$Ici) {
+    $res = @{ Dossier = ''; Refus = $false; Erreur = '' }
+    if (-not (Test-Signature $Octets $Signature $Cle)) { $res.Refus = $true; $res.Erreur = 'sa signature n''est pas valide (ce fichier ne vient pas de Jordan, ou il a été modifié)'; return $res }
+    # Dézippé depuis les octets vérifiés : le fichier sur le disque pourrait avoir changé entre-temps
+    Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+    $archive = New-Object IO.Compression.ZipArchive((New-Object IO.MemoryStream (, $Octets)), [IO.Compression.ZipArchiveMode]::Read)
+    try { [IO.Compression.ZipFileExtensions]::ExtractToDirectory($archive, $Dest) } finally { $archive.Dispose() }
+    $app = Join-Path $Dest 'Evermind'
+    $script = Join-Path $app 'fichiers\Evermind.ps1'
+    if (-not (Test-Path -LiteralPath (Join-Path $app 'Evermind.exe')) -or -not (Test-Path -LiteralPath $script)) { $res.Erreur = 'le zip ne contient pas Evermind'; return $res }
+    $refus = Get-RefusVersionZip $script $Annoncee $Ici
+    if ($refus) { $res.Refus = $true; $res.Erreur = $refus; return $res }
+    $res.Dossier = $app
+    $res
+}
+
 # Regarde la dernière version en arrière plan (la fenêtre ne se fige pas si Internet est lent ou absent)
 function Start-MajRecherche {
     if ($script:Maj.Etat -in 'cherche', 'telecharge', 'pret') { return }
@@ -137,8 +171,8 @@ function Start-MajTelechargement {
     $ui.BtnMaj.IsEnabled = $false; $ui.BtnMajPlusTard.Visibility = 'Collapsed'
     $ps = [PowerShell]::Create()
     [void]$ps.AddScript({
-        param($Etat, $Dossier, $Cle, $VerifSignature)
-        Set-Item -Path function:Test-Signature -Value $VerifSignature   # (la même vérification que la fenêtre, ici en arrière plan)
+        param($Etat, $Dossier, $Cle, $Fonctions, $Ici)
+        foreach ($f in $Fonctions.Keys) { Set-Item -Path "function:$f" -Value $Fonctions[$f] }   # (les mêmes vérifications que la fenêtre, ici en arrière plan)
         try {
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
             $dest = Join-Path $Dossier $Etat.Version
@@ -163,13 +197,10 @@ function Start-MajTelechargement {
                 if (Test-Path -LiteralPath $Etat.UrlSig) { $sig = [IO.File]::ReadAllBytes($Etat.UrlSig) }   # (tests : signature locale)
                 else { $wc = New-Object Net.WebClient; $wc.Headers['User-Agent'] = 'Evermind'; try { $sig = $wc.DownloadData($Etat.UrlSig) } finally { $wc.Dispose() } }
             } catch { $Etat.Refus = $true; throw 'sa signature est introuvable' }
-            if (-not (Test-Signature $octets $sig $Cle)) { $Etat.Refus = $true; throw 'sa signature n''est pas valide (ce fichier ne vient pas de Jordan, ou il a été modifié)' }
-            # Dézippé depuis les octets vérifiés : le fichier sur le disque pourrait avoir changé entre-temps
-            Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
-            $archive = New-Object IO.Compression.ZipArchive((New-Object IO.MemoryStream (, $octets)), [IO.Compression.ZipArchiveMode]::Read)
-            try { [IO.Compression.ZipFileExtensions]::ExtractToDirectory($archive, $dest) } finally { $archive.Dispose() }
-            $app = Join-Path $dest 'Evermind'
-            if (-not (Test-Path -LiteralPath (Join-Path $app 'Evermind.exe')) -or -not (Test-Path -LiteralPath (Join-Path $app 'fichiers\Evermind.ps1'))) { throw 'le zip ne contient pas Evermind' }
+            $x = Expand-ZipMaj $octets $sig $Cle $dest $Etat.Version $Ici
+            if ($x.Refus) { $Etat.Refus = $true }
+            if ($x.Erreur) { throw $x.Erreur }
+            $app = $x.Dossier
             Get-ChildItem -LiteralPath $app -Recurse -File | Unblock-File -ErrorAction SilentlyContinue
             $Etat.Dossier = $app
             $Etat.Etat = 'pret'
@@ -178,7 +209,7 @@ function Start-MajTelechargement {
             if ($Etat.Refus) { Remove-Item -LiteralPath $zip, $dest -Recurse -Force -ErrorAction SilentlyContinue }   # (rien de refusé ne reste)
             $Etat.Etat = 'erreur'
         }
-    }).AddArgument($m).AddArgument($MajDossier).AddArgument($ClePublique).AddArgument(${function:Test-Signature}.ToString())
+    }).AddArgument($m).AddArgument($MajDossier).AddArgument($ClePublique).AddArgument(@{ 'Test-Signature' = ${function:Test-Signature}.ToString(); 'Test-VersionPlusRecente' = ${function:Test-VersionPlusRecente}.ToString(); 'Get-RefusVersionZip' = ${function:Get-RefusVersionZip}.ToString(); 'Expand-ZipMaj' = ${function:Expand-ZipMaj}.ToString() }).AddArgument($AppVersion)
     $m.PS = $ps; $m.Handle = $ps.BeginInvoke()
     Write-Log "Mise à jour : téléchargement de $($m.Version)"
     Start-MajSuivi
@@ -196,31 +227,63 @@ function Install-MajPrete {
     Exit-App
 }
 
-# Appelé à la toute fin d'Evermind.ps1, une fois la fenêtre fermée : lance le remplacement des fichiers
-function Start-MajRemplacement {
-    $l = $script:MajLancer
-    New-Item -ItemType Directory -Force -Path $MajDossier | Out-Null
-    $script = Join-Path $MajDossier 'remplacer.ps1'
-    $code = @'
+# Le petit programme qui remplace les fichiers, une fois Evermind fermé. L'ancien dossier « fichiers » est d'abord
+# renommé à côté (même disque : immédiat) ; si la copie échoue, il est remis tel quel et l'ancienne version relancée :
+# jamais un mélange des deux versions.
+function Get-CodeRemplacement {
+    @'
 param([int]$Attendre, [string]$Source, [string]$Cible, [string]$Journal, [switch]$PasDeRelance)
 function Note([string]$t) { try { Add-Content -LiteralPath $Journal -Value "$(Get-Date -Format s) Mise à jour : $t" -Encoding UTF8 } catch {} }
 # Evermind se ferme : on attend qu'il soit parti (ses fichiers ne sont plus utilisés)
 try { Wait-Process -Id $Attendre -Timeout 60 -ErrorAction SilentlyContinue } catch {}
 Start-Sleep -Milliseconds 700
-# Les nouveaux fichiers par dessus les anciens (robocopy réessaie si un fichier est encore pris)
+$fichiers = Join-Path $Cible 'fichiers'; $ancien = Join-Path $Cible 'fichiers.ancien'
+# (une fois précédente interrompue : l'ancien dossier est remis s'il n'y a plus que lui)
+if (-not (Test-Path -LiteralPath $fichiers) -and (Test-Path -LiteralPath $ancien)) { try { [IO.Directory]::Move($ancien, $fichiers) } catch {} }
+Remove-Item -LiteralPath $ancien -Recurse -Force -ErrorAction SilentlyContinue
+$mis = $false
+for ($i = 0; $i -lt 10 -and -not $mis; $i++) {
+    try { [IO.Directory]::Move($fichiers, $ancien); $mis = $true } catch { Start-Sleep -Seconds 1 }
+}
+if (-not $mis) { Note 'ancien dossier non mis de côté (un fichier est encore pris) : copie par dessus' }
+# Les nouveaux fichiers (robocopy réessaie si un fichier est encore pris)
 & robocopy.exe $Source $Cible /E /R:10 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
-if ($LASTEXITCODE -ge 8) { Note "remplacement impossible (robocopy $LASTEXITCODE)" } else { Note 'fichiers remplacés' }
-# Les clés publiques : exactement la liste de la nouvelle version (/MIR), pour qu'une clé retirée disparaisse vraiment
-$cles = Join-Path $Source 'fichiers\cles-publiques'
-if (Test-Path -LiteralPath $cles) {
-    & robocopy.exe $cles (Join-Path $Cible 'fichiers\cles-publiques') /MIR /R:10 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
-    if ($LASTEXITCODE -ge 8) { Note "liste des clés non remplacée (robocopy $LASTEXITCODE)" }
+$code = $LASTEXITCODE
+if ($code -ge 8) {
+    Note "remplacement impossible (robocopy $code)"
+    if ($mis) {
+        $rate = Join-Path $Cible "fichiers.rate-$(Get-Date -Format yyyyMMdd-HHmmss)"
+        try {
+            if (Test-Path -LiteralPath $fichiers) { [IO.Directory]::Move($fichiers, $rate) }
+            [IO.Directory]::Move($ancien, $fichiers)
+            Note 'ancienne version remise'
+            Remove-Item -LiteralPath $rate -Recurse -Force -ErrorAction SilentlyContinue
+        } catch { Note "ancienne version non remise : $_" }
+    }
+} else {
+    Note 'fichiers remplacés'
+    # Les clés publiques : exactement la liste de la nouvelle version (/MIR), pour qu'une clé retirée disparaisse
+    # vraiment (une version plus ancienne, et sa vieille liste, est refusée avant d'arriver ici)
+    $cles = Join-Path $Source 'fichiers\cles-publiques'
+    if (Test-Path -LiteralPath $cles) {
+        & robocopy.exe $cles (Join-Path $Cible 'fichiers\cles-publiques') /MIR /R:10 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+        if ($LASTEXITCODE -ge 8) { Note "liste des clés non remplacée (robocopy $LASTEXITCODE)" }
+    }
+    if ($mis) { Remove-Item -LiteralPath $ancien -Recurse -Force -ErrorAction SilentlyContinue }
 }
 # Relance par Mindset.exe (le programme Evermind), ou par le relais Evermind.exe s'il n'est pas là
 $exe = Join-Path $Cible 'Mindset.exe'
 if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $Cible 'Evermind.exe' }
 if (-not $PasDeRelance) { Start-Process -FilePath $exe }
 '@
+}
+
+# Appelé à la toute fin d'Evermind.ps1, une fois la fenêtre fermée : lance le remplacement des fichiers
+function Start-MajRemplacement {
+    $l = $script:MajLancer
+    New-Item -ItemType Directory -Force -Path $MajDossier | Out-Null
+    $script = Join-Path $MajDossier 'remplacer.ps1'
+    $code = Get-CodeRemplacement
     [IO.File]::WriteAllText($script, $code, (New-Object Text.UTF8Encoding($true)))
     $arg = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$script`"", '-Attendre', $PID, '-Source', "`"$($l.Source)`"", '-Cible', "`"$($l.Cible)`"", '-Journal', "`"$LogFile`"")
     if ($env:EVERMIND_MAJ_PAS_DE_RELANCE) { $arg += '-PasDeRelance' }

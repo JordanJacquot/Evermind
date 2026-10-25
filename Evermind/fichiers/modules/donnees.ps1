@@ -71,7 +71,11 @@ if ($DataDirNote) { Write-Log $DataDirNote }
 
 # Écrit un fichier JSON sans risque de le perdre : on écrit à côté, puis on remplace d'un coup
 # (l'ancienne version reste dans « .bak » si quelque chose tourne mal).
+# Un fichier qu'un autre programme gardait ouvert à la lecture ($script:FichiersPris) n'est jamais écrit : on en a
+# peut-être seulement la sauvegarde en mémoire, et l'écrire ferait perdre la dernière version.
+$script:FichiersPris = @{}
 function Save-JsonFile([string]$Path, $Object) {
+    if ($script:FichiersPris[$Path]) { throw "$(Split-Path $Path -Leaf) est en lecture seule pour l'instant (un autre programme le garde ouvert)" }
     $json = ConvertTo-Json -InputObject $Object -Depth 8
     $tmp = "$Path.tmp"
     [IO.File]::WriteAllText($tmp, $json, $Utf8NoBom)
@@ -82,11 +86,37 @@ function Save-JsonFile([string]$Path, $Object) {
 # Lit un fichier JSON. Un fichier abîmé est mis de côté (rien n'est jamais effacé) et on repart de la sauvegarde.
 # Un fichier vide (coupé net par une panne) compte comme abîmé : sinon on repartirait de rien, et la sauvegarde
 # suivante écraserait la bonne copie « .bak ».
+# Un fichier qu'un autre programme garde ouvert (antivirus, copie en cours...) n'est pas abîmé : 3 essais à 200 ms,
+# puis il est noté « pris » ($script:FichiersPris) : on lit sa sauvegarde pour montrer quelque chose, mais rien n'est
+# enregistré tant qu'il n'a pas été relu (sinon la bonne version, poussée vers « .bak », serait écrasée).
+function Test-ErreurFichierPris($Erreur) {
+    for ($e = $Erreur; $e; $e = $e.InnerException) {
+        if ($e -is [IO.IOException] -and (($e.HResult -band 0xFFFF) -in 32, 33)) { return $true }   # (partage, verrou)
+    }
+    $false
+}
+
 function Read-JsonFile([string]$Path) {
+    $script:FichiersPris.Remove($Path)
     foreach ($p in $Path, "$Path.bak") {
         if (-not [IO.File]::Exists($p)) { continue }
+        $texte = $null; $pris = $false
+        for ($essai = 1; $essai -le 3; $essai++) {
+            try { $texte = [IO.File]::ReadAllText($p, [Text.Encoding]::UTF8); $pris = $false; break }
+            catch {
+                $pris = Test-ErreurFichierPris $_.Exception
+                if (-not $pris) { break }
+                if ($essai -lt 3) { Start-Sleep -Milliseconds 200 }
+            }
+        }
+        if ($pris) {
+            Write-Log "Fichier pris par un autre programme, en lecture seule pour l'instant : $p"
+            if ($p -eq $Path) { $script:FichiersPris[$Path] = $true }
+            continue
+        }
         try {
-            $j = [IO.File]::ReadAllText($p, [Text.Encoding]::UTF8) | ConvertFrom-Json
+            if ($null -eq $texte) { $texte = [IO.File]::ReadAllText($p, [Text.Encoding]::UTF8) }   # (autre erreur : vue ici, comme abîmé)
+            $j = $texte | ConvertFrom-Json
             if ($null -eq $j) { throw 'fichier vide' }
             if ($p -ne $Path) { Write-Log "Fichier repris de sa sauvegarde : $p" }
             return $j
@@ -132,8 +162,10 @@ $DateFormat = 'yyyy-MM-ddTHH:mm'
 #   Fin        : heure de fin ("2027-02-27T16:00") ou null
 #   Lieu, Lien, Notes : texte ; Avec : liste de noms ; APreparer : liste de { Texte, Fait }
 #   Important, Fait (« À faire » terminé) : oui ou non ; Naissance : année de naissance (anniversaire)
+#   FaitPour : pour une chose à faire qui revient, les fois faites (« yyyy-MM-dd » : aucune répétition ne revient plus
+#              d'une fois par jour) ; Fait reste alors à non. Cocher « les poubelles » ce mardi ne coupe pas les mardis suivants.
 #   Fichiers : dossiers et fichiers reliés (chemins complets) ; OuvrirAuDebut : les ouvrir quand le rendez-vous commence
-$Details = 'Fin', 'Lieu', 'Avec', 'Lien', 'Notes', 'APreparer', 'Rappels', 'Important', 'Fait', 'Naissance', 'Fichiers', 'OuvrirAuDebut'
+$Details = 'Fin', 'Lieu', 'Avec', 'Lien', 'Notes', 'APreparer', 'Rappels', 'Important', 'Fait', 'FaitPour', 'Naissance', 'Fichiers', 'OuvrirAuDebut'
 
 # Une date de détail abîmée ne doit jamais faire perdre le rendez-vous : elle est simplement ignorée
 function Read-DateSouple($Valeur) {
@@ -142,9 +174,40 @@ function Read-DateSouple($Valeur) {
     if ([datetime]::TryParseExact($Valeur, $DateFormat, [Globalization.CultureInfo]::InvariantCulture, 'None', [ref]$d)) { $d } else { $null }
 }
 
+# Une répétition lue dans le fichier est contrôlée : abîmée (sorte inconnue, jour ou mois hors des bornes, date de fin
+# illisible), elle couperait les rappels et la liste de tout l'agenda. Rend la raison, ou rien si elle est bonne.
+function Get-ErreurRepetition($Rep) {
+    if ($null -eq $Rep) { return $null }
+    $n = { param($v, [int]$Min, [int]$Max) $x = 0; $null -eq $v -or ([int]::TryParse([string]$v, [ref]$x) -and $x -ge $Min -and $x -le $Max) }
+    $type = [string]$Rep.Type
+    if ($type -notin 'jour', 'semaine', 'mois', 'an') { return "sorte de répétition inconnue ($type)" }
+    if (-not (& $n $Rep.Intervalle 0 1000)) { return "intervalle illisible ($($Rep.Intervalle))" }
+    $d = [datetime]::MinValue
+    if ($Rep.Jusqua -and -not [datetime]::TryParseExact([string]$Rep.Jusqua, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture, 'None', [ref]$d)) { return "date de fin illisible ($($Rep.Jusqua))" }
+    switch ($type) {
+        'semaine' {
+            if (-not (& $n $Rep.Jour 0 6)) { return "jour de la semaine illisible ($($Rep.Jour))" }
+            foreach ($j in @($Rep.Jours | Where-Object { $null -ne $_ })) { if (-not (& $n $j 0 6)) { return "jour de la semaine illisible ($j)" } }
+        }
+        'mois' {
+            if ($Rep.Rang) {
+                if (-not (& $n $Rep.Rang -1 5) -or [int]$Rep.Rang -eq 0) { return "rang illisible ($($Rep.Rang))" }
+                if ($null -eq $Rep.Jour -or -not (& $n $Rep.Jour 0 6)) { return "jour de la semaine illisible ($($Rep.Jour))" }
+            } elseif ($null -eq $Rep.Jour -or -not (& $n $Rep.Jour 1 31)) { return "jour du mois illisible ($($Rep.Jour))" }
+        }
+        'an' {
+            if ($null -eq $Rep.Jour -or -not (& $n $Rep.Jour 1 31)) { return "jour illisible ($($Rep.Jour))" }
+            if ($null -eq $Rep.Mois -or -not (& $n $Rep.Mois 1 12)) { return "mois illisible ($($Rep.Mois))" }
+        }
+    }
+    $null
+}
+
 function ConvertTo-RendezVous($Raw) {
     $ic = [Globalization.CultureInfo]::InvariantCulture
-    [pscustomobject]@{
+    $erreur = Get-ErreurRepetition $Raw.Repetition
+    if ($erreur) { throw "répétition abîmée : $erreur" }
+    $r = [pscustomobject]@{
         Id         = [string]$Raw.Id
         Titre      = [string]$Raw.Titre
         Type       = [string]$Raw.Type
@@ -160,19 +223,41 @@ function ConvertTo-RendezVous($Raw) {
         Rappels    = if ($null -ne $Raw.Rappels) { , @($Raw.Rappels | Where-Object { $_ -is [string] }) } else { $null }   # (« , » : « aucun rappel » reste une liste vide)
         Important  = [bool]$Raw.Important
         Fait       = [bool]$Raw.Fait
+        FaitPour   = @(Get-FaitPourPropre $Raw.FaitPour)
         Naissance  = if ($Raw.Naissance -is [int] -or $Raw.Naissance -is [long] -or "$($Raw.Naissance)" -match '^\d{4}$') { [int]"$($Raw.Naissance)" } else { $null }
         Fichiers   = @($Raw.Fichiers | Where-Object { $_ -is [string] -and $_ })
         OuvrirAuDebut = [bool]$Raw.OuvrirAuDebut
         Cree       = [string]$Raw.Cree
     }
+    Update-FaitAncien $r
+    $r
 }
 
-# Un rendez-vous illisible (date abîmée...) n'est jamais perdu : il n'est pas affiché, mais il reste tel quel dans le
-# fichier à chaque sauvegarde ($script:AgendaIllisibles), pour pouvoir le réparer plus tard.
+function Get-FaitPourPropre($Liste) { @($Liste | Where-Object { $_ -is [string] -and $_ -match '^\d{4}-\d{2}-\d{2}$' } | Select-Object -Unique) }
+
+# Avant FaitPour, « c'est fait » sur une chose qui revient la rendait muette pour toujours (Fait = oui) : elle devient
+# « faite pour sa dernière fois passée » (ou sa première, si elle n'a pas encore commencé). Il faut comprendre.ps1
+# (Get-NextOccurrence), chargé après ce fichier : au démarrage, Evermind.ps1 refait ce passage une fois tout chargé.
+function Update-FaitAncien($r) {
+    if (-not $r.Fait -or -not $r.Repetition -or -not (Get-Command Get-NextOccurrence -ErrorAction SilentlyContinue)) { return }
+    $fois = @(Get-FoisAvant $r (Get-Date) 0)
+    $q = if ($fois.Count) { $fois[-1] } else { Get-NextOccurrence $r.Repetition $r.Quand $r.Quand }
+    if ($q -eq [datetime]::MinValue) { $q = $r.Quand }
+    $r.FaitPour = @(@($r.FaitPour) + (Get-CleFait $q) | Select-Object -Unique)
+    $r.Fait = $false
+    Write-Log "« C'est fait » d'une chose qui revient, gardé pour la fois du $(Get-CleFait $q) seulement : $($r.Titre)"
+}
+
+# Un rendez-vous illisible (date abîmée, répétition abîmée...) n'est jamais perdu : il n'est pas affiché, mais il reste
+# tel quel dans le fichier à chaque sauvegarde ($script:AgendaIllisibles), pour pouvoir le réparer plus tard ; la
+# fenêtre dit qu'il y en a (agenda.ps1).
+# Fichier pris par un autre programme ($script:AgendaPris) : on montre sa sauvegarde, en lecture seule, et la fenêtre
+# réessaie toutes les 10 secondes (agenda.ps1) ; rien n'est enregistré d'ici là.
 function Import-Agenda {
     $script:Agenda = New-Object System.Collections.ArrayList
     $script:AgendaIllisibles = New-Object System.Collections.ArrayList
     $j = Read-JsonFile $AgendaFile
+    $script:AgendaPris = [bool]$script:FichiersPris[$AgendaFile]
     if (-not $j) { return }
     foreach ($r in @($j.RendezVous)) {
         if (-not $r) { continue }
@@ -195,7 +280,7 @@ function ConvertTo-DonneesRV($r) {
                 Repetition = $r.Repetition; Lieu = $r.Lieu; Avec = @($r.Avec); Lien = $r.Lien; Notes = $r.Notes
                 APreparer = @($r.APreparer | ForEach-Object { [ordered]@{ Texte = $_.Texte; Fait = [bool]$_.Fait } })
                 Rappels = $(if ($null -ne $r.Rappels) { , @($r.Rappels) } else { $null })
-                Important = [bool]$r.Important; Fait = [bool]$r.Fait; Naissance = $r.Naissance
+                Important = [bool]$r.Important; Fait = [bool]$r.Fait; FaitPour = @($r.FaitPour); Naissance = $r.Naissance
                 Fichiers = @($r.Fichiers); OuvrirAuDebut = [bool]$r.OuvrirAuDebut; Cree = $r.Cree }
 }
 
@@ -243,6 +328,7 @@ function Set-Details($r, $Detail) {
             'Fichiers'  { $r.Fichiers = @($v | Where-Object { $_ } | Select-Object -Unique) }
             'APreparer' { $r.APreparer = @($v | Where-Object { $_ } | ForEach-Object { if ($_ -is [string]) { [pscustomobject]@{ Texte = $_; Fait = $false } } else { [pscustomobject]@{ Texte = [string]$_.Texte; Fait = [bool]$_.Fait } } }) }
             'Rappels'   { if ($null -ne $v) { $r.Rappels = @($v) } else { $r.Rappels = $null } }   # (une liste vide = aucun rappel)
+            'FaitPour'  { $r.FaitPour = @(Get-FaitPourPropre $v) }
             default     { $r.$k = $v }
         }
     }
@@ -251,10 +337,10 @@ function Set-Details($r, $Detail) {
 function Add-RendezVous([string]$Titre, [datetime]$Quand, $Repetition, [string]$Type = 'rdv', [bool]$Journee = $false, $Detail) {
     $r = [pscustomobject]@{ Id = [guid]::NewGuid().ToString('N'); Titre = $Titre.Trim(); Type = $Type; Journee = $Journee; Quand = $Quand; Fin = $null
                             Repetition = $Repetition; Lieu = ''; Avec = @(); Lien = ''; Notes = ''; APreparer = @(); Rappels = $null
-                            Important = $false; Fait = $false; Naissance = $null; Fichiers = @(); OuvrirAuDebut = $false; Cree = (Get-Date -Format s) }
+                            Important = $false; Fait = $false; FaitPour = @(); Naissance = $null; Fichiers = @(); OuvrirAuDebut = $false; Cree = (Get-Date -Format s) }
     Set-Details $r $Detail
     [void]$script:Agenda.Add($r)
-    Save-Agenda
+    try { Save-Agenda } catch { $script:Agenda.Remove($r); throw }   # pas enregistré : rien n'a changé
     Write-Log "Rendez-vous ajouté : $($r.Titre), $($r.Quand.ToString($DateFormat))"
     $r
 }
@@ -262,17 +348,19 @@ function Add-RendezVous([string]$Titre, [datetime]$Quand, $Repetition, [string]$
 function Remove-RendezVous([string]$Id) {
     $r = $script:Agenda | Where-Object { $_.Id -eq $Id } | Select-Object -First 1
     if (-not $r) { return }
+    $i = $script:Agenda.IndexOf($r)
     $script:Agenda.Remove($r)
-    Save-Agenda
+    try { Save-Agenda } catch { $script:Agenda.Insert($i, $r); throw }   # pas enregistré : rien n'a changé
     Write-Log "Rendez-vous supprimé : $($r.Titre), $($r.Quand.ToString($DateFormat))"
 }
 
 function Update-RendezVous([string]$Id, [string]$Titre, [datetime]$Quand, $Repetition, [string]$Type = 'rdv', [bool]$Journee = $false, $Detail) {
     $r = Get-RendezVous $Id
     if (-not $r) { throw 'ce rendez-vous n''existe plus' }
+    $avant = $r.PSObject.Copy()
     $r.Titre = $Titre.Trim(); $r.Quand = $Quand; $r.Repetition = $Repetition; $r.Type = $Type; $r.Journee = $Journee
     Set-Details $r $Detail
-    Save-Agenda
+    try { Save-Agenda } catch { Restore-RVCopie $r $avant; throw }
     Write-Log "Rendez-vous modifié : $($r.Titre), $($r.Quand.ToString($DateFormat))"
     $r
 }
@@ -283,9 +371,13 @@ function Get-RendezVous([string]$Id) { $script:Agenda | Where-Object { $_.Id -eq
 function Set-RendezVousDetail([string]$Id, [string]$Nom, $Valeur) {
     $r = Get-RendezVous $Id
     if (-not $r) { return }
+    $avant = $r.PSObject.Copy()
     Set-Details $r @{ $Nom = $Valeur }
-    Save-Agenda
+    try { Save-Agenda } catch { Restore-RVCopie $r $avant; throw }
 }
+
+# Pas enregistré : le rendez-vous reprend toutes ses valeurs d'avant (le même objet : la fiche ouverte le suit)
+function Restore-RVCopie($r, $Avant) { foreach ($p in $Avant.PSObject.Properties) { $r.($p.Name) = $p.Value } }
 
 # Rappels par défaut d'une sorte de rendez-vous (codes : « veille » à 20 h, « matin » à 8 h, « m60 » = 60 minutes avant)
 function Get-RappelsDefaut([string]$Type, [bool]$Journee) {
@@ -301,7 +393,7 @@ function Get-RappelsRV($r) { if ($null -ne $r.Rappels) { @($r.Rappels) } else { 
 function Get-Conflits([datetime]$Debut, $Fin, [string]$SaufId) {
     $f = if ($Fin) { [datetime]$Fin } else { $Debut.AddHours(1) }
     @(Get-AgendaEntre $Debut.Date $Debut.Date.AddDays(1) | Where-Object {
-        $_.RV.Id -ne $SaufId -and -not $_.RV.Journee -and -not $_.RV.Fait -and
+        $_.RV.Id -ne $SaufId -and -not $_.RV.Journee -and -not (Test-FaitRV $_.RV $_.Prochain) -and
         $_.Prochain -lt $f -and $(if ($_.RV.Fin) { $_.Prochain + ($_.RV.Fin - $_.RV.Quand) } else { $_.Prochain.AddHours(1) }) -gt $Debut
     })
 }
@@ -309,7 +401,7 @@ function Get-Conflits([datetime]$Debut, $Fin, [string]$SaufId) {
 # Un rendez-vous passé est validé tout seul (✓) : fini (son heure de fin, ou son heure s'il n'a pas de fin), ou la journée
 # terminée. Les choses « à faire » restent à cocher à la main (Fait). Validé ne bloque rien : il peut toujours être décalé.
 function Test-Valide($r, [datetime]$Quand) {
-    if ((Get-TypeRV $r) -eq 'rappel') { return [bool]$r.Fait }
+    if ((Get-TypeRV $r) -eq 'rappel') { return (Test-FaitRV $r $Quand) }
     $now = Get-Date
     if ($r.Journee -or (Test-PlusieursJours $r)) {
         $fin = if ($r.Fin -and -not $r.Repetition) { ([datetime]$r.Fin).Date } else { $Quand.Date }
@@ -320,40 +412,105 @@ function Test-Valide($r, [datetime]$Quand) {
     $fin -le $now
 }
 
+# Un rendez-vous qui fait une erreur (répétition abîmée passée au travers...) est sauté, sans couper les autres ;
+# noté une seule fois au journal
+function Write-LogRVErreur($r, $Erreur) {
+    if (-not $script:RVEnErreur) { $script:RVEnErreur = @{} }
+    $id = [string]$r.Id
+    if ($script:RVEnErreur.ContainsKey($id)) { return }
+    $script:RVEnErreur[$id] = $true
+    Write-Log "Rendez-vous sauté (erreur) : $($r.Titre) ($id) : $Erreur"
+}
+
 # Toutes les fois où des rendez-vous tombent entre deux moments (pour le calendrier du mois)
 function Get-AgendaEntre([datetime]$Debut, [datetime]$Fin) {
     @(foreach ($r in $script:Agenda) {
-        if (-not $r.Repetition) {
-            if (Test-PlusieursJours $r) {
-                # Sur plusieurs jours : il apparaît chaque jour (le premier à son heure, les suivants dès minuit)
-                for ($j = $r.Quand.Date; $j -le $r.Fin.Date; $j = $j.AddDays(1)) {
-                    $q = if ($j -eq $r.Quand.Date) { $r.Quand } else { $j }
-                    if ($q -ge $Debut -and $q -lt $Fin) { [pscustomobject]@{ RV = $r; Prochain = $q } }
+        try {
+            if (-not $r.Repetition) {
+                if (Test-PlusieursJours $r) {
+                    # Sur plusieurs jours : il apparaît chaque jour (le premier à son heure, les suivants dès minuit)
+                    for ($j = $r.Quand.Date; $j -le $r.Fin.Date; $j = $j.AddDays(1)) {
+                        $q = if ($j -eq $r.Quand.Date) { $r.Quand } else { $j }
+                        if ($q -ge $Debut -and $q -lt $Fin) { [pscustomobject]@{ RV = $r; Prochain = $q } }
+                    }
+                    continue
                 }
+                if ($r.Quand -ge $Debut -and $r.Quand -lt $Fin) { [pscustomobject]@{ RV = $r; Prochain = $r.Quand } }
                 continue
             }
-            if ($r.Quand -ge $Debut -and $r.Quand -lt $Fin) { [pscustomobject]@{ RV = $r; Prochain = $r.Quand } }
-            continue
-        }
-        $from = $Debut
-        for ($i = 0; $i -lt 400; $i++) {
-            $q = Get-NextOccurrence $r.Repetition $r.Quand $from
-            if ($q -ge $Fin -or $q -lt $from) { break }
-            [pscustomobject]@{ RV = $r; Prochain = $q }
-            $from = $q.AddMinutes(1)
-        }
+            $from = $Debut
+            for ($i = 0; $i -lt 400; $i++) {
+                $q = Get-NextOccurrence $r.Repetition $r.Quand $from
+                if ($q -ge $Fin -or $q -lt $from) { break }
+                [pscustomobject]@{ RV = $r; Prochain = $q }
+                $from = $q.AddMinutes(1)
+            }
+        } catch { Write-LogRVErreur $r $_ }
     }) | Sort-Object Prochain
 }
 
-# Rendez-vous à venir, avec la prochaine fois (« Prochain ») pour ceux qui reviennent
+# Rendez-vous à venir, avec la prochaine fois (« Prochain ») pour ceux qui reviennent. Une chose à faire qui revient
+# montre sa prochaine fois pas encore faite.
 function Get-Upcoming {
     $now = Get-Date
     @(foreach ($r in $script:Agenda) {
-        $depuis = if ($r.Journee) { $now.Date } else { $now }   # un anniversaire reste « à venir » toute sa journée
-        $next = Get-NextOccurrence $r.Repetition $r.Quand $depuis
-        if ($next -lt $depuis -and (Test-PlusieursJours $r) -and $r.Fin -ge $depuis) { $next = $depuis.Date }   # commencé, pas encore fini
-        if ($next -ge $depuis -and -not $r.Fait) { [pscustomobject]@{ RV = $r; Prochain = $next } }
+        try {
+            $depuis = if ($r.Journee) { $now.Date } else { $now }   # un anniversaire reste « à venir » toute sa journée
+            $next = Get-NextOccurrence $r.Repetition $r.Quand $depuis
+            if ($next -lt $depuis -and (Test-PlusieursJours $r) -and $r.Fin -ge $depuis) { $next = $depuis.Date }   # commencé, pas encore fini
+            for ($i = 0; $r.Repetition -and $i -lt 60 -and $next -ge $depuis -and (Test-FaitRV $r $next); $i++) { $next = Get-NextOccurrence $r.Repetition $r.Quand $next.Date.AddDays(1) }
+            if ($next -ge $depuis -and -not (Test-FaitRV $r $next)) { [pscustomobject]@{ RV = $r; Prochain = $next } }
+        } catch { Write-LogRVErreur $r $_ }
     }) | Sort-Object Prochain
+}
+
+# ---------------------------------------------------------------------------
+# « C'est fait » : pour un rendez-vous unique, Fait ; pour une chose qui revient, chaque fois à part (FaitPour)
+# ---------------------------------------------------------------------------
+function Get-CleFait([datetime]$Quand) { $Quand.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture) }
+
+function Test-FaitRV($r, $Quand) {
+    if (-not $r.Repetition) { return [bool]$r.Fait }
+    if ($null -eq $Quand) { return $false }
+    @($r.FaitPour) -contains (Get-CleFait ([datetime]$Quand))
+}
+
+# Les fois d'un rendez-vous qui revient, de $Jours jours avant $Jusqu jusqu'à $Jusqu compris (0 : assez loin pour
+# trouver la dernière fois, selon son rythme)
+function Get-FoisAvant($r, [datetime]$Jusqu, [int]$Jours) {
+    if (-not $r.Repetition) { return @(if ($r.Quand -le $Jusqu) { $r.Quand }) }
+    if ($Jours -le 0) {
+        $n = if ($r.Repetition.Intervalle -and [int]$r.Repetition.Intervalle -gt 1) { [int]$r.Repetition.Intervalle } else { 1 }
+        $Jours = switch ([string]$r.Repetition.Type) { 'jour' { $n + 1 } 'semaine' { 7 * $n + 7 } 'mois' { 31 * $n + 31 } default { 366 * $n + 366 } }
+    }
+    $from = $Jusqu.Date.AddDays(-$Jours)
+    @(for ($i = 0; $i -lt 400; $i++) {
+        $q = Get-NextOccurrence $r.Repetition $r.Quand $from
+        if ($q -gt $Jusqu -or $q -lt $from) { break }
+        $q
+        $from = $q.AddMinutes(1)
+    })
+}
+
+# « C'est fait » dit sans date : la fois en cours (celle d'aujourd'hui) ou la dernière en retard, jamais une fois à
+# venir. Rend la date de cette fois, ou rien si la chose n'a pas encore commencé.
+function Get-FoisAFaire($r, [datetime]$Maintenant = (Get-Date)) {
+    $fois = @(Get-FoisAvant $r $Maintenant.Date.AddDays(1).AddMinutes(-1) 60)
+    if (-not $fois.Count) { return $null }
+    $reste = @($fois | Where-Object { -not (Test-FaitRV $r $_) })
+    if ($reste.Count) { $reste[-1] } else { $fois[-1] }
+}
+
+# Coche ou décoche une fois (ou le rendez-vous unique). Les fois cochées de plus de 90 jours sont oubliées.
+function Set-FaitRV([string]$Id, $Quand, [bool]$Valeur) {
+    $r = Get-RendezVous $Id
+    if (-not $r) { return }
+    if (-not $r.Repetition) { Set-RendezVousDetail $Id 'Fait' $Valeur; return }
+    $cle = Get-CleFait ([datetime]$Quand)
+    $limite = Get-CleFait ((Get-Date).Date.AddDays(-90))
+    $liste = @(@($r.FaitPour) | Where-Object { $_ -ne $cle -and $_ -ge $limite })
+    if ($Valeur) { $liste += $cle }
+    Set-RendezVousDetail $Id 'FaitPour' $liste
 }
 
 Import-Agenda

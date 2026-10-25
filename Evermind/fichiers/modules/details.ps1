@@ -341,7 +341,8 @@ function New-ListeAPreparer($RV) {
             $rv = $script:FicheRV
             $liste = @($rv.APreparer | ForEach-Object { [pscustomobject]@{ Texte = $_.Texte; Fait = [bool]$_.Fait } })
             $liste[[int]$s.Tag].Fait = -not $liste[[int]$s.Tag].Fait
-            Save-Annulation; Set-RendezVousDetail $rv.Id 'APreparer' $liste
+            try { Save-Annulation; Set-RendezVousDetail $rv.Id 'APreparer' $liste }
+            catch { Write-Log "Liste à préparer non enregistrée : $_"; Show-FormMessage (Get-TexteNonEnregistre) $Colors.bad }
             Show-Fiche $rv $script:FicheQuand
             Update-Agenda
         })
@@ -401,7 +402,10 @@ function New-SuggestionFichiers($RV, [string[]]$Trouves) {
     foreach ($chemin in $Trouves) {
         $dp = New-Object System.Windows.Controls.DockPanel; $dp.Margin = '0,0,0,4'
         $b = New-Button 'Relier' 'BtnPrimary'; $b.Tag = $chemin; $b.Margin = '12,0,0,0'; $b.VerticalAlignment = 'Center'
-        $b.Add_Click({ param($s) $rv = $script:FicheRV; Save-Annulation; Set-RendezVousDetail $rv.Id 'Fichiers' (@($rv.Fichiers) + [string]$s.Tag); Write-Log "Dossier relié : $($s.Tag)"; Show-Fiche $rv $script:FicheQuand })
+        $b.Add_Click({ param($s) $rv = $script:FicheRV
+            try { Save-Annulation; Set-RendezVousDetail $rv.Id 'Fichiers' (@($rv.Fichiers) + [string]$s.Tag); Write-Log "Dossier relié : $($s.Tag)" }
+            catch { Write-Log "Dossier non relié : $_"; Show-FormMessage (Get-TexteNonEnregistre) $Colors.bad }
+            Show-Fiche $rv $script:FicheQuand })
         [System.Windows.Controls.DockPanel]::SetDock($b, 'Right'); [void]$dp.Children.Add($b)
         $t = New-Object System.Windows.Controls.TextBlock
         $t.Text = "J'ai trouvé $(Get-NomFichier $chemin), dans $(Split-Path $chemin -Parent). Le relier à ce rendez-vous ?"
@@ -426,7 +430,8 @@ function Show-Fiche($RV, [datetime]$Quand) {
     $ui.FicheRond.Child = New-Icone $type 36
     try { $ui.FicheLueur.Color = (Get-Couleur $t.Couleur) } catch {}
     $valide = $type -ne 'rappel' -and (Test-Valide $RV $Quand)
-    $ui.FicheSorte.Text = $t.Nom.ToUpper() + $(if ($RV.Important) { '   ★ IMPORTANT' } else { '' }) + $(if ($RV.Fait) { '   ✓ FAIT' } elseif ($valide) { '   ✓ VALIDÉ' } else { '' })
+    $fait = Test-FaitRV $RV $Quand   # (une chose qui revient : cette fois-ci)
+    $ui.FicheSorte.Text = $t.Nom.ToUpper() + $(if ($RV.Important) { '   ★ IMPORTANT' } else { '' }) + $(if ($fait) { '   ✓ FAIT' } elseif ($valide) { '   ✓ VALIDÉ' } else { '' })
     $ui.FicheSorte.Foreground = Get-Brush $(if ($RV.Important) { '#FFD84D' } else { $t.Couleur })
     $ui.FicheTitre.Text = Get-TitreAffiche $RV.Titre
     $rep = Format-Repetition $RV.Repetition
@@ -471,7 +476,7 @@ function Show-Fiche($RV, [datetime]$Quand) {
         [void]$c.Add((New-FicheSection '☑' "À préparer ($nb sur $(@($RV.APreparer).Count))" (New-ListeAPreparer $RV)))
     }
     if ($RV.Notes) { [void]$c.Add((New-FicheSection '📝' 'Notes' $RV.Notes)) }
-    if (-not $RV.Journee -and -not $RV.Fait) {
+    if (-not $RV.Journee -and -not $fait) {
         $fin = if ($RV.Fin) { $Quand + ($RV.Fin - $RV.Quand) } else { $null }
         $conf = @(Get-Conflits $Quand $fin $RV.Id)
         if ($conf.Count) {
@@ -488,7 +493,7 @@ function Show-Fiche($RV, [datetime]$Quand) {
 
     # Boutons : « C'est fait » pour les choses à faire
     $ui.BtnFicheFait.Visibility = if ($type -eq 'rappel') { 'Visible' } else { 'Collapsed' }
-    $ui.BtnFicheFait.Content = if ($RV.Fait) { 'Pas encore fait' } else { '✓  C''est fait' }
+    $ui.BtnFicheFait.Content = if ($fait) { 'Pas encore fait' } else { '✓  C''est fait' }
     $ui.Fiche.Visibility = 'Visible'
 }
 
@@ -501,9 +506,8 @@ function Initialize-Fiche {
     $ui.BtnFicheDupliquer.Add_Click({ $rv = $script:FicheRV; Close-Fiche; Open-Formulaire -RV $rv -Copie })
     $ui.BtnFicheFait.Add_Click({
         $rv = $script:FicheRV
-        Save-Annulation; Set-RendezVousDetail $rv.Id 'Fait' (-not $rv.Fait)
-        Show-Fiche $rv $script:FicheQuand
-        Update-Agenda
+        Switch-FaitRV $rv.Id $script:FicheQuand
+        Show-Fiche (Get-RendezVous $rv.Id) $script:FicheQuand
     })
     $ui.BtnFicheSupprimer.Add_Click({ Confirm-Suppression $script:FicheRV.Id })
 }

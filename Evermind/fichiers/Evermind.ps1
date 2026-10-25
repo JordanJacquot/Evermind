@@ -72,7 +72,9 @@ Add-Type -TypeDefinition ([IO.File]::ReadAllText((Join-Path $ModulesDir 'natif.c
 $AppId = 'JordanJacquot.Evermind'
 try { [EMNative]::SetAppId($AppId) } catch {}
 
-foreach ($emModule in 'donnees', 'suite', 'fichiers', 'themes', 'comprendre', 'systeme', 'interface', 'logo', 'agenda', 'details', 'alerte', 'voix', 'maj', 'eveil', 'cerveau', 'evenements') { . (Join-Path $ModulesDir "$emModule.ps1") }
+foreach ($emModule in 'donnees', 'suite', 'fichiers', 'themes', 'comprendre') { . (Join-Path $ModulesDir "$emModule.ps1") }
+foreach ($emRV in @($script:Agenda)) { Update-FaitAncien $emRV }   # (l'ancien « c'est fait » des choses qui reviennent : il fallait comprendre.ps1)
+foreach ($emModule in 'systeme', 'interface', 'logo', 'agenda', 'details', 'alerte', 'voix', 'maj', 'eveil', 'cerveau', 'evenements') { . (Join-Path $ModulesDir "$emModule.ps1") }
 
 # Retire la marque « téléchargé depuis Internet » des fichiers d'Evermind, pour que Windows n'affiche plus
 # d'avertissement aux lancements suivants. Pas pour une copie installée par Mindset : elle n'a pas cette marque,

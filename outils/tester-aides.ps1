@@ -2,7 +2,8 @@
 #   1. un programme d'aide (Whisper, la voix, l'assistant) s'arrête avec Evermind, même arrêté de force (job de Windows) ;
 #   2. micro débranché pendant l'écoute : l'écoute s'arrête toute seule et le dit (horloge réelle, faux micro) ;
 #   3. le son d'une phrase dictée n'est jamais gardé (« ta voix n'est jamais gardée ») ;
-#   4. Whisper est arrêté en premier à la fermeture.
+#   4. Whisper est arrêté en premier à la fermeture ;
+#   5. l'écoute de « OK Evermind » arrêtée rend son modèle Vosk (sinon chaque reprise en charge un de plus).
 # Les programmes lancés ici sont de petits programmes de test (powershell.exe et ping.exe sur cette machine), suivis par
 # leur numéro (PID) : rien n'est jamais arrêté par son nom.
 #
@@ -199,5 +200,29 @@ $texteEveil = [IO.File]::ReadAllText((Join-Path $modules 'eveil.ps1'), [Text.Enc
 Test-Cas 'réglage « OK Evermind » : texte vrai' ($texteEveil -match 'ta voix n''''est jamais gardée')
 
 $env:TEMP = $tempAvant
+
+# ---------------------------------------------------------------------------
+# 5. Écoute arrêtée : le modèle Vosk est rendu (dans un powershell.exe à part : Vosk n'est pas installé ici, l'appel
+#    à vosk_model_free se voit à l'erreur « libvosk.dll introuvable »)
+# ---------------------------------------------------------------------------
+$sortie5 = Join-Path $test 'vosk.txt'
+$essai5 = Join-Path $test 'vosk.ps1'
+[IO.File]::WriteAllText($essai5, @"
+try {
+    Add-Type -TypeDefinition ([IO.File]::ReadAllText('$natif', [Text.Encoding]::UTF8))
+    `$e = New-Object EMEveil
+    `$champ = [EMEveil].GetField('model', [Reflection.BindingFlags]'NonPublic, Instance')
+    `$champ.SetValue(`$e, [IntPtr]1)   # (un faux modèle : jamais donné à un vrai Vosk)
+    `$r = try { `$e.Stop(); if ([IntPtr]`$champ.GetValue(`$e) -eq [IntPtr]::Zero) { 'rendu' } else { 'garde' } } catch { if ("`$_" -match 'vosk') { 'rendu' } else { "erreur `$_" } }
+    [IO.File]::WriteAllText('$sortie5', `$r)
+} catch { [IO.File]::WriteAllText('$sortie5', "erreur `$_") }
+"@, (New-Object Text.UTF8Encoding $true))
+$p5 = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$essai5`"" -WindowStyle Hidden -PassThru
+if (-not $p5.WaitForExit(60000)) { $p5.Kill() }
+$lu5 = if (Test-Path -LiteralPath $sortie5) { [IO.File]::ReadAllText($sortie5) } else { 'pas de réponse' }
+Test-Cas 'écoute arrêtée : le modèle Vosk est rendu' ($lu5 -eq 'rendu') "($lu5)"
+$eveilTexte = [IO.File]::ReadAllText((Join-Path $modules 'eveil.ps1'), [Text.Encoding]::UTF8)
+Test-Cas 'micro indisponible au départ : le modèle est rendu aussi' ($eveilTexte -match 'micro indisponible \(code \$err\)"; try \{ \$e\.Stop\(\) \}')
+
 Remove-Item $test -Recurse -Force -ErrorAction SilentlyContinue
 exit $(if ($ok) { 0 } else { 1 })

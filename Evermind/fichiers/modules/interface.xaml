@@ -457,6 +457,13 @@
                   </StackPanel>
                 </DockPanel>
               </Border>
+              <!-- Agenda en lecture seule (fichier pris par un autre programme), ou rendez-vous abîmés gardés de côté -->
+              <Border x:Name="AgendaBandeau" Visibility="Collapsed" Margin="0,12,0,0" Background="#1AFFB547" BorderBrush="#66FFB547" BorderThickness="1" CornerRadius="14" Padding="16,12">
+                <DockPanel>
+                  <TextBlock DockPanel.Dock="Left" Text="⚠" FontSize="20" Foreground="#FFB547" VerticalAlignment="Center" Margin="0,0,14,0"/>
+                  <TextBlock x:Name="AgendaBandeauTexte" FontSize="14" Foreground="#EEEBF7" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                </DockPanel>
+              </Border>
             </StackPanel>
           </Border>
       <Border Style="{StaticResource Card}" Padding="20,16">

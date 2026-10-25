@@ -34,7 +34,7 @@ function Start-Eveil {
     if (-not $e.Charger($VoskDir, $VoskModele)) { Write-Log "Écoute « OK Evermind » impossible : $($e.Erreur)"; return }
     if (-not $test) {
         $err = $e.Start()
-        if ($err -ne 0) { Write-Log "Écoute « OK Evermind » : micro indisponible (code $err)"; return }
+        if ($err -ne 0) { Write-Log "Écoute « OK Evermind » : micro indisponible (code $err)"; try { $e.Stop() } catch {}; return }   # (le modèle chargé est rendu)
     }
     $script:Eveil = $e
     if (-not $script:EveilTimer) {

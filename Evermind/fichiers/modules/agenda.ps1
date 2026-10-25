@@ -496,7 +496,7 @@ function Confirm-Suppression([string]$Id) {
     Show-Confirmation "Supprimer « $(Get-TitreAffiche $rv.Titre) » ?" $texte 'Supprimer' {
         $r = Get-RendezVous $script:SuppressionId
         if (-not $r) { return }
-        try { Save-Annulation; Remove-RendezVous $r.Id } catch { Write-Log "Suppression impossible : $_"; return }
+        try { Save-Annulation; Remove-RendezVous $r.Id } catch { Write-Log "Suppression impossible : $_"; Show-FormMessage (Get-TexteNonEnregistre) $Colors.bad; return }
         if ($script:FicheRV -and $script:FicheRV.Id -eq $r.Id) { Close-Fiche }
         Show-FormMessage "Supprimé : $(Get-TitreAffiche $r.Titre). (Dis « annule » pour revenir en arrière.)" $Colors.ok
         Update-Agenda
@@ -520,6 +520,7 @@ function New-RendezVousRow($Item) {
     $type = Get-TypeRV $r
     $t = $Types[$type]
     $today = $quand.Date -eq (Get-Date).Date
+    $fait = Test-FaitRV $r $quand
 
     $row = New-Object System.Windows.Controls.Border
     $row.CornerRadius = 18; $row.Padding = '12,12'; $row.Margin = '0,0,0,10'; $row.BorderThickness = 1
@@ -548,9 +549,10 @@ function New-RendezVousRow($Item) {
         $rond.Background = Get-Teinte $t.Couleur 0x30; $rond.BorderBrush = Get-Teinte $t.Couleur 0xC0; $rond.BorderThickness = 2
         $rond.Child = New-Icone $type 26
         if ($type -eq 'rappel') {
-            $rond.Cursor = 'Hand'; $rond.Tag = $r.Id; $rond.ToolTip = if ($r.Fait) { 'Pas encore fait' } else { 'C''est fait' }
-            if ($r.Fait) { $rond.Child.Text = '✓'; $rond.Child.FontFamily = 'Segoe UI Symbol'; $rond.Background = Get-Teinte '#3DDC97' 0x40; $rond.BorderBrush = Get-Brush '#3DDC97'; $rond.Child.Foreground = Get-Brush '#3DDC97' }
-            $rond.Add_MouseLeftButtonUp({ param($s, $e) $e.Handled = $true; $rv = Get-RendezVous ([string]$s.Tag); Save-Annulation; Set-RendezVousDetail $rv.Id 'Fait' (-not $rv.Fait); Update-Agenda })
+            # (une chose qui revient : seulement cette fois-ci)
+            $rond.Cursor = 'Hand'; $rond.Tag = @{ Id = $r.Id; Quand = $quand }; $rond.ToolTip = if ($fait) { 'Pas encore fait' } else { 'C''est fait' }
+            if ($fait) { $rond.Child.Text = '✓'; $rond.Child.FontFamily = 'Segoe UI Symbol'; $rond.Background = Get-Teinte '#3DDC97' 0x40; $rond.BorderBrush = Get-Brush '#3DDC97'; $rond.Child.Foreground = Get-Brush '#3DDC97' }
+            $rond.Add_MouseLeftButtonUp({ param($s, $e) $e.Handled = $true; Switch-FaitRV $s.Tag.Id $s.Tag.Quand })
         }
         [void]$g.Children.Add($rond)
     } else {
@@ -588,7 +590,7 @@ function New-RendezVousRow($Item) {
     [void]$txt.Children.Add($sorte)
     $titreT = New-Texte (Get-TitreAffiche $r.Titre) 16 '#FFFFFF' 'SemiBold'
     if ($r.Important) { $titreT.Inlines.Clear(); $titreT.Inlines.Add((New-Run '★ ' '#FFD84D' 'Bold')); $titreT.Inlines.Add((New-Object System.Windows.Documents.Run (Get-TitreAffiche $r.Titre))) }
-    if ($r.Fait) { $titreT.TextDecorations = [System.Windows.TextDecorations]::Strikethrough; $titreT.Foreground = Get-Brush $Colors.dim }
+    if ($fait) { $titreT.TextDecorations = [System.Windows.TextDecorations]::Strikethrough; $titreT.Foreground = Get-Brush $Colors.dim }
     [void]$txt.Children.Add($titreT)
     $q = New-Texte (Get-Majuscule (Format-QuandRV $r $quand)) 13 '#C9C3DD'; $q.Margin = '0,2,0,0'
     [void]$txt.Children.Add($q)
@@ -629,6 +631,51 @@ function New-RendezVousRow($Item) {
     $row
 }
 
+# « C'est fait » / « Pas encore fait » (croix de la liste, bouton de la fiche) : pour une chose qui revient, seulement la
+# fois montrée. Pas enregistré (agenda en lecture seule...) : rien n'a changé, et c'est dit.
+function Switch-FaitRV([string]$Id, $Quand) {
+    $rv = Get-RendezVous $Id
+    if (-not $rv) { return }
+    try { Save-Annulation; Set-FaitRV $rv.Id $Quand (-not (Test-FaitRV $rv $Quand)) }
+    catch { Write-Log "« C'est fait » non enregistré : $_"; Show-FormMessage (Get-TexteNonEnregistre) $Colors.bad }
+    Update-Agenda
+}
+
+function Get-TexteNonEnregistre {
+    if ($script:AgendaPris) { 'L''agenda est en lecture seule pour l''instant : rien n''a changé. Réessaie dans quelques secondes.' }
+    else { 'Je n''ai pas réussi à l''enregistrer : rien n''a changé.' }
+}
+
+# Le bandeau de l'agenda : en lecture seule (un autre programme garde le fichier ouvert : nouvel essai toutes les
+# 10 secondes), ou des rendez-vous abîmés gardés de côté
+function Update-AgendaBandeau {
+    if (-not $ui.AgendaBandeau) { return }
+    $n = @($script:AgendaIllisibles | Where-Object { $_ }).Count
+    if ($script:AgendaPris) {
+        $ui.AgendaBandeauTexte.Text = 'Agenda en lecture seule : un autre programme garde ton fichier de rendez-vous ouvert. Nouvel essai dans 10 s. Tes changements ne peuvent pas être enregistrés d''ici là.'
+        $ui.AgendaBandeau.Visibility = 'Visible'
+        Start-AgendaReessai
+    } elseif ($n) {
+        $ui.AgendaBandeauTexte.Text = $(if ($n -eq 1) { '1 rendez-vous de ton agenda est abîmé : je ne peux pas l''afficher, mais je le garde de côté dans le fichier, rien n''est perdu.' } else { "$n rendez-vous de ton agenda sont abîmés : je ne peux pas les afficher, mais je les garde de côté dans le fichier, rien n'est perdu." })
+        $ui.AgendaBandeau.Visibility = 'Visible'
+    } else { $ui.AgendaBandeau.Visibility = 'Collapsed' }
+}
+
+function Start-AgendaReessai {
+    if (-not $script:AgendaReessai) {
+        $script:AgendaReessai = New-Object System.Windows.Threading.DispatcherTimer
+        $script:AgendaReessai.Interval = [TimeSpan]::FromSeconds(10)
+        $script:AgendaReessai.Add_Tick({
+            try {
+                Import-Agenda
+                if (-not $script:AgendaPris) { $script:AgendaReessai.Stop(); Write-Log 'Agenda relu : il peut de nouveau être enregistré' }
+                Update-Agenda
+            } catch { Write-Log "Agenda : nouvel essai impossible ($_)" }
+        })
+    }
+    if (-not $script:AgendaReessai.IsEnabled) { $script:AgendaReessai.Start() }
+}
+
 function Update-Panneau {
     $jour = $script:JourChoisi
     if ($jour) {
@@ -646,6 +693,9 @@ function Update-Panneau {
         $ui.ListeVideTitre.Text = 'Rien de prévu pour l''instant.'
         $ui.ListeVideTexte.Text = 'Dis-moi ton premier rendez-vous,' + "`n" + 'ou appuie sur « Nouveau rendez-vous ».'
     }
+    # (jamais « rien de prévu » quand l'agenda n'a pas pu être lu)
+    if ($script:AgendaPris) { $ui.ListeVideTitre.Text = 'Agenda pas encore lu.'; $ui.ListeVideTexte.Text = 'Un autre programme garde ton fichier de rendez-vous ouvert.' + "`n" + 'Je réessaie toutes les 10 secondes.' }
+    Update-AgendaBandeau
     $ui.ListeAVenir.Children.Clear()
     foreach ($it in $items) { [void]$ui.ListeAVenir.Children.Add((New-RendezVousRow $it)) }
     $n = $items.Count
@@ -659,7 +709,7 @@ function Update-Aujourdhui {
     $today = (Get-Date).Date
     $jour = @(Get-AgendaEntre $today $today.AddDays(1))
     $af = @($jour | Where-Object { (Get-TypeRV $_.RV) -eq 'rappel' })
-    $faits = @($af | Where-Object { $_.RV.Fait }).Count
+    $faits = @($af | Where-Object { Test-FaitRV $_.RV $_.Prochain }).Count
     $total = $af.Count
     if ($total) {
         $ui.AFaireZone.Visibility = 'Visible'

@@ -241,11 +241,32 @@ function Save-CaptureAlerte($al) {
 # ---------------------------------------------------------------------------
 # Les rappels : « la veille à 20 h », « le matin même à 8 h », « 1 h avant »...
 # ---------------------------------------------------------------------------
+# Le moment d'un rappel, en heure universelle (UTC) : « 1 h avant » fait vraiment une heure, même la nuit du
+# changement d'heure. Heures d'horloge (celles des rendez-vous) vers UTC : une heure qui n'existe pas (2 h 30 au
+# passage à l'heure d'été) est décalée à la suivante qui existe (3 h) ; une heure qui existe deux fois (2 h 30 au
+# passage à l'heure d'hiver) est la première des deux. $script:FuseauRappels : le fuseau (celui du PC ; changé par les tests).
+function Get-FuseauRappels { if ($script:FuseauRappels) { $script:FuseauRappels } else { [TimeZoneInfo]::Local } }
+
+function ConvertTo-UtcRappel([datetime]$Quand) {
+    if ($Quand.Kind -eq 'Utc') { return $Quand }
+    if ($Quand.Kind -eq 'Local' -and -not $script:FuseauRappels) { return $Quand.ToUniversalTime() }   # (Get-Date sait quelle 2 h 30 c'est)
+    $tz = Get-FuseauRappels
+    $h = [datetime]::SpecifyKind($Quand, 'Unspecified')
+    for ($i = 0; $i -lt 240 -and $tz.IsInvalidTime($h); $i++) { $h = $h.AddMinutes(1) }
+    if ($tz.IsAmbiguousTime($h)) {
+        $decalage = @($tz.GetAmbiguousTimeOffsets($h) | Sort-Object -Descending)[0]   # (le plus grand décalage : la première fois)
+        return [datetime]::SpecifyKind($h - $decalage, 'Utc')
+    }
+    [TimeZoneInfo]::ConvertTimeToUtc($h, $tz)
+}
+
+function ConvertFrom-UtcRappel([datetime]$Utc) { [datetime]::SpecifyKind([TimeZoneInfo]::ConvertTimeFromUtc($Utc, (Get-FuseauRappels)), 'Unspecified') }
+
 function Get-MomentRappel([string]$Code, [datetime]$Quand) {
     switch -Regex ($Code) {
-        '^veille$' { return $Quand.Date.AddDays(-1).AddHours(20) }
-        '^matin$'  { return $Quand.Date.AddHours(8) }
-        '^m(\d+)$' { return $Quand.AddMinutes(-[int]$Matches[1]) }
+        '^veille$' { return (ConvertTo-UtcRappel $Quand.Date.AddDays(-1).AddHours(20)) }
+        '^matin$'  { return (ConvertTo-UtcRappel $Quand.Date.AddHours(8)) }
+        '^m(\d+)$' { return (ConvertTo-UtcRappel $Quand).AddMinutes(-[int]$Matches[1]) }
     }
     $null
 }
@@ -299,40 +320,57 @@ function Add-ReportRappel($RV, $Quand, [datetime]$Revient) {
 # Un rappel donné en retard a-t-il encore un sens ? Oui si le rendez-vous est encore à venir (ou commence à peine),
 # ou si c'est une chose à faire pas encore cochée.
 function Test-RappelUtile($rv, [datetime]$Quand, [datetime]$Maintenant) {
-    if ($rv.Fait) { return $false }
+    if (Test-FaitRV $rv $Quand) { return $false }
     if ((Get-TypeRV $rv) -eq 'rappel') { return $true }
     if ($rv.Journee) { return $Quand.Date -ge $Maintenant.Date }
-    $Quand -ge $Maintenant.AddMinutes(-2)
+    (ConvertTo-UtcRappel $Quand) -ge (ConvertTo-UtcRappel $Maintenant).AddMinutes(-2)
+}
+
+# Jusqu'où regarder devant : 8 jours, ou plus si un rappel est demandé plus tôt (« 2 semaines avant » : 15 jours)
+function Get-JoursRappels {
+    $max = 0
+    foreach ($r in $script:Agenda) {
+        foreach ($code in @(Get-RappelsRV $r)) { if ([string]$code -match '^m(\d+)$' -and [int]$Matches[1] -gt $max) { $max = [int]$Matches[1] } }
+    }
+    [math]::Max(8, [math]::Ceiling($max / 1440) + 1)
 }
 
 # Les rappels à donner maintenant, chacun une seule fois. Ceux tombés pendant que le PC dormait ou était éteint
 # (depuis le dernier passage, 2 jours au plus) sont rattrapés s'ils ont encore un sens. Plusieurs rappels du même
 # rendez-vous en même temps : un seul. Les rappels sont dits à voix haute, en une seule fois.
+# Les moments sont comparés en heure universelle ($maintenantUtc) ; le reste (jours, textes) en heure de l'horloge.
+# Un rendez-vous qui fait une erreur est sauté (noté une fois au journal), sans couper les rappels des autres.
 function Invoke-RappelsDus([datetime]$Maintenant = (Get-Date)) {
+    $maintenantUtc = ConvertTo-UtcRappel $Maintenant
+    $Maintenant = ConvertFrom-UtcRappel $maintenantUtc
     $bas = $Maintenant.AddMinutes(-2)
     if ($script:DernierPassage -and $script:DernierPassage -lt $bas) { $bas = $script:DernierPassage }
     if ($bas -lt $Maintenant.AddDays(-2)) { $bas = $Maintenant.AddDays(-2) }
+    $basUtc = ConvertTo-UtcRappel $bas
     $change = $false
     $parRV = [ordered]@{}
-    foreach ($it in @(Get-AgendaEntre $bas.Date $Maintenant.AddDays(8))) {
+    foreach ($it in @(Get-AgendaEntre $bas.Date $Maintenant.AddDays((Get-JoursRappels)))) {
         $rv = $it.RV
-        if ($rv.Fait) { continue }
-        # Sur plusieurs jours : rappels pour le premier jour seulement
-        if (-not $rv.Repetition -and (Test-PlusieursJours $rv) -and $it.Prochain.Date -ne $rv.Quand.Date) { continue }
-        $utile = Test-RappelUtile $rv $it.Prochain $Maintenant
-        $dus = @(foreach ($code in @(Get-RappelsRV $rv)) {
-            $m = Get-MomentRappel $code $it.Prochain
-            if ($null -eq $m -or $m -gt $Maintenant -or $m -lt $bas) { continue }
-            if ($m -lt $Maintenant.AddMinutes(-2) -and -not $utile) { continue }   # (en retard, et plus de sens)
-            if (-not $rv.Journee -and $m -gt $it.Prochain) { continue }   # (« le matin même » d'un rendez-vous à 7 h)
-            $cle = "$($rv.Id)|$($it.Prochain.ToString('s'))|$code"
-            if ($script:RappelsFaits.ContainsKey($cle)) { continue }
-            $script:RappelsFaits[$cle] = $true; $change = $true
-            [pscustomobject]@{ Code = $code; Moment = $m }
-        })
-        if (-not $dus.Count) { continue }
-        # (une chose à faire qui revient, manquée plusieurs fois : seulement la dernière fois)
-        $parRV[[string]$rv.Id] = [pscustomobject]@{ RV = $rv; Quand = $it.Prochain; Code = ($dus | Sort-Object Moment -Descending | Select-Object -First 1).Code }
+        try {
+            if (Test-FaitRV $rv $it.Prochain) { continue }
+            # Sur plusieurs jours : rappels pour le premier jour seulement
+            if (-not $rv.Repetition -and (Test-PlusieursJours $rv) -and $it.Prochain.Date -ne $rv.Quand.Date) { continue }
+            $utile = Test-RappelUtile $rv $it.Prochain $Maintenant
+            $prochainUtc = ConvertTo-UtcRappel $it.Prochain
+            $dus = @(foreach ($code in @(Get-RappelsRV $rv)) {
+                $m = Get-MomentRappel $code $it.Prochain
+                if ($null -eq $m -or $m -gt $maintenantUtc -or $m -lt $basUtc) { continue }
+                if ($m -lt $maintenantUtc.AddMinutes(-2) -and -not $utile) { continue }   # (en retard, et plus de sens)
+                if (-not $rv.Journee -and $m -gt $prochainUtc) { continue }   # (« le matin même » d'un rendez-vous à 7 h)
+                $cle = "$($rv.Id)|$($it.Prochain.ToString('s'))|$code"
+                if ($script:RappelsFaits.ContainsKey($cle)) { continue }
+                $script:RappelsFaits[$cle] = $true; $change = $true
+                [pscustomobject]@{ Code = $code; Moment = $m }
+            })
+            if (-not $dus.Count) { continue }
+            # (une chose à faire qui revient, manquée plusieurs fois : seulement la dernière fois)
+            $parRV[[string]$rv.Id] = [pscustomobject]@{ RV = $rv; Quand = $it.Prochain; Code = ($dus | Sort-Object Moment -Descending | Select-Object -First 1).Code }
+        } catch { Write-LogRVErreur $rv $_ }
     }
     $faits = @($parRV.Values)
     # Les « Dans 10 min » arrivés à leur heure
@@ -340,7 +378,7 @@ function Invoke-RappelsDus([datetime]$Maintenant = (Get-Date)) {
         if ($r.Revient -gt $Maintenant) { continue }
         $script:ReportsRappels.Remove($r); $change = $true
         $rv = Get-RendezVous $r.Id
-        if (-not $rv -or $rv.Fait -or $parRV.Contains([string]$r.Id)) { continue }
+        if (-not $rv -or (Test-FaitRV $rv $r.Quand) -or $parRV.Contains([string]$r.Id)) { continue }
         if ($r.Revient -lt $Maintenant.AddMinutes(-2) -and -not (Test-RappelUtile $rv $r.Quand $Maintenant)) { continue }
         $faits += [pscustomobject]@{ RV = $rv; Quand = $r.Quand; Code = 'report' }
     }
@@ -366,7 +404,7 @@ function Get-HeureAlerte($rv, [datetime]$Quand, [datetime]$Maintenant) {
 function Show-AlerteRappel($rv, [datetime]$Quand, [datetime]$Maintenant) {
     $nom = Get-TitreAffiche $rv.Titre
     # Déjà passé (une chose à faire manquée pendant que le PC dormait) : « Rappel manqué »
-    $passe = if ($rv.Journee) { $Quand.Date -lt $Maintenant.Date } else { $Quand -lt $Maintenant.AddMinutes(-2) }
+    $passe = if ($rv.Journee) { $Quand.Date -lt $Maintenant.Date } else { (ConvertTo-UtcRappel $Quand) -lt (ConvertTo-UtcRappel $Maintenant).AddMinutes(-2) }
     if ($passe) {
         $heure = Get-HeureAlerte $rv $Quand $Maintenant
         Write-Log "Rappel manqué : $nom ($heure)"

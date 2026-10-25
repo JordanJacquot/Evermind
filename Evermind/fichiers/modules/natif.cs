@@ -539,6 +539,9 @@ public class EMEveil
             waveInClose(h); h = IntPtr.Zero;
         }
         if (rec != IntPtr.Zero) { vosk_recognizer_free(rec); rec = IntPtr.Zero; }
+        // Le modèle aussi (environ 80 Mo) : sinon chaque arrêt et reprise de l'écoute (micro débranché puis rebranché,
+        // micro changé) en charge un de plus. Jamais pendant que la boucle d'écoute s'en sert encore.
+        if (model != IntPtr.Zero && (th == null || !th.IsAlive)) { vosk_model_free(model); model = IntPtr.Zero; }
     }
 
     static string PtrToString(IntPtr p)

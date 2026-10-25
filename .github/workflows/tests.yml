@@ -79,6 +79,11 @@ jobs:
       - name: "Sûreté des données"
         run: .\outils\tester-donnees.ps1
 
+      # Mise à jour d'une copie autonome : version du zip contrôlée (pas de retour en arrière), ancienne version remise
+      # si la copie des fichiers échoue (clé de test, zips locaux)
+      - name: "Mise à jour en un clic"
+        run: .\outils\tester-maj.ps1
+
       # Le réglage « Démarrage avec Windows » gardé tel quel quand Mindset gère Evermind (Mindset le lit)
       - name: "Démarrage avec Windows sous Mindset"
         run: .\outils\tester-demarrage.ps1
