@@ -291,7 +291,16 @@ $mat = Add-RendezVous 'Cachet du matin' $d4.AddHours(8) ([ordered]@{ Type = 'jou
 Set-FaitRV $mat.Id $d4.AddHours(8) $true; Set-FaitRV $mat.Id $d4.AddDays(1).AddHours(8) $true; $mat = Get-RendezVous $mat.Id
 $f4 = Get-FoisAFaire $mat $d4.AddDays(2).AddHours(14)
 Test-Cas 'c''est fait à 14 h : la prise de 8 h du jour' ($f4 -eq $d4.AddDays(2).AddHours(8)) "($f4)"
-Remove-RendezVous $med.Id; Remove-RendezVous $mat.Id
+# Décision de Jordan : la plus récente commencée et pas cochée, même si une plus ancienne ne l'est pas non plus
+$cac = Add-RendezVous 'Cachets du soir' $d4.AddHours(20) ([ordered]@{ Type = 'jour' }) 'rappel' $false @{}
+$f4 = Get-FoisAFaire $cac $d4.AddDays(2).AddHours(9)   # (avant-hier et hier soir pas cochés, à 9 h)
+Test-Cas 'c''est fait à 9 h : hier soir, pas avant-hier' ($f4 -eq $d4.AddDays(1).AddHours(20)) "($f4)"
+$f4 = Get-FoisAFaire $cac $d4.AddDays(2).AddHours(19).AddMinutes(40)
+Test-Cas 'c''est fait 20 min avant : la fois qui arrive' ($f4 -eq $d4.AddDays(2).AddHours(20)) "($f4)"
+$pb = Add-RendezVous 'Poubelles du mardi' $d4.AddHours(19) ([ordered]@{ Type = 'semaine'; Jour = [int]$d4.DayOfWeek }) 'rappel' $false @{}
+$f4 = Get-FoisAFaire $pb $d4.AddDays(8).AddHours(10)   # (le lendemain de la 2e fois, la 1re pas cochée non plus)
+Test-Cas 'poubelles dites le lendemain : la veille' ($f4 -eq $d4.AddDays(7).AddHours(19)) "($f4)"
+Remove-RendezVous $med.Id; Remove-RendezVous $mat.Id; Remove-RendezVous $cac.Id; Remove-RendezVous $pb.Id
 
 # ---------------------------------------------------------------------------
 # Audit du 25/10, constat 6 : l'ancien « c'est fait » migré est enregistré, et rien n'est recoché au lancement suivant

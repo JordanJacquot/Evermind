@@ -528,16 +528,15 @@ function Get-FoisAvant($r, [datetime]$Jusqu, [int]$Jours) {
 }
 
 # « C'est fait » dit sans date : seulement une fois déjà commencée (ou qui commence dans moins de 30 minutes), jamais
-# une fois à venir plus tard dans la journée. Parmi les fois en retard depuis la dernière cochée (sur la durée de son
-# rythme : 2 jours pour une chose quotidienne, 2 semaines pour une chose de chaque semaine...), la plus ancienne.
-# Le médicament de 21 h pas pris hier, « c'est fait » ce matin : c'est celui d'hier, et ce soir le rappel vient.
+# une fois à venir plus tard dans la journée : la plus récente pas encore cochée (sur la durée de son rythme : 2 jours
+# pour une chose quotidienne, 2 semaines pour une chose de chaque semaine...). Les cachets de 20 h, « c'est fait » à
+# 9 h : ceux d'hier soir (même si ceux d'avant-hier ne sont pas cochés), et ce soir le rappel vient.
 # Rend la date de cette fois, ou rien si la chose n'a pas encore commencé.
 function Get-FoisAFaire($r, [datetime]$Maintenant = (Get-Date)) {
     $fois = @(Get-FoisAvant $r $Maintenant.AddMinutes(30) 0)
     if (-not $fois.Count) { return $null }
-    $apres = @()
-    foreach ($q in $fois) { if (Test-FaitRV $r $q) { $apres = @() } else { $apres += $q } }   # (pas cochées, après la dernière cochée)
-    if ($apres.Count) { $apres[0] } else { $fois[-1] }
+    $reste = @($fois | Where-Object { -not (Test-FaitRV $r $_) })
+    if ($reste.Count) { $reste[-1] } else { $fois[-1] }
 }
 
 # Coche ou décoche une fois (ou le rendez-vous unique). Les fois cochées de plus de 90 jours sont oubliées.

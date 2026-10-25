@@ -76,6 +76,9 @@ function Invoke-Demande([string]$Texte) {
 # Aides pour les vérifications
 $auj = (Get-Date).Date
 function Get-RV([string]$Titre) { @($script:Agenda | Where-Object { $_.Titre -like $Titre }) }
+# « C'est fait » : Fait pour un rendez-vous unique ; pour une chose qui revient, une fois cochée (FaitPour), ou
+# « pas encore commencé » si sa première fois est à venir (rien à cocher)
+function Test-FaitCoche($r) { $r -and ($(if ($r.Repetition) { @($r.FaitPour).Count -or $script:Dit -match 'pas encore commencé' } else { [bool]$r.Fait })) }
 function Get-Prochain([int]$Jour) { $e = (($Jour - [int]$auj.DayOfWeek) + 7) % 7; if ($e -eq 0) { $e = 7 }; $auj.AddDays($e) }   # « mardi » : le prochain mardi
 function Get-Le([int]$Jour, [int]$Mois) { $d = [datetime]::new($auj.Year, $Mois, $Jour); if ($d -lt $auj) { $d = $d.AddYears(1) }; $d }
 function Test-Jour($r, [datetime]$Jour, $Heure) {
@@ -177,8 +180,8 @@ $cas = @(
     , @('modifier', @('Marque le dentiste comme important.'), { $r = Get-RV 'Dentiste'; $r[0].Important })
     , @('modifier', @('Décade le foot à 20 h.'), { $r = Get-RV 'Foot'; Test-Jour $r[0] $foot '20:00' })
     # --- Fait, annuler
-    , @('fait', @('J''ai payé le loyer.'), { $r = Get-RV 'Payer le loyer'; $r[0].Fait })
-    , @('fait', @('C''est bon, j''ai appelé maman.'), { $r = Get-RV 'Appeler maman'; $r[0].Fait })
+    , @('fait', @('J''ai payé le loyer.'), { Test-FaitCoche (Get-RV 'Payer le loyer')[0] })
+    , @('fait', @('C''est bon, j''ai appelé maman.'), { Test-FaitCoche (Get-RV 'Appeler maman')[0] })
     , @('annuler', @('Supprime le foot.', 'Annule.'), { (Get-RV 'Foot') })
     , @('annuler', @('Crée un tennis demain à 10 h.', 'Non, annule.'), { -not (Get-RV '*ennis*') })
     , @('annuler', @('Crée un tennis demain à 10 h.', 'Finalement, efface-le.'), { -not (Get-RV '*ennis*') })
