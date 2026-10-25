@@ -71,6 +71,10 @@ jobs:
       - name: "Rappels"
         run: .\outils\tester-rappels.ps1
 
+      # Couleurs des thèmes personnalisés : seules des couleurs « #RRGGBB » passent dans la fenêtre (packs de test)
+      - name: "Couleurs des thèmes"
+        run: .\outils\tester-themes.ps1
+
       - name: "Horaires de travail"
         run: .\outils\tester-horaires.ps1
 

@@ -27,6 +27,9 @@ $ok = ($LASTEXITCODE -eq 0) -and $ok
 # Dossiers reliés aux rendez-vous, ouverture à l'heure
 & (Join-Path $PSScriptRoot 'tester-fichiers.ps1')
 $ok = ($LASTEXITCODE -eq 0) -and $ok
+# Couleurs des thèmes personnalisés : seules des couleurs bien écrites passent dans la fenêtre
+& (Join-Path $PSScriptRoot 'tester-themes.ps1')
+$ok = ($LASTEXITCODE -eq 0) -and $ok
 # Rappels : la veille, le matin même, N minutes avant, une seule fois
 & (Join-Path $PSScriptRoot 'tester-rappels.ps1')
 $ok = ($LASTEXITCODE -eq 0) -and $ok

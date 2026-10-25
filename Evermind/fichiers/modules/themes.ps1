@@ -50,6 +50,34 @@ $AppThemes = [ordered]@{
 $PacksDir = Join-Path $DataDir 'packs'
 if ($EnTest -and $env:EVERMIND_PACKS) { $PacksDir = $env:EVERMIND_PACKS }
 
+# Les couleurs d'un pack (Colors), vérifiées : P, S, T « #RRGGBB », clés et valeurs de Map « RRGGBB » (avec ou sans
+# « # »), NH et NS des nombres. Rend $null si une seule est mal écrite.
+function Get-CouleursPack($Colors) {
+    $c = @{ Map = @{}; NH = $null; NS = 1.0 }
+    foreach ($k in 'P', 'S', 'T') {
+        $v = $Colors.$k
+        if ($v -isnot [string] -or $v -notmatch '^#[0-9A-Fa-f]{6}\z') { return $null }
+        $c[$k] = $v.ToUpperInvariant()
+    }
+    if ($null -ne $Colors.Map) {
+        if ($Colors.Map -isnot [pscustomobject]) { return $null }
+        foreach ($pr in $Colors.Map.PSObject.Properties) {
+            if ($pr.Name -notmatch '^#?[0-9A-Fa-f]{6}\z' -or $pr.Value -isnot [string] -or $pr.Value -notmatch '^#?[0-9A-Fa-f]{6}\z') { return $null }
+            $c.Map[$pr.Name.TrimStart('#').ToUpperInvariant()] = $pr.Value.TrimStart('#').ToUpperInvariant()
+        }
+    }
+    foreach ($k in 'NH', 'NS') {
+        if ($null -eq $Colors.$k) { continue }
+        $n = 0.0
+        if (-not [double]::TryParse([string]$Colors.$k, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$n)) { return $null }
+        if ($k -eq 'NH') { $c.NH = $n } elseif ($n) { $c.NS = $n }   # (NS à 0 : 1, comme avant)
+    }
+    $c
+}
+
+# Une lueur (LogoGlow, Glow des icônes) : « #RRGGBB » ou « #AARRGGBB », sinon aucune
+function Get-CouleurGlow($Valeur) { if ($Valeur -is [string] -and $Valeur -match '^#(?:[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})\z') { $Valeur } else { '' } }
+
 function Get-ThemePack([string]$Id) {
     $dir = Join-Path $PacksDir $Id
     $f = Join-Path $dir 'pack.json'
@@ -59,7 +87,7 @@ function Get-ThemePack([string]$Id) {
     $p = @{ Id = $Id; Dir = $dir; Name = [string]$j.Name; Desc = [string]$j.Desc; Base = [string]$j.Base; Hello = [string]$j.Hello; Font = $null; FontScope = 'titres' }
     if (-not $p.Name) { $p.Name = $Id }
     $p.Logo = & $fichier $j.Logo
-    $p.LogoFrames = [math]::Max(1, [int]$j.LogoFrames); $p.LogoDelay = [math]::Max(30, [int]$j.LogoDelay); $p.LogoGlow = [string]$j.LogoGlow
+    $p.LogoFrames = [math]::Max(1, [int]$j.LogoFrames); $p.LogoDelay = [math]::Max(30, [int]$j.LogoDelay); $p.LogoGlow = Get-CouleurGlow $j.LogoGlow
     $p.LogoBoucle = [bool]$j.LogoBoucle
     $p.Mascotte = $null
     if ($j.Mascotte -and (& $fichier $j.Mascotte.File)) { $p.Mascotte = @{ File = (& $fichier $j.Mascotte.File); Frames = [math]::Max(1, [int]$j.Mascotte.Frames); Delay = [math]::Max(40, [int]$j.Mascotte.Delay); Flip = [bool]$j.Mascotte.Flip; Vignette = [bool]$j.Mascotte.Vignette } }
@@ -71,7 +99,7 @@ function Get-ThemePack([string]$Id) {
     if ($j.TabIcons) {
         foreach ($pr in $j.TabIcons.PSObject.Properties) {
             $v = $pr.Value
-            if (& $fichier $v.File) { $p.TabIcons[$pr.Name] = @{ File = (& $fichier $v.File); Frames = [math]::Max(1, [int]$v.Frames); Delay = [math]::Max(40, [int]$v.Delay); Glow = [string]$v.Glow } }
+            if (& $fichier $v.File) { $p.TabIcons[$pr.Name] = @{ File = (& $fichier $v.File); Frames = [math]::Max(1, [int]$v.Frames); Delay = [math]::Max(40, [int]$v.Delay); Glow = (Get-CouleurGlow $v.Glow) } }
         }
     }
     $p.Background = & $fichier $j.Background
@@ -81,15 +109,17 @@ function Get-ThemePack([string]$Id) {
     $p.BackgroundAlignY = if ($al -match 'bas') { 'Bottom' } elseif ($al -match 'haut') { 'Top' } else { 'Center' }
     if (& $fichier $j.Font) { $p.Font = & $fichier $j.Font; if ([string]$j.FontScope -eq 'tout') { $p.FontScope = 'tout' } }
     $p.FontPixel = if ($null -ne $j.FontPixel) { [bool]$j.FontPixel } else { $true }
-    # Couleurs propres au pack : un thème « pack-<dossier> » ajouté à la liste (jamais affiché comme thème de base)
+    # Couleurs propres au pack : un thème « pack-<dossier> » ajouté à la liste (jamais affiché comme thème de base).
+    # Elles sont collées dans le texte de la fenêtre : seulement « #RRGGBB » (et « RRGGBB » pour Map), sinon le pack
+    # garde son thème de base (une couleur mal écrite, ou du texte glissé dans un pack, ne passe jamais).
     if ($j.Colors -and $j.Colors.P -and $j.Colors.S -and $j.Colors.T) {
-        $map = @{}
-        if ($j.Colors.Map) { foreach ($pr in $j.Colors.Map.PSObject.Properties) { $map[$pr.Name.TrimStart('#').ToUpper()] = ([string]$pr.Value).TrimStart('#').ToUpper() } }
-        $key = "pack-$Id"
-        $AppThemes[$key] = @{ Name = $p.Name; Desc = $p.Desc; P = [string]$j.Colors.P; S = [string]$j.Colors.S; T = [string]$j.Colors.T
-            NH = $(if ($null -ne $j.Colors.NH) { [double]$j.Colors.NH } else { $null }); NS = $(if ($j.Colors.NS) { [double]$j.Colors.NS } else { 1.0 })
-            Map = $map; Hello = $AppThemes['neon'].Hello; Font = $null; Decor = $null; Pack = $true }
-        $p.Base = $key
+        $couleurs = Get-CouleursPack $j.Colors
+        if ($couleurs) {
+            $key = "pack-$Id"
+            $AppThemes[$key] = @{ Name = $p.Name; Desc = $p.Desc; P = $couleurs.P; S = $couleurs.S; T = $couleurs.T; NH = $couleurs.NH; NS = $couleurs.NS
+                Map = $couleurs.Map; Hello = $AppThemes['neon'].Hello; Font = $null; Decor = $null; Pack = $true }
+            $p.Base = $key
+        } else { Write-Log "Pack $Id : couleurs mal écrites (attendu « #RRGGBB »), son thème de base est gardé" }
     }
     if (-not $AppThemes.Contains($p.Base)) { $p.Base = 'neon' }
     $p
