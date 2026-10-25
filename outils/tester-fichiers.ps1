@@ -98,4 +98,15 @@ Test-Cas 'jeu fini : le dossier s''ouvre (une fois)' ($script:Ouvertures.Count -
 [void](Invoke-OuverturesDues $j.AddHours(16).AddSeconds(15))
 Test-Cas 'jeu fini : pas deux fois' ($script:Ouvertures.Count -eq 1)
 
+# 5. Audit du 25/10, 25k : un chemin donné par l'assistant (l'IA) n'est relié que s'il l'est déjà au rendez-vous, ou
+# si c'est un dossier qu'Evermind trouve lui-même ; jamais un programme, un chemin réseau ou un fichier ailleurs
+$prog = Join-Path $env:EVERMIND_DONNEES 'essai.bat'; [IO.File]::WriteAllText($prog, 'rem essai')
+$ailleurs = Join-Path $env:EVERMIND_DONNEES 'Ailleurs'; New-Item -ItemType Directory -Force $ailleurs | Out-Null
+$s = Resolve-Dossiers @($prog, $ailleurs, '\\serveur\partage\x.exe', "$env:SystemRoot\System32\notepad.exe")
+Test-Cas 'IA : programme, chemin réseau ou dossier ailleurs pas reliés' (-not @($s.Chemins).Count -and @($s.Soucis).Count -eq 4) "($(@($s.Chemins) -join ', '))"
+$s = Resolve-Dossiers @("$compta\Monsieur Richard")
+Test-Cas 'IA : un dossier trouvé dans les dossiers où Evermind cherche, relié' (@($s.Chemins).Count -eq 1 -and $s.Chemins[0] -like '*\Monsieur Richard') "($(@($s.Chemins) -join ', ') / $($s.Soucis -join ' | '))"
+$s = Resolve-Dossiers @($prog) @($prog)
+Test-Cas 'IA : un fichier déjà relié au rendez-vous (à la main), gardé' (@($s.Chemins).Count -eq 1 -and $s.Chemins[0] -eq $prog) "($(@($s.Chemins) -join ', '))"
+
 exit $(if ($ok) { 0 } else { 1 })

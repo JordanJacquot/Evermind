@@ -72,10 +72,22 @@ function Find-DossierPersonne([string]$Nom) {
 
 # Des noms de dossiers (ou des chemins) -> les chemins trouvés, et ce qu'il faut dire pour ceux qui manquent
 # (introuvable, ou plusieurs dossiers possibles : Evermind ne choisit pas au hasard)
-function Resolve-Dossiers($Noms) {
+# Ces noms viennent de l'assistant (l'IA) : un chemin complet n'est gardé que s'il est déjà relié au rendez-vous
+# ($Relies), ou si c'est un dossier qu'Evermind trouve lui-même dans les dossiers où il cherche. Jamais un programme,
+# un chemin réseau ou un fichier ailleurs sur le PC, qui serait ensuite ouvert à l'heure du rendez-vous.
+function Resolve-Dossiers($Noms, $Relies) {
     $chemins = @(); $soucis = @()
+    $permis = @($Relies | Where-Object { $_ } | ForEach-Object { [string]$_ })
     foreach ($n in @($Noms | Where-Object { $_ } | ForEach-Object { ([string]$_).Trim() })) {
-        if (Test-Path -LiteralPath $n) { $chemins += $n; continue }
+        if ($n -match '[\\/:]') {
+            $deja = @($permis | Where-Object { $_ -ieq $n })
+            if ($deja.Count) { $chemins += $deja[0]; continue }
+            $trouve = @(Get-ListeDossiers | Where-Object { $_ -ieq $n.TrimEnd('\') })
+            if ($trouve.Count) { $chemins += $trouve[0]; continue }
+            Write-Log "Chemin donné par l'assistant, pas relié : $n"
+            $soucis += "je ne relie que les dossiers que je trouve moi-même, pas $(Split-Path $n -Leaf)"
+            continue
+        }
         $c = Find-DossierPersonne $n
         if ($c) { $chemins += $c; continue }
         $tous = @(Find-Dossiers $n)

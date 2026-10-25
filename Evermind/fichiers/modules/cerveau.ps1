@@ -803,14 +803,14 @@ function Invoke-ActionsIA($ReponseIA, $Codes, [string]$Texte, [string]$Source) {
             if ($surCree) {
                 # Un réglage de l'événement qu'on vient de créer : une petite phrase, pas un deuxième « c'est changé »
                 $deja = ($dits -join ' ') -match "ouvrirai"
-                $s = Get-TexteSoucisDossiers (Resolve-Dossiers $a.dossiers).Soucis $r
+                $s = Get-TexteSoucisDossiers (Resolve-Dossiers $a.dossiers $r.Fichiers).Soucis $r
                 if ($r.OuvrirAuDebut -and -not $deja) { [void]$dits.Add("J'ouvrirai $(if (@($r.Fichiers).Count -eq 1) { Get-NomFichier $r.Fichiers[0] } else { 'ses dossiers' }) à l'heure."); [void]$ecrits.Add('Ouverture à l''heure du rendez-vous.') }
                 elseif ($a.ouvrir_au_debut -and -not @($r.Fichiers).Count) { [void]$dits.Add("Par contre, je n'ai pas trouvé de dossier à ouvrir."); [void]$ecrits.Add('Aucun dossier trouvé à ouvrir.') }
                 elseif ($s) { [void]$dits.Add($s.Trim()); [void]$ecrits.Add($s.Trim()) }
                 continue
             }
             $n = Get-PhraseNote $r
-            $tf = Get-TexteSoucisDossiers (Resolve-Dossiers $a.dossiers).Soucis $null; if ($tf) { $n.Ecrit += '.' + $tf; $n.Dit += '.' + $tf }
+            $tf = Get-TexteSoucisDossiers (Resolve-Dossiers $a.dossiers $r.Fichiers).Soucis $null; if ($tf) { $n.Ecrit += '.' + $tf; $n.Dit += '.' + $tf }
             [void]$dits.Add("C'est changé : $($n.Dit)."); [void]$ecrits.Add("C'est changé : $($n.Ecrit).")
         }
     }
@@ -899,7 +899,7 @@ function Invoke-OuvrirIA($rv, $a) {
         $chemins = @(Get-DossiersAuto $rv.Titre $rv.Avec)
         if ($chemins.Count) { Set-RendezVousDetail $rv.Id 'Fichiers' $chemins }
     }
-    if (-not $chemins.Count) { $doss = Resolve-Dossiers $a.dossiers; $chemins = @($doss.Chemins) }
+    if (-not $chemins.Count) { $doss = Resolve-Dossiers $a.dossiers $(if ($rv) { $rv.Fichiers }); $chemins = @($doss.Chemins) }
     if (-not $chemins.Count) {
         if (@($doss.Soucis).Count) { $s = Get-Majuscule $doss.Soucis[0]; return @{ Dit = "$s."; Ecrit = "$s." } }
         $nom = @(@($a.dossiers) + $(if ($rv) { $rv.Titre })) | Where-Object { $_ } | Select-Object -First 1
@@ -1063,7 +1063,7 @@ function Invoke-ModifierIA($rv, $a) {
         if ($codes.Count) { $det.Rappels = @(@(Get-RappelsRV $rv) + $codes | Select-Object -Unique) }
     }
     if (@($a.dossiers | Where-Object { $_ }).Count) {
-        $ajout = @((Resolve-Dossiers $a.dossiers).Chemins)
+        $ajout = @((Resolve-Dossiers $a.dossiers $rv.Fichiers).Chemins)
         if ($ajout.Count){ $det.Fichiers = @(@($rv.Fichiers) + $ajout | Select-Object -Unique) }
     }
     if ($null -ne $a.ouvrir_au_debut) {
