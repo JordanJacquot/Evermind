@@ -68,6 +68,7 @@ function Write-Log([string]$Message) {
     try { [IO.File]::AppendAllText($LogFile, "$(Get-Date -Format s) $Message`r`n", $Utf8NoBom) } catch {}
 }
 if ($DataDirNote) { Write-Log $DataDirNote }
+if ($script:Suite -and $script:Suite.Pris) { Write-Log "suite.json pris par un autre programme au démarrage : $(if ($GereParMindset) { 'copie gérée par Mindset (dossier des programmes de Mindset)' } else { 'copie pas gérée par Mindset' })" }
 
 # Écrit un fichier JSON sans risque de le perdre : on écrit à côté, puis on remplace d'un coup
 # (l'ancienne version reste dans « .bak » si quelque chose tourne mal).
@@ -130,10 +131,22 @@ function Read-JsonFile([string]$Path) {
     $null
 }
 
+# Un fichier noté « pris » est relu avant d'être enregistré : Libre = on peut l'enregistrer ; Relu = il vient d'être
+# relu (Contenu : ce qu'il contient, à fusionner avec ce qui a changé pendant qu'il était pris). Encore pris : rien n'est
+# écrit, et le prochain enregistrement réessaiera (la bonne version n'est jamais écrasée par la sauvegarde).
+function Get-FichierRelu([string]$Path) {
+    if (-not $script:FichiersPris[$Path]) { return @{ Libre = $true; Relu = $false; Contenu = $null } }
+    $j = Read-JsonFile $Path
+    if ($script:FichiersPris[$Path]) { return @{ Libre = $false; Relu = $false; Contenu = $null } }
+    Write-Log "Fichier de nouveau libre, relu avant d'enregistrer : $Path"
+    @{ Libre = $true; Relu = $true; Contenu = $j }
+}
+
 # ---------------------------------------------------------------------------
 # Réglages
 # ---------------------------------------------------------------------------
 $script:Settings = @{}
+$script:SettingsChanges = @{}   # (les réglages changés depuis le lancement : gardés si le fichier était pris)
 $j = Read-JsonFile $SettingsFile
 if ($j) { foreach ($p in $j.PSObject.Properties) { $script:Settings[$p.Name] = $p.Value } }
 
@@ -141,8 +154,16 @@ function Get-Setting([string]$Name, $Default) {
     if ($script:Settings.ContainsKey($Name)) { $script:Settings[$Name] } else { $Default }
 }
 
+# Fichier des réglages pris au lancement (antivirus, OneDrive...) : les changements restent en mémoire, et sont
+# enregistrés avec les réglages du fichier dès qu'il est de nouveau libre (au changement suivant).
 function Set-Setting([string]$Name, $Value) {
     $script:Settings[$Name] = $Value
+    $script:SettingsChanges[$Name] = $true
+    $f = Get-FichierRelu $SettingsFile
+    if (-not $f.Libre) { Write-Log "Réglage $Name gardé en mémoire : le fichier des réglages est pris, il sera enregistré plus tard"; return }
+    if ($f.Relu -and $f.Contenu) {
+        foreach ($p in $f.Contenu.PSObject.Properties) { if (-not $script:SettingsChanges.ContainsKey($p.Name)) { $script:Settings[$p.Name] = $p.Value } }
+    }
     try { Save-JsonFile $SettingsFile $script:Settings } catch { Write-Log "Réglages non enregistrés : $_" }
 }
 
@@ -245,7 +266,17 @@ function Update-FaitAncien($r) {
     if ($q -eq [datetime]::MinValue) { $q = $r.Quand }
     $r.FaitPour = @(@($r.FaitPour) + (Get-CleFait $q) | Select-Object -Unique)
     $r.Fait = $false
+    $script:FaitAncienMigre = $true
     Write-Log "« C'est fait » d'une chose qui revient, gardé pour la fois du $(Get-CleFait $q) seulement : $($r.Titre)"
+}
+
+# Après ce passage, l'agenda est enregistré une fois : sinon chaque lancement refait la migration avec la date du jour,
+# et coche en douce la fois de ce jour-là (plus de « rappel manqué »). Jamais quand l'agenda est en lecture seule (le
+# passage sera refait, et enregistré, quand il aura été relu).
+function Save-FaitAncien {
+    if (-not $script:FaitAncienMigre -or $script:AgendaPris) { return }
+    try { Save-Agenda; $script:FaitAncienMigre = $false; Write-Log 'Ancien « c''est fait » des choses qui reviennent : enregistré' }
+    catch { Write-Log "Ancien « c'est fait » pas enregistré : $_" }
 }
 
 # Un rendez-vous illisible (date abîmée, répétition abîmée...) n'est jamais perdu : il n'est pas affiché, mais il reste
@@ -256,6 +287,7 @@ function Update-FaitAncien($r) {
 function Import-Agenda {
     $script:Agenda = New-Object System.Collections.ArrayList
     $script:AgendaIllisibles = New-Object System.Collections.ArrayList
+    $script:FaitAncienMigre = $false
     $j = Read-JsonFile $AgendaFile
     $script:AgendaPris = [bool]$script:FichiersPris[$AgendaFile]
     if (-not $j) { return }
@@ -422,30 +454,33 @@ function Write-LogRVErreur($r, $Erreur) {
     Write-Log "Rendez-vous sauté (erreur) : $($r.Titre) ($id) : $Erreur"
 }
 
+# Les fois d'un rendez-vous entre deux moments (une erreur remonte : c'est à l'appelant de sauter ce rendez-vous)
+function Get-FoisEntre($r, [datetime]$Debut, [datetime]$Fin) {
+    if (-not $r.Repetition) {
+        if (Test-PlusieursJours $r) {
+            # Sur plusieurs jours : il apparaît chaque jour (le premier à son heure, les suivants dès minuit)
+            for ($j = $r.Quand.Date; $j -le $r.Fin.Date; $j = $j.AddDays(1)) {
+                $q = if ($j -eq $r.Quand.Date) { $r.Quand } else { $j }
+                if ($q -ge $Debut -and $q -lt $Fin) { [pscustomobject]@{ RV = $r; Prochain = $q } }
+            }
+            return
+        }
+        if ($r.Quand -ge $Debut -and $r.Quand -lt $Fin) { [pscustomobject]@{ RV = $r; Prochain = $r.Quand } }
+        return
+    }
+    $from = $Debut
+    for ($i = 0; $i -lt 400; $i++) {
+        $q = Get-NextOccurrence $r.Repetition $r.Quand $from
+        if ($q -ge $Fin -or $q -lt $from) { break }
+        [pscustomobject]@{ RV = $r; Prochain = $q }
+        $from = $q.AddMinutes(1)
+    }
+}
+
 # Toutes les fois où des rendez-vous tombent entre deux moments (pour le calendrier du mois)
 function Get-AgendaEntre([datetime]$Debut, [datetime]$Fin) {
     @(foreach ($r in $script:Agenda) {
-        try {
-            if (-not $r.Repetition) {
-                if (Test-PlusieursJours $r) {
-                    # Sur plusieurs jours : il apparaît chaque jour (le premier à son heure, les suivants dès minuit)
-                    for ($j = $r.Quand.Date; $j -le $r.Fin.Date; $j = $j.AddDays(1)) {
-                        $q = if ($j -eq $r.Quand.Date) { $r.Quand } else { $j }
-                        if ($q -ge $Debut -and $q -lt $Fin) { [pscustomobject]@{ RV = $r; Prochain = $q } }
-                    }
-                    continue
-                }
-                if ($r.Quand -ge $Debut -and $r.Quand -lt $Fin) { [pscustomobject]@{ RV = $r; Prochain = $r.Quand } }
-                continue
-            }
-            $from = $Debut
-            for ($i = 0; $i -lt 400; $i++) {
-                $q = Get-NextOccurrence $r.Repetition $r.Quand $from
-                if ($q -ge $Fin -or $q -lt $from) { break }
-                [pscustomobject]@{ RV = $r; Prochain = $q }
-                $from = $q.AddMinutes(1)
-            }
-        } catch { Write-LogRVErreur $r $_ }
+        try { Get-FoisEntre $r $Debut $Fin } catch { Write-LogRVErreur $r $_ }
     }) | Sort-Object Prochain
 }
 
@@ -492,13 +527,17 @@ function Get-FoisAvant($r, [datetime]$Jusqu, [int]$Jours) {
     })
 }
 
-# « C'est fait » dit sans date : la fois en cours (celle d'aujourd'hui) ou la dernière en retard, jamais une fois à
-# venir. Rend la date de cette fois, ou rien si la chose n'a pas encore commencé.
+# « C'est fait » dit sans date : seulement une fois déjà commencée (ou qui commence dans moins de 30 minutes), jamais
+# une fois à venir plus tard dans la journée. Parmi les fois en retard depuis la dernière cochée (sur la durée de son
+# rythme : 2 jours pour une chose quotidienne, 2 semaines pour une chose de chaque semaine...), la plus ancienne.
+# Le médicament de 21 h pas pris hier, « c'est fait » ce matin : c'est celui d'hier, et ce soir le rappel vient.
+# Rend la date de cette fois, ou rien si la chose n'a pas encore commencé.
 function Get-FoisAFaire($r, [datetime]$Maintenant = (Get-Date)) {
-    $fois = @(Get-FoisAvant $r $Maintenant.Date.AddDays(1).AddMinutes(-1) 60)
+    $fois = @(Get-FoisAvant $r $Maintenant.AddMinutes(30) 0)
     if (-not $fois.Count) { return $null }
-    $reste = @($fois | Where-Object { -not (Test-FaitRV $r $_) })
-    if ($reste.Count) { $reste[-1] } else { $fois[-1] }
+    $apres = @()
+    foreach ($q in $fois) { if (Test-FaitRV $r $q) { $apres = @() } else { $apres += $q } }   # (pas cochées, après la dernière cochée)
+    if ($apres.Count) { $apres[0] } else { $fois[-1] }
 }
 
 # Coche ou décoche une fois (ou le rendez-vous unique). Les fois cochées de plus de 90 jours sont oubliées.

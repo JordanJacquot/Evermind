@@ -104,7 +104,7 @@ function Update-SuiteSurveillance {
     $fi = New-Object IO.FileInfo $SuiteFile
     $date = if ($fi.Exists) { $fi.LastWriteTimeUtc } else { [datetime]::MinValue }
     if ($date -ne $script:SuiteDate) {
-        $s = Read-Suite
+        $s = Read-Suite 1   # (un seul essai : la fenêtre ne doit pas attendre ; pris, il est relu au prochain tour)
         if ($s.Existe -and -not $s.Lisible) { return }   # en train d'être remplacé : relu au prochain tour
         $script:SuiteDate = $date
         # Seulement si cette copie est toujours celle de Mindset (thème personnalisé de la suite : seulement s'il est installé)

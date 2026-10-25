@@ -28,12 +28,32 @@ function Get-CheminNormal([string]$Chemin) {
 
 # Ce qu'on garde de suite.json : le thème (s'il est connu, ou « pack:<id> » au nom valable), le micro et le casque ($null si absents ou pas valables),
 # et le dossier d'Evermind (seulement pour comparer)
-function Read-Suite {
-    $s = @{ Existe = $false; Lisible = $false; Theme = $null; Evermind = $null; Micro = $null; Casque = $null }
+# Un fichier tenu un instant par un autre programme (antivirus, OneDrive, Mindset qui le remplace) n'est ni abîmé ni
+# interdit : $Essais lectures espacées de 300 ms, puis « Pris » (on ne sait pas encore ce qu'il dit).
+function Test-SuitePrise($Erreur) {
+    for ($e = $Erreur; $e; $e = $e.InnerException) {
+        if ($e -is [UnauthorizedAccessException]) { return $true }
+        if ($e -is [IO.IOException] -and (($e.HResult -band 0xFFFF) -in 32, 33)) { return $true }   # (partage, verrou)
+    }
+    $false
+}
+
+function Read-Suite([int]$Essais = 10) {
+    $s = @{ Existe = $false; Lisible = $false; Pris = $false; Theme = $null; Evermind = $null; Micro = $null; Casque = $null }
     if (-not $SuiteFile -or -not [IO.File]::Exists($SuiteFile)) { return $s }
     $s.Existe = $true
+    $texte = $null
+    for ($i = 1; $i -le $Essais; $i++) {
+        try { $texte = [IO.File]::ReadAllText($SuiteFile, [Text.Encoding]::UTF8); $s.Pris = $false; break }
+        catch {
+            $s.Pris = Test-SuitePrise $_.Exception
+            if (-not $s.Pris) { break }
+            if ($i -lt $Essais) { Start-Sleep -Milliseconds 300 }
+        }
+    }
+    if ($null -eq $texte) { return $s }
     try {
-        $j = [IO.File]::ReadAllText($SuiteFile, [Text.Encoding]::UTF8) | ConvertFrom-Json
+        $j = $texte | ConvertFrom-Json
         # Thème : un des 5 thèmes, ou « pack:<id> », un thème personnalisé de la suite installé par Mindset dans nos packs
         if ($j.theme -is [string] -and $j.theme -in $ThemesSuite) { $s.Theme = $j.theme.ToLowerInvariant() }
         elseif ($j.theme -is [string] -and $j.theme -cmatch '^pack:[a-z0-9-]{1,40}$') { $s.Theme = $j.theme }
@@ -50,7 +70,23 @@ function Read-Suite {
 # Le dossier de cette copie (celui d'Evermind.exe, parent de « fichiers »)
 $AppRacine = if ($AppDir) { Get-CheminNormal (Split-Path $AppDir -Parent) } else { $null }
 $script:Suite = Read-Suite
+
+# Une copie installée par Mindset : dans <X>:\Mindset\Programmes ou dans Program Files\Mindset (des dossiers que seul
+# un administrateur peut modifier, comme pour le choix du dossier de données dans donnees.ps1)
+function Test-DossierProgrammesMindset([string]$Racine) {
+    if (-not $Racine) { return $false }
+    $p = Split-Path $Racine -Parent
+    if (-not $p) { return $false }
+    $m = Split-Path $p -Parent
+    if ($m -and (Split-Path $p -Leaf) -ieq 'Programmes' -and (Split-Path $m -Leaf) -ieq 'Mindset') { return $true }
+    foreach ($pf in $env:ProgramFiles, $env:ProgramW6432) { if ($pf -and $p -ieq (Join-Path $pf 'Mindset')) { return $true } }
+    $false
+}
+
+# Géré par Mindset : suite.json le dit. suite.json encore pris après 3 secondes (au démarrage de Windows) : on ne
+# conclut pas « copie non autorisée » ; une copie dans un dossier de programmes de Mindset est gérée.
 $GereParMindset = [bool]($AppRacine -and $script:Suite.Evermind -and $script:Suite.Evermind -ieq $AppRacine)
+if (-not $GereParMindset -and $script:Suite.Pris -and (Test-DossierProgrammesMindset $AppRacine)) { $GereParMindset = $true }
 
 # ---------------------------------------------------------------------------
 # Evermind s'affiche seulement dans Mindset

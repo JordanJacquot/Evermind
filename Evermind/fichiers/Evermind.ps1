@@ -74,6 +74,7 @@ try { [EMNative]::SetAppId($AppId) } catch {}
 
 foreach ($emModule in 'donnees', 'suite', 'fichiers', 'themes', 'comprendre') { . (Join-Path $ModulesDir "$emModule.ps1") }
 foreach ($emRV in @($script:Agenda)) { Update-FaitAncien $emRV }   # (l'ancien « c'est fait » des choses qui reviennent : il fallait comprendre.ps1)
+Save-FaitAncien
 foreach ($emModule in 'systeme', 'interface', 'logo', 'agenda', 'details', 'alerte', 'voix', 'maj', 'eveil', 'cerveau', 'evenements') { . (Join-Path $ModulesDir "$emModule.ps1") }
 
 # Retire la marque « téléchargé depuis Internet » des fichiers d'Evermind, pour que Windows n'affiche plus

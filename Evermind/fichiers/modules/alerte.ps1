@@ -125,7 +125,7 @@ function New-AlerteFenetre($Titre, $Texte, $Etiquette, $Type, $RV, $Quand, $Seco
         $plusTard.Add_MouseLeftButtonUp({
             param($s, $e) $e.Handled = $true
             $al = $s.Tag; Close-Alerte $al
-            Add-ReportRappel $al.RV $al.Quand (Get-Date).AddMinutes(10)
+            Add-ReportRappel $al.RV $al.Quand ([datetime]::UtcNow.AddMinutes(10))   # (en heure universelle : juste même la nuit du changement d'heure)
             Write-Log "Rappel remis à dans 10 min : $($al.Titre)"
         })
     }
@@ -262,11 +262,19 @@ function ConvertTo-UtcRappel([datetime]$Quand) {
 
 function ConvertFrom-UtcRappel([datetime]$Utc) { [datetime]::SpecifyKind([TimeZoneInfo]::ConvertTimeFromUtc($Utc, (Get-FuseauRappels)), 'Unspecified') }
 
+# « m60 » : 60 minutes avant. Le plus long rappel est de 60 jours (« 52 semaines avant » sonne 60 jours avant) ; un
+# code abîmé (« m9999999999 », « m-5 ») ne compte pas, sans gêner les autres rappels.
+$RappelMaxMinutes = 60 * 1440
+function Get-MinutesRappel([string]$Code) {
+    if ($Code -notmatch '^m(\d{1,9})$') { return $null }
+    [math]::Min([int]$Matches[1], $RappelMaxMinutes)
+}
+
 function Get-MomentRappel([string]$Code, [datetime]$Quand) {
     switch -Regex ($Code) {
         '^veille$' { return (ConvertTo-UtcRappel $Quand.Date.AddDays(-1).AddHours(20)) }
         '^matin$'  { return (ConvertTo-UtcRappel $Quand.Date.AddHours(8)) }
-        '^m(\d+)$' { return (ConvertTo-UtcRappel $Quand).AddMinutes(-[int]$Matches[1]) }
+        '^m\d+$'   { $n = Get-MinutesRappel $Code; if ($null -ne $n) { return (ConvertTo-UtcRappel $Quand).AddMinutes(-$n) } }
     }
     $null
 }
@@ -290,30 +298,51 @@ function Get-TexteDans([datetime]$Quand, [datetime]$Maintenant, [bool]$Journee) 
 $RappelsFile = Join-Path $DataDir 'rappels.json'
 $script:RappelsFaits = @{}; $script:ReportsRappels = New-Object System.Collections.ArrayList; $script:DernierPassage = $null
 $script:RappelsEnregistres = [datetime]::MinValue
-$jr = Read-JsonFile $RappelsFile
-if ($jr) {
-    foreach ($c in @($jr.Faits)) { if ($c) { $script:RappelsFaits[[string]$c] = $true } }
-    foreach ($r in @($jr.Reports)) { try { if ($r) { [void]$script:ReportsRappels.Add([pscustomobject]@{ Id = [string]$r.Id; Quand = [datetime]::Parse($r.Quand); Revient = [datetime]::Parse($r.Revient) }) } } catch {} }
-    try { if ($jr.DernierPassage) { $script:DernierPassage = [datetime]::Parse($jr.DernierPassage) } } catch {}
+# « Dans 10 min » : l'heure du retour est gardée en heure universelle (« ...Z »), sinon la nuit du changement d'heure
+# il reviendrait 70 minutes plus tard. Une ancienne heure de l'horloge (sans « Z ») est convertie.
+function ConvertFrom-TexteRevient([string]$Texte) {
+    $d = [datetime]::Parse($Texte, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+    ConvertTo-UtcRappel $d
 }
+# Ce que dit rappels.json, ajouté à ce qu'on sait déjà (au lancement, ou quand le fichier pris est de nouveau libre)
+function Add-RappelsLus($jr) {
+    if (-not $jr) { return }
+    foreach ($c in @($jr.Faits)) { if ($c) { $script:RappelsFaits[[string]$c] = $true } }
+    $deja = @{}; foreach ($r in $script:ReportsRappels) { $deja["$($r.Id)|$($r.Quand.ToString('s'))"] = $true }
+    foreach ($r in @($jr.Reports)) {
+        try {
+            if (-not $r) { continue }
+            $x = [pscustomobject]@{ Id = [string]$r.Id; Quand = [datetime]::Parse($r.Quand); Revient = ConvertFrom-TexteRevient $r.Revient }
+            if (-not $deja.ContainsKey("$($x.Id)|$($x.Quand.ToString('s'))")) { [void]$script:ReportsRappels.Add($x) }
+        } catch {}
+    }
+    try { if ($jr.DernierPassage -and -not $script:DernierPassage) { $script:DernierPassage = [datetime]::Parse($jr.DernierPassage) } } catch {}
+}
+Add-RappelsLus (Read-JsonFile $RappelsFile)
 
+# (rappels.json pris au lancement : rien n'est écrit tant qu'il est pris ; dès qu'il est libre, il est relu et ce
+# qu'il contenait est gardé avec ce qui s'est passé depuis)
 function Save-Rappels([datetime]$Maintenant = (Get-Date)) {
+    $script:RappelsEnregistres = $Maintenant   # (fichier pris : nouvel essai au prochain rappel, ou dans 5 minutes)
+    $f = Get-FichierRelu $RappelsFile
+    if (-not $f.Libre) { return }
+    if ($f.Relu) { Add-RappelsLus $f.Contenu }
     # (on oublie ce qui a plus de 3 jours)
     foreach ($c in @($script:RappelsFaits.Keys)) {
         $q = [datetime]::MinValue
         if (-not [datetime]::TryParse(($c -split '\|')[1], [ref]$q) -or $q -lt $Maintenant.AddDays(-3)) { $script:RappelsFaits.Remove($c) }
     }
-    $script:RappelsEnregistres = $Maintenant
     $d = [ordered]@{ DernierPassage = $(if ($script:DernierPassage) { $script:DernierPassage.ToString('s') }); Faits = @($script:RappelsFaits.Keys)
-                     Reports = @(foreach ($r in $script:ReportsRappels) { [ordered]@{ Id = $r.Id; Quand = $r.Quand.ToString('s'); Revient = $r.Revient.ToString('s') } }) }
+                     Reports = @(foreach ($r in $script:ReportsRappels) { [ordered]@{ Id = $r.Id; Quand = $r.Quand.ToString('s'); Revient = $r.Revient.ToString('o', [Globalization.CultureInfo]::InvariantCulture) } }) }
     try { Save-JsonFile $RappelsFile $d } catch { Write-Log "Rappels non enregistrés : $_" }
 }
 
-# « Dans 10 min » : le rappel revient plus tard (le planificateur le redonne, même après une relance)
+# « Dans 10 min » : le rappel revient plus tard (le planificateur le redonne, même après une relance). $Revient : une
+# heure universelle (le bouton « Dans 10 min »), ou une heure de l'horloge, convertie.
 function Add-ReportRappel($RV, $Quand, [datetime]$Revient) {
     if (-not $RV) { return }
     $q = if ($Quand) { [datetime]$Quand } else { $RV.Quand }
-    [void]$script:ReportsRappels.Add([pscustomobject]@{ Id = [string]$RV.Id; Quand = $q; Revient = $Revient })
+    [void]$script:ReportsRappels.Add([pscustomobject]@{ Id = [string]$RV.Id; Quand = $q; Revient = (ConvertTo-UtcRappel $Revient) })
     Save-Rappels
 }
 
@@ -326,13 +355,25 @@ function Test-RappelUtile($rv, [datetime]$Quand, [datetime]$Maintenant) {
     (ConvertTo-UtcRappel $Quand) -ge (ConvertTo-UtcRappel $Maintenant).AddMinutes(-2)
 }
 
-# Jusqu'où regarder devant : 8 jours, ou plus si un rappel est demandé plus tôt (« 2 semaines avant » : 15 jours)
-function Get-JoursRappels {
-    $max = 0
-    foreach ($r in $script:Agenda) {
-        foreach ($code in @(Get-RappelsRV $r)) { if ([string]$code -match '^m(\d+)$' -and [int]$Matches[1] -gt $max) { $max = [int]$Matches[1] } }
+# Les fois d'un rendez-vous dont un rappel tombe entre $Bas et $Maintenant, et seulement elles : pour chacun de SES
+# rappels, les fois entre « $Bas + délai » et « $Maintenant + délai » (2 h de marge, pour les changements d'heure ; le
+# moment exact est comparé ensuite). Un rappel « 8 semaines avant » ne fait donc pas calculer 8 semaines de fois.
+function Get-FoisRappels($rv, [datetime]$Bas, [datetime]$Maintenant) {
+    $de = New-Object 'System.Collections.Generic.List[datetime]'; $a = New-Object 'System.Collections.Generic.List[datetime]'
+    foreach ($code in @(Get-RappelsRV $rv)) {
+        if ($code -eq 'veille') { $de.Add($Bas.Date); $a.Add($Maintenant.Date.AddDays(2)) }
+        elseif ($code -eq 'matin') { $de.Add($Bas.Date); $a.Add($Maintenant.Date.AddDays(1)) }
+        else { $n = Get-MinutesRappel $code; if ($null -ne $n) { $de.Add($Bas.AddMinutes($n - 120)); $a.Add($Maintenant.AddMinutes($n + 120)) } }
     }
-    [math]::Max(8, [math]::Ceiling($max / 1440) + 1)
+    if (-not $de.Count) { return }
+    # (les fenêtres qui se touchent sont réunies : une fois n'est cherchée qu'une fois)
+    $deT = $de.ToArray(); $aT = $a.ToArray(); [Array]::Sort($deT, $aT)
+    $lo = $deT[0]; $hi = $aT[0]
+    for ($i = 1; $i -lt $deT.Length; $i++) {
+        if ($deT[$i] -le $hi) { if ($aT[$i] -gt $hi) { $hi = $aT[$i] } }
+        else { Get-FoisEntre $rv $lo $hi; $lo = $deT[$i]; $hi = $aT[$i] }
+    }
+    Get-FoisEntre $rv $lo $hi
 }
 
 # Les rappels à donner maintenant, chacun une seule fois. Ceux tombés pendant que le PC dormait ou était éteint
@@ -349,7 +390,8 @@ function Invoke-RappelsDus([datetime]$Maintenant = (Get-Date)) {
     $basUtc = ConvertTo-UtcRappel $bas
     $change = $false
     $parRV = [ordered]@{}
-    foreach ($it in @(Get-AgendaEntre $bas.Date $Maintenant.AddDays((Get-JoursRappels)))) {
+    $tous = @(@(foreach ($rv in @($script:Agenda)) { try { Get-FoisRappels $rv $bas $Maintenant } catch { Write-LogRVErreur $rv $_ } }) | Sort-Object Prochain)
+    foreach ($it in $tous) {
         $rv = $it.RV
         try {
             if (Test-FaitRV $rv $it.Prochain) { continue }
@@ -375,11 +417,11 @@ function Invoke-RappelsDus([datetime]$Maintenant = (Get-Date)) {
     $faits = @($parRV.Values)
     # Les « Dans 10 min » arrivés à leur heure
     foreach ($r in @($script:ReportsRappels)) {
-        if ($r.Revient -gt $Maintenant) { continue }
+        if ($r.Revient -gt $maintenantUtc) { continue }   # (en heure universelle, comme les rappels)
         $script:ReportsRappels.Remove($r); $change = $true
         $rv = Get-RendezVous $r.Id
         if (-not $rv -or (Test-FaitRV $rv $r.Quand) -or $parRV.Contains([string]$r.Id)) { continue }
-        if ($r.Revient -lt $Maintenant.AddMinutes(-2) -and -not (Test-RappelUtile $rv $r.Quand $Maintenant)) { continue }
+        if ($r.Revient -lt $maintenantUtc.AddMinutes(-2) -and -not (Test-RappelUtile $rv $r.Quand $Maintenant)) { continue }
         $faits += [pscustomobject]@{ RV = $rv; Quand = $r.Quand; Code = 'report' }
     }
     $paroles = @(foreach ($f in $faits) { Show-AlerteRappel $f.RV $f.Quand $Maintenant })

@@ -668,7 +668,7 @@ function Start-AgendaReessai {
         $script:AgendaReessai.Add_Tick({
             try {
                 Import-Agenda
-                if (-not $script:AgendaPris) { $script:AgendaReessai.Stop(); Write-Log 'Agenda relu : il peut de nouveau être enregistré' }
+                if (-not $script:AgendaPris) { $script:AgendaReessai.Stop(); Write-Log 'Agenda relu : il peut de nouveau être enregistré'; Save-FaitAncien }
                 Update-Agenda
             } catch { Write-Log "Agenda : nouvel essai impossible ($_)" }
         })

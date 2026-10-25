@@ -202,7 +202,12 @@ Test-Cas 'poubelles : vieilles fois oubliées' (@($pf.FaitPour) -notcontains '20
 Set-RendezVousDetail $pf.Id 'FaitPour' @()
 $pf = Get-RendezVous $pf.Id
 Test-Cas 'sans date : la dernière en retard' ((Get-FoisAFaire $pf $p0.AddDays(3)) -eq $p0) "($(Get-FoisAFaire $pf $p0.AddDays(3)))"
-Test-Cas 'sans date : celle du jour' ((Get-FoisAFaire $pf $p0.AddDays(7).Date.AddHours(9)) -eq $p0.AddDays(7)) "($(Get-FoisAFaire $pf $p0.AddDays(7).Date.AddHours(9)))"
+# Audit du 25/10, constat 4 : jamais une fois à venir plus tard dans la journée
+Test-Cas 'sans date : le matin, celle en retard et pas celle de ce soir' ((Get-FoisAFaire $pf $p0.AddDays(7).Date.AddHours(9)) -eq $p0) "($(Get-FoisAFaire $pf $p0.AddDays(7).Date.AddHours(9)))"
+Set-FaitRV $pf.Id $p0 $true; $pf = Get-RendezVous $pf.Id
+Test-Cas 'sans date : celle en retard faite, rien d''à venir au matin' ((Get-FoisAFaire $pf $p0.AddDays(7).Date.AddHours(9)) -ne $p0.AddDays(7)) "($(Get-FoisAFaire $pf $p0.AddDays(7).Date.AddHours(9)))"
+Test-Cas 'sans date : celle qui commence dans 20 min' ((Get-FoisAFaire $pf $p0.AddDays(7).AddMinutes(-20)) -eq $p0.AddDays(7)) "($(Get-FoisAFaire $pf $p0.AddDays(7).AddMinutes(-20)))"
+Set-RendezVousDetail $pf.Id 'FaitPour' @(); $pf = Get-RendezVous $pf.Id
 Test-Cas 'sans date : rien avant la première fois' ($null -eq (Get-FoisAFaire $pf $p0.AddDays(-2)))
 # Ancien fichier (Fait = oui sur une chose qui revient) : devient « faite pour sa dernière fois passée »
 $vieux = [pscustomobject]@{ Id = 'vieux1'; Titre = 'Sortir le verre'; Type = 'rappel'; Journee = $false; Quand = $p0.AddDays(-14).ToString($DateFormat); Repetition = [pscustomobject]@{ Type = 'semaine'; Jour = [int]$p0.DayOfWeek }; Fait = $true }
@@ -270,5 +275,116 @@ Test-Cas 'printemps : rien avant 3 h' (-not (Get-Vus 'Médicament de nuit').Coun
 Test-Cas 'printemps : donnée à 3 h, pas « manquée »' ((Get-Vus 'Médicament de nuit').Count -eq 1 -and (Get-Vus 'Médicament de nuit')[0].Etiquette -ne 'Rappel manqué') "($((Get-Vus 'Médicament de nuit').Etiquette))"
 $script:FuseauRappels = $null
 Remove-RendezVous $auto.Id; Remove-RendezVous $prin.Id
+
+# ---------------------------------------------------------------------------
+# Audit du 25/10, constat 4 : « c'est fait » dit à l'assistant coche la fois en retard, pas celle de ce soir
+# ---------------------------------------------------------------------------
+Reset-Memoire
+$d4 = (Get-Date).Date.AddDays(60)
+$med = Add-RendezVous 'Médicament du soir' $d4.AddHours(21) ([ordered]@{ Type = 'jour' }) 'rappel' $false @{}
+$f4 = Get-FoisAFaire $med $d4.AddDays(1).AddHours(1)   # (le lendemain à 1 h, celui de la veille pas coché)
+Test-Cas 'c''est fait à 1 h : la prise de la veille' ($f4 -eq $d4.AddHours(21)) "($f4)"
+Set-FaitRV $med.Id $f4 $true
+[void](Invoke-RappelsDus $d4.AddDays(1).AddHours(21).AddSeconds(5))
+Test-Cas 'c''est fait à 1 h : le rappel du soir vient quand même' ((Get-Vus 'Médicament du soir').Count -eq 1) "($((Get-Vus 'Médicament du soir').Count))"
+$mat = Add-RendezVous 'Cachet du matin' $d4.AddHours(8) ([ordered]@{ Type = 'jour' }) 'rappel' $false @{}
+Set-FaitRV $mat.Id $d4.AddHours(8) $true; Set-FaitRV $mat.Id $d4.AddDays(1).AddHours(8) $true; $mat = Get-RendezVous $mat.Id
+$f4 = Get-FoisAFaire $mat $d4.AddDays(2).AddHours(14)
+Test-Cas 'c''est fait à 14 h : la prise de 8 h du jour' ($f4 -eq $d4.AddDays(2).AddHours(8)) "($f4)"
+Remove-RendezVous $med.Id; Remove-RendezVous $mat.Id
+
+# ---------------------------------------------------------------------------
+# Audit du 25/10, constat 6 : l'ancien « c'est fait » migré est enregistré, et rien n'est recoché au lancement suivant
+# ---------------------------------------------------------------------------
+$sauveAgenda = $script:Agenda
+$sem = (Get-Date).Date.AddDays(70); while ($sem.DayOfWeek -ne 'Tuesday') { $sem = $sem.AddDays(1) }
+$vieux6 = [ordered]@{ Version = 2; RendezVous = @([ordered]@{ Id = 'verre6'; Titre = 'Sortir le verre'; Type = 'rappel'; Journee = $false; Quand = $sem.AddDays(-21).AddHours(8).ToString($DateFormat); Repetition = [ordered]@{ Type = 'semaine'; Jour = 2 }; Fait = $true }) }
+Save-JsonFile $AgendaFile $vieux6
+# (l'horloge simulée, seulement pendant les deux lancements)
+$script:Horloge = $sem.AddHours(7)
+function Get-Date { param([string]$Format) if ($Format) { $script:Horloge.ToString($Format) } else { $script:Horloge } }
+Import-Agenda; Save-FaitAncien   # premier lancement, mardi 7 h (comme Evermind.ps1 et la relecture de l'agenda)
+$fic6 = [IO.File]::ReadAllText($AgendaFile, [Text.Encoding]::UTF8) | ConvertFrom-Json
+Test-Cas 'ancien « fait » : enregistré une fois migré' (-not $fic6.RendezVous[0].Fait -and @($fic6.RendezVous[0].FaitPour) -contains (Get-CleFait $sem.AddDays(-7))) "($($fic6.RendezVous[0].Fait) / $(@($fic6.RendezVous[0].FaitPour) -join ', '))"
+$script:Horloge = $sem.AddDays(7).AddHours(9).AddMinutes(30)
+Import-Agenda; Save-FaitAncien   # lancement suivant, une semaine plus tard à 9 h 30 (PC éteint la veille au soir)
+Remove-Item function:Get-Date
+$v6 = @($script:Agenda | Where-Object { $_.Id -eq 'verre6' })[0]
+Test-Cas 'ancien « fait » : rien de recoché au lancement suivant' ($v6 -and -not (Test-FaitRV $v6 $sem.AddDays(7).AddHours(8)) -and @($v6.FaitPour).Count -eq 1) "($(@($v6.FaitPour) -join ', '))"
+Reset-Memoire
+$script:DernierPassage = $sem.AddDays(6).AddHours(22)
+[void](Invoke-RappelsDus $sem.AddDays(7).AddHours(9).AddMinutes(30))
+Test-Cas 'ancien « fait » : la fois du jour est « rappel manqué »' ((Get-Vus 'Sortir le verre').Count -eq 1 -and (Get-Vus 'Sortir le verre')[0].Etiquette -eq 'Rappel manqué') "($((Get-Vus 'Sortir le verre').Etiquette))"
+$script:Agenda = $sauveAgenda; Save-Agenda
+
+# ---------------------------------------------------------------------------
+# Audit du 25/10, constat 18 : un rappel très lointain ne fige pas Evermind, un code de rappel abîmé ne coupe rien
+# ---------------------------------------------------------------------------
+$sauveAgenda = $script:Agenda
+$script:Agenda = New-Object System.Collections.ArrayList
+$b18 = (Get-Date).Date.AddDays(120).AddHours(12)
+for ($i = 0; $i -lt 200; $i++) {
+    $raw = if ($i -lt 120) { [pscustomobject]@{ Id = "q$i"; Titre = "Chaque jour $i"; Type = 'rappel'; Quand = $b18.AddDays(-30).AddMinutes(7 * $i).ToString($DateFormat); Repetition = [pscustomobject]@{ Type = 'jour' } } }
+           elseif ($i -lt 160) { [pscustomobject]@{ Id = "s$i"; Titre = "Chaque semaine $i"; Type = 'jeu'; Quand = $b18.AddDays(-60).AddMinutes(11 * $i).ToString($DateFormat); Repetition = [pscustomobject]@{ Type = 'semaine'; Jour = $i % 7 }; Rappels = @('veille', 'm60') } }
+           else { [pscustomobject]@{ Id = "u$i"; Titre = "Une fois $i"; Type = 'rdv'; Quand = $b18.AddDays($i - 170).AddHours(-3).ToString($DateFormat) } }
+    [void]$script:Agenda.Add((ConvertTo-RendezVous $raw))
+}
+[void]$script:Agenda.Add((ConvertTo-RendezVous ([pscustomobject]@{ Id = 'passeport'; Titre = 'Passeport'; Type = 'rdv'; Quand = $b18.AddDays(100).ToString($DateFormat); Rappels = @('m524160') })))   # (« 52 semaines avant »)
+Reset-Memoire
+[void](Invoke-RappelsDus $b18.AddSeconds(-30))   # (un premier passage, comme au lancement)
+$temps = Measure-Command { [void](Invoke-RappelsDus $b18.AddSeconds(-10)) }
+Test-Cas "200 rendez-vous dont un à 52 semaines : un tour en moins de 300 ms ($([int]$temps.TotalMilliseconds) ms)" ($temps.TotalMilliseconds -lt 300)
+# « 52 semaines avant » : donné 60 jours avant (le plus long rappel), pas un an avant
+Reset-Memoire
+$pass18 = ConvertTo-UtcRappel $b18.AddDays(100)   # (en heure universelle : un changement d'heure peut tomber entre les deux)
+[void](Invoke-RappelsDus $pass18.AddMinutes(-524160).AddSeconds(5))
+Test-Cas '52 semaines avant : rien un an avant (60 jours au plus)' (-not (Get-Vus 'Passeport').Count)
+Reset-Memoire
+[void](Invoke-RappelsDus $pass18.AddDays(-60).AddSeconds(5))
+Test-Cas '52 semaines avant : donné 60 jours avant' ((Get-Vus 'Passeport').Count -eq 1) "($((Get-Vus 'Passeport').Count))"
+# Un code abîmé (assistant, fichier copié à la main) dans un rendez-vous : les rappels des autres sont donnés
+$script:Agenda = New-Object System.Collections.ArrayList
+[void]$script:Agenda.Add((ConvertTo-RendezVous ([pscustomobject]@{ Id = 'abime18'; Titre = 'Code abîmé'; Type = 'rdv'; Quand = $b18.ToString($DateFormat); Rappels = @('m9999999999') })))
+[void]$script:Agenda.Add((ConvertTo-RendezVous ([pscustomobject]@{ Id = 'bon18'; Titre = 'Bon'; Type = 'rdv'; Quand = $b18.ToString($DateFormat); Rappels = @('m60') })))
+Reset-Memoire
+$erreur18 = $null
+try { [void](Invoke-RappelsDus $b18.AddMinutes(-60).AddSeconds(5)) } catch { $erreur18 = $_ }
+Test-Cas 'code de rappel abîmé : les autres rappels sont donnés' (-not $erreur18 -and (Get-Vus 'Bon').Count -eq 1) "($erreur18)"
+$script:Agenda = $sauveAgenda
+
+# ---------------------------------------------------------------------------
+# Audit du 25/10, 25g : « Dans 10 min » la nuit du changement d'heure revient 10 minutes après, pas 70
+# ---------------------------------------------------------------------------
+$script:FuseauRappels = [TimeZoneInfo]::FindSystemTimeZoneById('Romance Standard Time')
+$train = Add-RendezVous 'Train de 4 h' ([datetime]'2026-10-25 04:00') $null 'rdv' $false @{ Rappels = @() }
+Reset-Memoire
+Add-ReportRappel $train $train.Quand (& $utc '2026-10-25 00:55:00').AddMinutes(10)   # (demandé à 2 h 55, heure d'été)
+[void](Invoke-RappelsDus (& $utc '2026-10-25 01:04:00'))
+Test-Cas '« Dans 10 min » au changement d''heure : pas avant 10 minutes' (-not (Get-Vus 'Train de 4 h').Count)
+. $relance
+Test-Cas '« Dans 10 min » relu en heure universelle' (@($script:ReportsRappels | Where-Object { $_.Id -eq $train.Id -and $_.Revient -eq (& $utc '2026-10-25 01:05:00') }).Count -eq 1) "($(@($script:ReportsRappels | ForEach-Object { $_.Revient.ToString('o') }) -join ', '))"
+[void](Invoke-RappelsDus (& $utc '2026-10-25 01:04:30'))
+Test-Cas '« Dans 10 min » après une relance : toujours pas avant' (-not (Get-Vus 'Train de 4 h').Count)
+[void](Invoke-RappelsDus (& $utc '2026-10-25 01:05:20'))
+Test-Cas '« Dans 10 min » au changement d''heure : 10 minutes après' ((Get-Vus 'Train de 4 h').Count -eq 1)
+Test-Cas 'ancienne heure de retour (sans « Z ») : lue en heure de l''horloge' ((ConvertFrom-TexteRevient '2026-10-25T03:05:00') -eq (& $utc '2026-10-25 02:05:00')) "($((ConvertFrom-TexteRevient '2026-10-25T03:05:00').ToString('o')))"
+$script:FuseauRappels = $null
+Remove-RendezVous $train.Id
+
+# ---------------------------------------------------------------------------
+# Audit du 25/10, constat 19 : rappels.json pris au lancement : enregistré dès qu'il est libre, sans rien perdre
+# ---------------------------------------------------------------------------
+$cle19 = "ancien19|$((Get-Date).AddDays(1).ToString('s'))|m60"
+Save-JsonFile $RappelsFile ([ordered]@{ DernierPassage = $null; Faits = @(); Reports = @() })   # (la sauvegarde .bak : vide)
+Save-JsonFile $RappelsFile ([ordered]@{ DernierPassage = $null; Faits = @($cle19); Reports = @() })   # (le fichier : un rappel déjà donné)
+$verrou = [IO.File]::Open($RappelsFile, 'Open', 'Read', 'None')
+try { . $relance } finally { $verrou.Dispose() }   # (lancement pendant que l'antivirus le tient)
+Test-Cas 'rappels.json pris au lancement : noté pris' ([bool]$script:FichiersPris[$RappelsFile])
+$plom19 = Add-RendezVous 'Plombier 19' (Get-Date).Date.AddDays(30).AddHours(15) $null 'rdv' $false @{}
+Add-ReportRappel $plom19 $plom19.Quand (Get-Date).Date.AddDays(30).AddHours(14)   # (une fois libre : enregistré)
+$fic19 = [IO.File]::ReadAllText($RappelsFile, [Text.Encoding]::UTF8) | ConvertFrom-Json
+Test-Cas 'rappels.json de nouveau libre : le « Dans 10 min » est enregistré' (@($fic19.Reports | Where-Object { $_.Id -eq $plom19.Id }).Count -eq 1) "($($fic19 | ConvertTo-Json -Compress -Depth 4))"
+Test-Cas 'rappels.json de nouveau libre : ce qu''il contenait est gardé' (@($fic19.Faits) -contains $cle19) "($(@($fic19.Faits) -join ', '))"
+Remove-RendezVous $plom19.Id
 
 exit $(if ($ok) { 0 } else { 1 })
