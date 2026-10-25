@@ -34,6 +34,15 @@ try {
 } finally { Pop-Location; $ErrorActionPreference = 'Stop' }
 if ($tagExiste -or $releaseExiste) { throw "La version $Version existe déjà. Choisis un numéro plus grand (exemple : 0.11.1 ou 0.12.0)." }
 
+# Le zip est construit depuis git (construire.ps1) et seul le numéro de version est commité ici : tout le reste doit
+# déjà être commité, sinon la Release ne serait pas ce que contient le dépôt
+Push-Location $racine
+try {
+    $ErrorActionPreference = 'Continue'
+    $enCours = @(git status --porcelain --untracked-files=no)
+} finally { Pop-Location; $ErrorActionPreference = 'Stop' }
+if ($enCours.Count) { throw "Des changements ne sont pas commités : commite-les d'abord.`n$($enCours -join "`n")" }
+
 # Vérifications : syntaxe, fenêtre, tirets cadratins, clé publique, puis test automatique de l'app
 $problemes = @()
 foreach ($f in @(Get-ChildItem -LiteralPath (Join-Path $app 'fichiers') -Recurse -Filter '*.ps1') + @(Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*.ps1')) {
@@ -78,8 +87,13 @@ $l2 = [regex]::Replace($l, '(?i)^(Evermind) [\d\.]+', "`$1 $Version")
 if ($l2 -ne $l) { [IO.File]::WriteAllText($lisez, $l2, $utf8) }
 
 # 2. Construction du .exe et du zip, puis sa signature (Mindset et Evermind refusent un zip sans signature valide).
-# signer.ps1 s'arrête sur une erreur s'il ne peut pas signer : la publication est alors annulée avant tout envoi.
-& (Join-Path $PSScriptRoot 'construire.ps1')
+# Le numéro de version est mis dans l'index : construire.ps1 prend les fichiers de l'index (git), exactement ce qui sera
+# commité. signer.ps1 s'arrête sur une erreur s'il ne peut pas signer : la publication est alors annulée avant tout envoi.
+$fichiersVersion = @('Evermind/fichiers/Evermind.ps1', 'Evermind/LISEZMOI.txt')
+Push-Location $racine
+try { Invoke-Native git (@('add', '--') + $fichiersVersion) } finally { Pop-Location }
+$construit = @(& (Join-Path $PSScriptRoot 'construire.ps1'))
+$arbreZip = if ("$($construit[-1])" -match 'arbre git ([0-9a-f]{40})') { $Matches[1] } else { throw 'Publication annulée : construire.ps1 n''a pas dit de quel état de git vient le zip.' }
 Remove-Item -LiteralPath "$zip.sig" -ErrorAction SilentlyContinue   # jamais l'ancienne signature d'un autre zip
 & (Join-Path (Split-Path $racine -Parent) 'Mindset\outils\signer.ps1') -Fichier $zip
 if (-not (Test-Path -LiteralPath "$zip.sig")) { throw 'Publication annulée : le zip n''a pas pu être signé.' }
@@ -88,8 +102,10 @@ if (-not (Test-Path -LiteralPath "$zip.sig")) { throw 'Publication annulée : le
 #    ils sont seulement joints à la Release.
 Push-Location $racine
 try {
-    Invoke-Native git @('add', '-A')
-    Invoke-Native git @('commit', '-m', "Evermind $Version", '-m', 'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>')
+    # (seulement le numéro de version, déjà dans l'index : jamais un fichier qui traîne)
+    Invoke-Native git (@('commit', '-m', "Evermind $Version", '-m', 'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>', '--') + $fichiersVersion)
+    $arbreCommit = ([string](git rev-parse 'HEAD^{tree}')).Trim()
+    if ($arbreCommit -ne $arbreZip) { throw "Publication annulée : le commit ($arbreCommit) n'est pas l'état de git du zip ($arbreZip). Rien n'a été envoyé." }
     Invoke-Native git @('tag', "v$Version")
     Invoke-Native git @('push', 'origin', 'HEAD', '--tags')
     if (-not $Notes) { $Notes = "Evermind $Version" }
