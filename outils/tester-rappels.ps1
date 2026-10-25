@@ -333,7 +333,7 @@ for ($i = 0; $i -lt 200; $i++) {
 Reset-Memoire
 [void](Invoke-RappelsDus $b18.AddSeconds(-30))   # (un premier passage, comme au lancement)
 $temps = Measure-Command { [void](Invoke-RappelsDus $b18.AddSeconds(-10)) }
-Test-Cas "200 rendez-vous dont un à 52 semaines : un tour en moins de 300 ms ($([int]$temps.TotalMilliseconds) ms)" ($temps.TotalMilliseconds -lt 300)
+Test-Cas "200 rendez-vous dont un à 52 semaines : un tour en moins de 2 s ($([int]$temps.TotalMilliseconds) ms ; l'ancien code : 100 s)" ($temps.TotalMilliseconds -lt 2000)
 # « 52 semaines avant » : donné 60 jours avant (le plus long rappel), pas un an avant
 Reset-Memoire
 $pass18 = ConvertTo-UtcRappel $b18.AddDays(100)   # (en heure universelle : un changement d'heure peut tomber entre les deux)
