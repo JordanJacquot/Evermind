@@ -41,6 +41,14 @@ try {
     $ErrorActionPreference = 'Continue'
     $enCours = @(git status --porcelain --untracked-files=no)
 } finally { Pop-Location; $ErrorActionPreference = 'Stop' }
+# (une publication arrêtée en route, par exemple un mot de passe mal tapé, laisse seulement le numéro de version écrit
+# dans ces deux fichiers : on les remet comme dans git, ils sont réécrits juste après)
+$siens = @('Evermind/fichiers/Evermind.ps1', 'Evermind/LISEZMOI.txt')
+if ($enCours.Count -and -not @($enCours | Where-Object { $_ -notmatch '^ M ' -or $siens -notcontains $_.Substring(3).Trim('"') }).Count) {
+    git -C $racine checkout -- $siens[0] $siens[1] 2>$null
+    Write-Host 'Le numéro de version laissé par une publication arrêtée en route est remis comme dans git.'
+    $enCours = @()
+}
 if ($enCours.Count) { throw "Des changements ne sont pas commités : commite-les d'abord.`n$($enCours -join "`n")" }
 
 # Vérifications : syntaxe, fenêtre, tirets cadratins, clé publique, puis test automatique de l'app
