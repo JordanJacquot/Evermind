@@ -382,11 +382,30 @@ public class EMEveil
         {
             SetDllDirectory(dossierLib);
             vosk_set_log_level(-1);
-            model = vosk_model_new(Encoding.UTF8.GetBytes(dossierModele + "\0"));
+            model = vosk_model_new(CheminVosk(dossierModele));
             if (model == IntPtr.Zero) { Erreur = "modèle illisible"; return false; }
             return true;
         }
         catch (Exception e) { Erreur = e.Message; return false; }
+    }
+
+    [DllImport("kernel32.dll")] static extern uint GetACP();
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern uint GetShortPathNameW(string longue, StringBuilder courte, uint taille);
+
+    // libvosk (construite avec MinGW) ouvre ses fichiers avec un chemin écrit dans la page de code de Windows, pas en UTF-8 :
+    // un nom d'utilisateur accentué (C:\Users\Jérôme) donnerait un chemin introuvable. Un chemin qui ne s'écrit pas
+    // dans cette page de code (lettres d'une autre langue) passe par son nom court (C:\Users\9B2E~1), s'il existe.
+    public static byte[] CheminVosk(string chemin)
+    {
+        Encoding ansi;
+        try { ansi = Encoding.GetEncoding((int)GetACP()); } catch { ansi = Encoding.Default; }
+        if (ansi.GetString(ansi.GetBytes(chemin)) != chemin)
+        {
+            StringBuilder sb = new StringBuilder(1024);
+            uint n = GetShortPathNameW(chemin, sb, (uint)sb.Capacity);
+            if (n > 0 && n < sb.Capacity) chemin = sb.ToString();
+        }
+        return ansi.GetBytes(chemin + "\0");
     }
 
     IntPtr NouveauRecognizer(int rate)
@@ -419,6 +438,11 @@ public class EMEveil
     }
 
     void Boucle()
+    {
+        try { Ecouter(); } finally { FinDeBoucle(); }
+    }
+
+    void Ecouter()
     {
         bool enPause = false;
         while (run)
@@ -522,10 +546,34 @@ public class EMEveil
         if (Detecte) pcmDetecte = pcm;   // en test, il n'y a pas de micro pour la suite : toute la phrase est gardée
     }
 
+    // Arrêt de l'écoute. Le micro, ses tampons, le recognizer et le modèle ne sont rendus qu'une fois la boucle d'écoute
+    // sortie : si elle est encore dans Vosk au bout d'une seconde (PC très occupé), c'est elle qui les rendra en sortant,
+    // sans faire attendre la fenêtre.
+    readonly object verrou = new object();
+    bool boucleFinie, rendreEnSortant, rendu;
+    public volatile bool RenduParLaBoucle;   // (pour les tests)
+
     public void Stop()
     {
         run = false; ev.Set();
         if (th != null) th.Join(1000);
+        lock (verrou)
+        {
+            if (th != null && !boucleFinie) { rendreEnSortant = true; return; }
+        }
+        Rendre();
+    }
+
+    void FinDeBoucle()
+    {
+        bool rendre;
+        lock (verrou) { boucleFinie = true; rendre = rendreEnSortant; }
+        if (rendre) { RenduParLaBoucle = true; Rendre(); }
+    }
+
+    void Rendre()
+    {
+        lock (verrou) { if (rendu) return; rendu = true; }
         if (h != IntPtr.Zero)
         {
             waveInReset(h);
@@ -540,8 +588,8 @@ public class EMEveil
         }
         if (rec != IntPtr.Zero) { vosk_recognizer_free(rec); rec = IntPtr.Zero; }
         // Le modèle aussi (environ 80 Mo) : sinon chaque arrêt et reprise de l'écoute (micro débranché puis rebranché,
-        // micro changé) en charge un de plus. Jamais pendant que la boucle d'écoute s'en sert encore.
-        if (model != IntPtr.Zero && (th == null || !th.IsAlive)) { vosk_model_free(model); model = IntPtr.Zero; }
+        // micro changé) en charge un de plus.
+        if (model != IntPtr.Zero) { vosk_model_free(model); model = IntPtr.Zero; }
     }
 
     static string PtrToString(IntPtr p)
@@ -769,6 +817,48 @@ public static class EMFilet
 }
 
 // ---------------------------------------------------------------------------
+// Qui écoute sur un port du PC : un programme d'aide (whisper-server) n'est « prêt » que si c'est bien lui qui écoute
+// sur son port, et lui seul (pas un autre programme qui aurait pris ce port avant lui).
+// ---------------------------------------------------------------------------
+public static class EMPorts
+{
+    [DllImport("iphlpapi.dll")] static extern uint GetExtendedTcpTable(IntPtr table, ref int taille, bool trie, int famille, int sorte, uint reserve);
+    const int AF_INET = 2, TCP_TABLE_OWNER_PID_LISTENER = 3;
+
+    // true si le programme numéro pid écoute sur ce port (adresses IPv4) et qu'aucun autre programme n'y écoute
+    public static bool Seul(int port, int pid)
+    {
+        int taille = 0;
+        GetExtendedTcpTable(IntPtr.Zero, ref taille, false, AF_INET, TCP_TABLE_OWNER_PID_LISTENER, 0);
+        for (int essai = 0; essai < 3; essai++)
+        {
+            taille += 1024;
+            IntPtr t = Marshal.AllocHGlobal(taille);
+            try
+            {
+                uint r = GetExtendedTcpTable(t, ref taille, false, AF_INET, TCP_TABLE_OWNER_PID_LISTENER, 0);
+                if (r == 122) continue;   // (la liste a grandi entre-temps)
+                if (r != 0) return false;
+                int n = Marshal.ReadInt32(t);
+                bool lui = false;
+                for (int i = 0; i < n; i++)
+                {
+                    // MIB_TCPROW_OWNER_PID : état, adresse, port, adresse distante, port distant, numéro du programme
+                    IntPtr ligne = t + 4 + i * 24;
+                    int brut = Marshal.ReadInt32(ligne, 8);
+                    int p = ((brut & 0xFF) << 8) | ((brut >> 8) & 0xFF);
+                    if (p != port) continue;
+                    if (Marshal.ReadInt32(ligne, 20) == pid) lui = true; else return false;
+                }
+                return lui;
+            }
+            finally { Marshal.FreeHGlobal(t); }
+        }
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Les programmes d'aide (Whisper, la voix Kokoro, l'assistant et le modèle qu'il lance) sont mis dans un « job » de
 // Windows : quand Evermind s'arrête, même de force (Mindset qui le ferme, plantage), Windows les arrête avec lui.
 // Le job se ferme avec Evermind (rien ne le ferme avant) : c'est ce qui arrête les programmes qu'il contient.
@@ -815,5 +905,33 @@ public static class EMJob
             }
             catch (Exception e) { Erreur = e.Message; return false; }
         }
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool CloseHandle(IntPtr h);
+
+    // Un job à part pour un programme d'aide et tout ce qu'il lance (l'assistant et le modèle llama-server qu'il démarre) :
+    // Fermer arrête d'un coup le programme et ses enfants, même quand l'assistant est arrêté de force sans avoir pu
+    // arrêter le modèle lui-même. (Ce job est rangé dans celui d'Evermind : tout s'arrête aussi avec Evermind.)
+    // IntPtr.Zero si impossible (le programme reste quand même relié à Evermind par Ajouter).
+    public static IntPtr Groupe(System.Diagnostics.Process p)
+    {
+        try
+        {
+            IntPtr j = CreateJobObject(IntPtr.Zero, null);
+            if (j == IntPtr.Zero) { Erreur = "création du groupe (code " + Marshal.GetLastWin32Error() + ")"; return IntPtr.Zero; }
+            LIMITES_ETENDUES info = new LIMITES_ETENDUES();
+            info.Base.LimitFlags = KILL_ON_JOB_CLOSE;
+            if (!SetInformationJobObject(j, ExtendedLimitInformation, ref info, (uint)Marshal.SizeOf(typeof(LIMITES_ETENDUES)))
+                || !AssignProcessToJobObject(j, p.Handle))
+            { Erreur = "groupe (code " + Marshal.GetLastWin32Error() + ")"; CloseHandle(j); return IntPtr.Zero; }
+            return j;
+        }
+        catch (Exception e) { Erreur = e.Message; return IntPtr.Zero; }
+    }
+
+    // Arrête ce qui reste du groupe (le modèle laissé par un assistant arrêté de force)
+    public static void Fermer(IntPtr groupe)
+    {
+        if (groupe != IntPtr.Zero) CloseHandle(groupe);
     }
 }

@@ -224,5 +224,167 @@ Test-Cas 'écoute arrêtée : le modèle Vosk est rendu' ($lu5 -eq 'rendu') "($l
 $eveilTexte = [IO.File]::ReadAllText((Join-Path $modules 'eveil.ps1'), [Text.Encoding]::UTF8)
 Test-Cas 'micro indisponible au départ : le modèle est rendu aussi' ($eveilTexte -match 'micro indisponible \(code \$err\)"; try \{ \$e\.Stop\(\) \}')
 
+# ---------------------------------------------------------------------------
+# 6. Écoute arrêtée pendant que la boucle d'écoute est encore dans Vosk (PC très occupé) : rien n'est rendu sous
+#    elle, la fenêtre n'attend pas plus d'une seconde, et c'est la boucle qui rend tout en sortant.
+#    Une fausse boucle (un fil qui dure 3 s, puis 0,1 s) remplace celle du micro ; Vosk n'est pas installé ici :
+#    chaque libération se voit à l'erreur « libvosk.dll introuvable ».
+# 7. Chemin du modèle Vosk donné dans la page de code de Windows (nom d'utilisateur accentué), ou par son nom court.
+# ---------------------------------------------------------------------------
+$sortie6 = Join-Path $test 'boucle.txt'
+$essai6 = Join-Path $test 'boucle.ps1'
+$dossierAutre = Join-Path $test ('modele-' + [char]0x0414 + [char]0x0438 + [char]0x043C + [char]0x0430)   # (lettres russes)
+New-Item -ItemType Directory -Force $dossierAutre | Out-Null
+[IO.File]::WriteAllText($essai6, @'
+param([string]$Natif, [string]$Sortie, [string]$Autre)
+$r = @()
+try {
+    Add-Type -TypeDefinition ([IO.File]::ReadAllText($Natif, [Text.Encoding]::UTF8))
+    Add-Type -TypeDefinition @"
+using System; using System.Reflection; using System.Threading;
+public static class FausseBoucle {
+    public static string Note = "";
+    public static Thread Lancer(object e, int ms) {
+        Thread t = new Thread(() => {
+            Thread.Sleep(ms);
+            try {
+                MethodInfo m = e.GetType().GetMethod("FinDeBoucle", BindingFlags.NonPublic | BindingFlags.Instance);
+                if (m == null) { Note = "pas de fin de boucle"; return; }
+                m.Invoke(e, null); Note = "sortie sans rien rendre";
+            } catch (Exception x) { Exception y = x.InnerException ?? x; Note = (y is DllNotFoundException) ? "rendu par la boucle" : "erreur " + y.Message; }
+        });
+        t.IsBackground = true; t.Start(); return t;
+    }
+}
+"@
+    $bf = [Reflection.BindingFlags]'NonPublic, Instance'
+    foreach ($ms in 3000, 100) {
+        [FausseBoucle]::Note = ''
+        $e = New-Object EMEveil
+        [EMEveil].GetField('model', $bf).SetValue($e, [IntPtr]1)   # (faux modèle et faux recognizer : jamais donnés à un vrai Vosk)
+        [EMEveil].GetField('rec', $bf).SetValue($e, [IntPtr]2)
+        $t = [FausseBoucle]::Lancer($e, $ms)
+        [EMEveil].GetField('th', $bf).SetValue($e, $t)
+        $chrono = [Diagnostics.Stopwatch]::StartNew()
+        $arret = try { $e.Stop(); 'rien rendu' } catch { if ($_.Exception.InnerException -is [DllNotFoundException] -or $_.Exception -is [DllNotFoundException]) { 'rendu' } else { "erreur $_" } }
+        $duree = $chrono.ElapsedMilliseconds
+        $vivant = $t.IsAlive
+        [void]$t.Join(10000)
+        $r += "$ms;$arret;$vivant;$(if ($duree -lt 2000) { 'vite' } else { "lent $duree" });$([FausseBoucle]::Note)"
+    }
+    $acp = [Text.Encoding]::GetEncoding([Globalization.CultureInfo]::CurrentCulture.TextInfo.ANSICodePage)
+    $nom = 'C:\Users\J' + [char]0xE9 + 'r' + [char]0xF4 + 'me\modele'
+    $b = [EMEveil]::CheminVosk($nom)
+    $r += "accent;$(([Convert]::ToBase64String($b)) -eq [Convert]::ToBase64String($acp.GetBytes($nom + [char]0)))"
+    $b = [EMEveil]::CheminVosk($Autre)
+    $court = $acp.GetString($b, 0, $b.Length - 1)
+    $sansNomCourt = (New-Object -ComObject Scripting.FileSystemObject).GetFolder($Autre).ShortPath -eq $Autre
+    $r += "autre;$((Test-Path -LiteralPath $court) -or $sansNomCourt)"
+} catch { $r += "erreur $_" }
+[IO.File]::WriteAllLines($Sortie, [string[]]$r)
+'@, (New-Object Text.UTF8Encoding $true))
+$p6 = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$essai6`"", '-Natif', "`"$natif`"", '-Sortie', "`"$sortie6`"", '-Autre', "`"$dossierAutre`"" -WindowStyle Hidden -PassThru
+if (-not $p6.WaitForExit(60000)) { $p6.Kill() }
+$lu6 = if (Test-Path -LiteralPath $sortie6) { @([IO.File]::ReadAllLines($sortie6)) } else { @('pas de réponse') }
+Test-Cas 'écoute arrêtée, boucle encore dans Vosk : rien rendu sous elle, sans attendre' ($lu6 -contains '3000;rien rendu;True;vite;rendu par la boucle') "($($lu6 -join ' / '))"
+Test-Cas 'écoute arrêtée, boucle sortie à temps : tout est rendu tout de suite' ($lu6 -contains '100;rendu;False;vite;sortie sans rien rendre') "($($lu6 -join ' / '))"
+Test-Cas 'modèle Vosk dans un dossier accentué : chemin dans la page de code de Windows' ($lu6 -contains 'accent;True') "($($lu6 -join ' / '))"
+Test-Cas 'modèle Vosk dans un dossier en lettres étrangères : nom court' ($lu6 -contains 'autre;True') "($($lu6 -join ' / '))"
+
+# ---------------------------------------------------------------------------
+# 8. Assistant arrêté de force (occupé, il ne lit plus son entrée) : le modèle qu'il avait lancé (llama-server) s'arrête
+#    avec lui, sans attendre la fermeture d'Evermind. Un faux assistant (petit programme compilé ici) lance ping.exe
+#    comme l'assistant lance llama-server, puis n'écoute plus ; un faux Evermind le démarre et l'arrête avec les
+#    vraies fonctions Start-Cerveau et Stop-Cerveau.
+# ---------------------------------------------------------------------------
+$fauxAssistant = Join-Path $test 'faux-assistant.exe'
+Add-Type -OutputType ConsoleApplication -OutputAssembly $fauxAssistant -TypeDefinition @'
+using System; using System.Diagnostics; using System.IO; using System.Threading;
+public static class FauxAssistant {
+    public static void Main() {
+        ProcessStartInfo psi = new ProcessStartInfo(Environment.GetEnvironmentVariable("SystemRoot") + "\\System32\\PING.EXE", "-n 120 127.0.0.1");
+        psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.RedirectStandardOutput = true;
+        Process p = Process.Start(psi);
+        File.WriteAllText(Environment.GetEnvironmentVariable("EVERMIND_TEST_MODELE_PID"), p.Id.ToString());
+        Thread.Sleep(120000);
+    }
+}
+'@
+$sortie8 = Join-Path $test 'assistant.txt'
+$essai8 = Join-Path $test 'assistant.ps1'
+[IO.File]::WriteAllText($essai8, @'
+param([string]$Natif, [string]$Modules, [string]$Exe, [string]$Sortie, [string]$Dossier)
+$r = 'pas fini'
+try {
+    Add-Type -TypeDefinition ([IO.File]::ReadAllText($Natif, [Text.Encoding]::UTF8))
+    $script:Journal = @()
+    function Write-Log([string]$t) { $script:Journal += $t }
+    foreach ($f in @(@('voix.ps1', 'Add-ProgrammeAide'), @('cerveau.ps1', 'Start-Cerveau'), @('cerveau.ps1', 'Stop-Cerveau'))) {
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $Modules $f[0]), [ref]$null, [ref]$null)
+        $d = $ast.Find({ param($a) $a -is [Management.Automation.Language.FunctionDefinitionAst] -and $a.Name -eq $f[1] }, $true)
+        . ([scriptblock]::Create($d.Extent.Text))
+    }
+    function Test-CerveauInstalle { $true }
+    function Get-CopieMindset($e) { $e }
+    $JavaExe = $Exe; $AssistantLib = $Dossier; $LlamaExe = $Exe; $IaModele = $Exe; $DataDir = $Dossier; $IaDir = $Dossier
+    $pidFichier = Join-Path $Dossier 'modele-pid.txt'
+    $env:EVERMIND_TEST_MODELE_PID = $pidFichier
+    if (-not (Start-Cerveau)) { throw "assistant pas démarré : $($script:Journal -join ' ')" }
+    $limite = (Get-Date).AddSeconds(20)
+    while (-not (Test-Path -LiteralPath $pidFichier) -and (Get-Date) -lt $limite) { Start-Sleep -Milliseconds 100 }
+    Start-Sleep -Milliseconds 200
+    $modele = [int][IO.File]::ReadAllText($pidFichier)
+    $assistant = $script:Cerveau.Process.Id
+    Stop-Cerveau
+    $limite = (Get-Date).AddSeconds(3)
+    while ((Get-Process -Id $modele -ErrorAction SilentlyContinue) -and (Get-Date) -lt $limite) { Start-Sleep -Milliseconds 100 }
+    $vivant = [bool](Get-Process -Id $modele -ErrorAction SilentlyContinue)
+    $r = "$modele;$assistant;$(if ($vivant) { 'modèle vivant' } else { 'modèle arrêté' })"
+} catch { $r = "erreur $_" }
+[IO.File]::WriteAllText($Sortie, $r)
+'@, (New-Object Text.UTF8Encoding $true))
+$p8 = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$essai8`"", '-Natif', "`"$natif`"", '-Modules', "`"$modules`"", '-Exe', "`"$fauxAssistant`"", '-Sortie', "`"$sortie8`"", '-Dossier', "`"$test`"" -WindowStyle Hidden -PassThru
+if (-not $p8.WaitForExit(60000)) { $p8.Kill() }
+$lu8 = if (Test-Path -LiteralPath $sortie8) { [IO.File]::ReadAllText($sortie8) } else { 'pas de réponse' }
+# (ménage : seulement les numéros notés par ce test)
+foreach ($n in @($lu8 -split ';' | Select-Object -First 2)) { if ($n -match '^\d+$') { Get-Process -Id ([int]$n) -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -in 'PING', 'faux-assistant' } | Stop-Process -Force -ErrorAction SilentlyContinue } }
+Test-Cas 'assistant arrêté de force : le modèle qu''il avait lancé s''arrête avec lui' ($lu8 -match ';modèle arrêté$') "($lu8)"
+
+# ---------------------------------------------------------------------------
+# 9. Whisper n'est « prêt » que si c'est bien lui qui écoute sur son port (vraie fonction Read-WhisperServeur) :
+#    un autre programme qui a pris le port (ici, ce test lui-même) ne reçoit jamais la phrase dictée.
+# ---------------------------------------------------------------------------
+$sortie9 = Join-Path $test 'port.txt'
+$essai9 = Join-Path $test 'port.ps1'
+[IO.File]::WriteAllText($essai9, @'
+param([string]$Natif, [string]$Modules, [string]$Sortie)
+$r = @()
+try {
+    Add-Type -TypeDefinition ([IO.File]::ReadAllText($Natif, [Text.Encoding]::UTF8))
+    $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $Modules 'voix.ps1'), [ref]$null, [ref]$null)
+    $d = $ast.Find({ param($a) $a -is [Management.Automation.Language.FunctionDefinitionAst] -and $a.Name -eq 'Read-WhisperServeur' }, $true)
+    . ([scriptblock]::Create($d.Extent.Text))
+    $muet = [pscustomobject]@{}; $muet | Add-Member ScriptMethod Suivante { $false }
+    $l = New-Object Net.Sockets.TcpListener ([Net.IPAddress]::Loopback, 0); $l.Start(); $port = $l.LocalEndpoint.Port
+    $autre = 4   # (un autre numéro de programme : celui de Windows lui-même)
+    foreach ($cas in @(@('autre programme', $autre), @('lui', $PID))) {
+        $s = @{ Port = $port; Pret = $false; Process = [pscustomobject]@{ Id = $cas[1] }; Sortie = $muet; Erreurs = $muet }
+        Read-WhisperServeur $s
+        $r += "$($cas[0]);$($s.Pret)"
+    }
+    $l.Stop()
+    $s = @{ Port = $port; Pret = $false; Process = [pscustomobject]@{ Id = $PID }; Sortie = $muet; Erreurs = $muet }
+    Read-WhisperServeur $s
+    $r += "personne;$($s.Pret)"
+} catch { $r += "erreur $_" }
+[IO.File]::WriteAllLines($Sortie, [string[]]$r)
+'@, (New-Object Text.UTF8Encoding $true))
+$p9 = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$essai9`"", '-Natif', "`"$natif`"", '-Modules', "`"$modules`"", '-Sortie', "`"$sortie9`"" -WindowStyle Hidden -PassThru
+if (-not $p9.WaitForExit(60000)) { $p9.Kill() }
+$lu9 = if (Test-Path -LiteralPath $sortie9) { @([IO.File]::ReadAllLines($sortie9)) } else { @('pas de réponse') }
+Test-Cas 'Whisper : port pris par un autre programme, pas prêt' ($lu9 -contains 'autre programme;False') "($($lu9 -join ' / '))"
+Test-Cas 'Whisper : c''est lui qui écoute, prêt' ($lu9 -contains 'lui;True') "($($lu9 -join ' / '))"
+Test-Cas 'Whisper : personne n''écoute, pas prêt' ($lu9 -contains 'personne;False') "($($lu9 -join ' / '))"
+
 Remove-Item $test -Recurse -Force -ErrorAction SilentlyContinue
 exit $(if ($ok) { 0 } else { 1 })

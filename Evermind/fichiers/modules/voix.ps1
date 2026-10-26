@@ -1073,12 +1073,12 @@ function Start-WhisperServeur {
     $script:WhisperSrv
 }
 
-# Lit (et oublie) ce que le serveur écrit. Il est prêt quand il écoute sur son port (le modèle est chargé).
+# Lit (et oublie) ce que le serveur écrit. Il est prêt quand il écoute sur son port (le modèle est chargé) : lui, et
+# pas un autre programme qui aurait pris ce port entre-temps (la phrase dictée n'est envoyée qu'à Whisper).
+# (whisper-server n'a pas de clé à donner : sa liste d'options n'en propose pas)
 function Read-WhisperServeur($s) {
     foreach ($lecteur in $s.Sortie, $s.Erreurs) { while ($lecteur.Suivante()) {} }
-    if (-not $s.Pret) {
-        $s.Pret = [bool](@([Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners()) | Where-Object { $_.Port -eq $s.Port })
-    }
+    if (-not $s.Pret) { $s.Pret = [EMPorts]::Seul($s.Port, $s.Process.Id) }
 }
 
 function Stop-WhisperServeur {

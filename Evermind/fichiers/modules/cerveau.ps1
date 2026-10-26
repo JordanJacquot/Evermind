@@ -17,6 +17,7 @@ function Test-EstCommande([string]$Texte) { $Texte -match $RxCommande }
 function Start-Cerveau {
     if (-not (Test-CerveauInstalle)) { return $false }
     if ($script:Cerveau -and -not $script:Cerveau.Process.HasExited) { $script:Cerveau.Dernier = Get-Date; return $true }
+    if ($script:Cerveau) { Stop-Cerveau }   # (arrêté tout seul : le modèle qu'il avait lancé s'arrête aussi)
     try {
         $psi = New-Object Diagnostics.ProcessStartInfo
         # java.exe garde son nom (pas de copie Mindset.exe comme pour llama-server, voir Get-CopieMindset) : il est signé
@@ -32,8 +33,11 @@ function Start-Cerveau {
         $p = [Diagnostics.Process]::Start($psi)
     } catch { Write-Log "Assistant impossible à démarrer : $_"; return $false }
     Add-ProgrammeAide $p 'Assistant'   # (le modèle qu'il lance ensuite s'arrête aussi avec Evermind)
+    # (et avec l'assistant, même arrêté de force : voir Stop-Cerveau)
+    $groupe = [IntPtr]::Zero
+    if ('EMJob' -as [type]) { $groupe = [EMJob]::Groupe($p); if ($groupe -eq [IntPtr]::Zero) { Write-Log "Assistant : modèle pas relié à lui ($([EMJob]::Erreur))" } }
     try { $p.PriorityClass = 'BelowNormal' } catch {}   # (un jeu passe avant ; le modèle, lancé par lui, aussi)
-    $script:Cerveau = @{ Process = $p; Dernier = Get-Date }
+    $script:Cerveau = @{ Process = $p; Dernier = Get-Date; Groupe = $groupe }
     Write-Log 'Assistant démarré'
     $true
 }
@@ -45,6 +49,8 @@ function Stop-Cerveau {
     # Fin de l'entrée : le programme arrête le modèle et se ferme ; sinon il est arrêté de force
     try { $c.Process.StandardInput.Close() } catch {}
     try { if (-not $c.Process.WaitForExit(3000)) { $c.Process.Kill() } } catch {}
+    # Arrêté de force, il n'a pas pu arrêter le modèle (llama-server, qui garde la carte graphique) : il s'arrête ici
+    if ($null -ne $c.Groupe -and ('EMJob' -as [type])) { try { [EMJob]::Fermer($c.Groupe) } catch {} }
 }
 
 # ---------------------------------------------------------------------------
