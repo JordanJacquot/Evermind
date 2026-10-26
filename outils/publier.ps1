@@ -44,7 +44,8 @@ try {
 # (une publication arrêtée en route, par exemple un mot de passe mal tapé, laisse seulement le numéro de version écrit
 # dans ces deux fichiers : on les remet comme dans git, ils sont réécrits juste après)
 $siens = @('Evermind/fichiers/Evermind.ps1', 'Evermind/LISEZMOI.txt')
-if ($enCours.Count -and -not @($enCours | Where-Object { $_ -notmatch '^ M ' -or $siens -notcontains $_.Substring(3).Trim('"') }).Count) {
+if ($enCours.Count -and -not @($enCours | Where-Object { $_ -notmatch '^(M |MM| M) ' -or $siens -notcontains $_.Substring(3).Trim('"') }).Count) {
+    git -C $racine reset -q -- $siens[0] $siens[1] 2>$null   # (préparés pour le commit par une tentative arrêtée)
     git -C $racine checkout -- $siens[0] $siens[1] 2>$null
     Write-Host 'Le numéro de version laissé par une publication arrêtée en route est remis comme dans git.'
     $enCours = @()
