@@ -30,8 +30,21 @@ function Test-Signature([byte[]]$Donnees, [byte[]]$Signature, [string]$ClePubliq
         foreach ($f in $fichiers) {
             $rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider
             $cles += $rsa
-            $rsa.FromXmlString([IO.File]::ReadAllText($f, [Text.Encoding]::UTF8))
+            $xml = [IO.File]::ReadAllText($f, [Text.Encoding]::UTF8)
+            # (Modulus et Exponent sont obligatoires : sans eux, FromXmlString échoue)
+            $rsa.FromXmlString($xml)
             if ($rsa.KeySize -lt 3072 -or -not $rsa.PublicOnly) { return $false }
+            # Aucun élément de clé privée, même vide ou incomplet (.NET ne regarde que P : une clé avec D seul passait
+            # pour publique). Lu par le même analyseur que FromXmlString ; même règle que Mindset (signature.ps1).
+            $aVoir = New-Object System.Collections.Stack
+            $aVoir.Push([System.Security.SecurityElement]::FromString($xml))
+            while ($aVoir.Count) {
+                $el = $aVoir.Pop()
+                foreach ($nom in 'P', 'Q', 'DP', 'DQ', 'InverseQ', 'D') {
+                    if ($el.Tag -ceq $nom -or $el.Tag.EndsWith(":$nom", [StringComparison]::Ordinal)) { return $false }
+                }
+                foreach ($enfant in @($el.Children)) { if ($enfant) { $aVoir.Push($enfant) } }
+            }
         }
         foreach ($rsa in $cles) {
             if ($rsa.VerifyData($Donnees, [System.Security.Cryptography.CryptoConfig]::MapNameToOID('SHA256'), $Signature)) { return $true }
@@ -66,10 +79,66 @@ function Get-RefusVersionZip([string]$Script, [string]$Annoncee, [string]$Ici) {
 function Expand-ZipMaj([byte[]]$Octets, [byte[]]$Signature, [string]$Cle, [string]$Dest, [string]$Annoncee, [string]$Ici) {
     $res = @{ Dossier = ''; Refus = $false; Erreur = '' }
     if (-not (Test-Signature $Octets $Signature $Cle)) { $res.Refus = $true; $res.Erreur = 'sa signature n''est pas valide (ce fichier ne vient pas de Jordan, ou il a été modifié)'; return $res }
-    # Dézippé depuis les octets vérifiés : le fichier sur le disque pourrait avoir changé entre-temps
+    # Dézippé depuis les octets vérifiés (le fichier sur le disque pourrait avoir changé entre-temps), entrée par entrée,
+    # avec les contrôles de Mindset (paquets.ps1, Install-Paquet) que .NET ne fait pas :
+    # - une entrée marquée « chiffrée » est refusée (.NET en écrirait les octets tels quels) ;
+    # - le contenu doit avoir exactement la taille et le CRC annoncés par le zip, et un deflate illisible est refusé
+    #   (.NET écrirait sans contrôle ce qu'il tire d'un deflate abîmé : parfois rien du tout, sans erreur).
+    # Un zip abîmé n'est jamais installé, même signé.
+    # Le drapeau, le CRC annoncé et le calcul du CRC sont des parties internes de .NET : absentes, l'entrée est refusée.
     Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
-    $archive = New-Object IO.Compression.ZipArchive((New-Object IO.MemoryStream (, $Octets)), [IO.Compression.ZipArchiveMode]::Read)
-    try { [IO.Compression.ZipFileExtensions]::ExtractToDirectory($archive, $Dest) } finally { $archive.Dispose() }
+    $abime = 'le zip est abîmé'
+    $chiffre = 'le zip contient un fichier chiffré'
+    $horsDossier = 'le zip contient un chemin refusé'
+    $interne = [Reflection.BindingFlags]'NonPublic,Instance'
+    $champDrapeaux = [IO.Compression.ZipArchiveEntry].GetField('_generalPurposeBitFlag', $interne)
+    $champCrc = [IO.Compression.ZipArchiveEntry].GetField('_crc32', $interne)
+    $calculCrc = [IO.Compression.ZipArchive].Assembly.GetType('System.IO.Compression.Crc32Helper')
+    if ($calculCrc) { $calculCrc = $calculCrc.GetMethod('UpdateCrc32', [Reflection.BindingFlags]'NonPublic,Public,Static', $null, [type[]]@([uint32], [byte[]], [int], [int]), $null) }
+    $copier = {
+        param($Entree, [IO.Stream]$Vers)
+        if (-not $champDrapeaux -or ([int]$champDrapeaux.GetValue($Entree) -band 1)) { throw $chiffre }
+        if (-not $calculCrc -or -not $champCrc) { throw $abime }
+        $flux = $Entree.Open()
+        try {
+            $tampon = [byte[]]::new(81920)   # (New-Object l'envelopperait : Invoke ne le prendrait pas)
+            $total = [long]0
+            [uint32]$crc = 0
+            while ($true) {
+                try { $n = $flux.Read($tampon, 0, $tampon.Length) } catch { throw $abime }   # (deflate illisible)
+                if ($n -le 0) { break }
+                $total += $n
+                if ($total -gt $Entree.Length) { throw $abime }
+                $crc = $calculCrc.Invoke($null, [object[]]@($crc, $tampon, 0, $n))
+                $Vers.Write($tampon, 0, $n)
+            }
+        } finally { $flux.Dispose() }
+        if ($total -ne $Entree.Length -or $crc -ne [uint32]$champCrc.GetValue($Entree)) { throw $abime }
+    }
+    $racine = [IO.Path]::GetFullPath($Dest).TrimEnd('\') + '\'
+    try {
+        $archive = New-Object IO.Compression.ZipArchive((New-Object IO.MemoryStream (, $Octets)), [IO.Compression.ZipArchiveMode]::Read)
+        try {
+            foreach ($e in $archive.Entries) {
+                # (comme ExtractToDirectory : rien hors du dossier, un dossier pour une entrée sans nom de fichier, un
+                # fichier déjà là refusé, date de modification reprise du zip)
+                $cible = [IO.Path]::GetFullPath((Join-Path $racine $e.FullName.Replace('/', '\')))
+                if (-not $cible.StartsWith($racine, [StringComparison]::OrdinalIgnoreCase)) { throw $horsDossier }
+                if (-not $e.Name) { New-Item -ItemType Directory -Force -Path $cible | Out-Null; continue }
+                New-Item -ItemType Directory -Force -Path (Split-Path $cible -Parent) | Out-Null
+                $fichier = [IO.File]::Open($cible, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+                try { & $copier $e $fichier } finally { $fichier.Dispose() }
+                [IO.File]::SetLastWriteTime($cible, $e.LastWriteTime.DateTime)
+            }
+        } finally { $archive.Dispose() }
+    } catch {
+        # (un zip illisible pour .NET est abîmé aussi ; signé, il ne sert à rien de le télécharger encore)
+        $raison = $_.Exception.Message
+        $illisible = $_.Exception -is [IO.InvalidDataException] -or $_.Exception.InnerException -is [IO.InvalidDataException]
+        if ($illisible) { $raison = $abime }
+        if ($raison -notin $abime, $chiffre, $horsDossier) { throw }
+        $res.Refus = $true; $res.Erreur = $raison; return $res
+    }
     $app = Join-Path $Dest 'Evermind'
     $script = Join-Path $app 'fichiers\Evermind.ps1'
     if (-not (Test-Path -LiteralPath (Join-Path $app 'Evermind.exe')) -or -not (Test-Path -LiteralPath $script)) { $res.Erreur = 'le zip ne contient pas Evermind'; return $res }
