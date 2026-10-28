@@ -789,14 +789,15 @@
               <!-- Thème : les couleurs de Nevermind, adaptées -->
               <StackPanel x:Name="PanTheme" Visibility="Collapsed">
                 <TextBlock Text="Le thème" Style="{StaticResource Label}" FontSize="16" Margin="2,10,0,4"/>
-                <!-- Copie gérée par Mindset (suite.ps1) : le thème se choisit dans Mindset, thèmes personnalisés compris -->
+                <!-- Copie gérée par Mindset (suite.ps1) : le thème se choisit seulement dans Mindset, aucun choix ici -->
                 <StackPanel x:Name="ThemeMindset" Visibility="Collapsed" Margin="0,0,0,12">
-                  <TextBlock Text="Le thème se règle dans Mindset, pour toute la suite (thèmes personnalisés compris)." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
+                  <TextBlock x:Name="ThemeActuel" Style="{StaticResource Label}" FontSize="14" TextWrapping="Wrap" Margin="2,0,0,4"/>
+                  <TextBlock Text="Le thème se choisit dans Mindset, pour toutes les applis." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
                   <Button x:Name="BtnThemeMindset" Style="{StaticResource BtnSecondary}" Content="Ouvrir les réglages de Mindset" HorizontalAlignment="Left"/>
                 </StackPanel>
                 <TextBlock x:Name="ThemeTexte" Text="Les couleurs d'Evermind, les mêmes thèmes que Nevermind. Choisis-en un : Evermind se relance pour l'appliquer (quelques secondes), tes rendez-vous et réglages ne changent pas." Style="{StaticResource Sub}" TextWrapping="Wrap" Margin="2,0,0,12"/>
                 <UniformGrid x:Name="ThemeChoix" Columns="2"/>
-                <DockPanel Margin="2,6,0,0">
+                <DockPanel x:Name="ThemeChoixBas" Margin="2,6,0,0">
                   <Button x:Name="BtnThemeAppliquer" DockPanel.Dock="Right" Style="{StaticResource BtnPrimary}" Content="Appliquer et relancer" Visibility="Collapsed" Margin="12,0,0,0"/>
                   <TextBlock x:Name="ThemeInfo" Style="{StaticResource Sub}" TextWrapping="Wrap" VerticalAlignment="Center"/>
                 </DockPanel>

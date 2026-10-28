@@ -130,8 +130,10 @@ function Get-ThemePacks {
     @(Get-ChildItem -LiteralPath $PacksDir -Directory | ForEach-Object { Get-ThemePack $_.Name } | Where-Object { $_ })
 }
 
-# Pack (zip contenant pack.json) ajouté dans le dossier des packs ; renvoie son identifiant
+# Pack (zip contenant pack.json) ajouté dans le dossier des packs ; renvoie son identifiant.
+# Copie gérée par Mindset : rien n'est importé ($null), les thèmes personnalisés viennent de Mindset (suite.ps1).
 function Import-ThemePack([string]$Zip) {
+    if ($GereParMindset) { Write-Log 'Import de thème ignoré : le thème se choisit dans Mindset'; return $null }
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $tmp = Join-Path $env:TEMP ("evermind-pack-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
     [IO.Compression.ZipFile]::ExtractToDirectory($Zip, $tmp)
@@ -173,6 +175,9 @@ if ($ThemePack -and $ThemePack.Font) {
         $PackFont = 'file:///' + ($ThemePack.Dir -replace '\\', '/') + '/#' + @($gt.FamilyNames.Values)[0]
     } catch { Write-Log "Police du pack illisible : $_" }
 }
+
+# Nom du thème affiché (celui du pack pour un thème personnalisé)
+function Get-ThemeActuelNom { if ($ThemePack) { $ThemePack.Name } else { $AppThemes[$ThemeId].Name } }
 
 # Bonjour de l'en-tête (« {0} » = Bonjour ou Bonsoir)
 function Get-ThemeHello { if ($ThemePack -and $ThemePack.Hello) { $ThemePack.Hello } else { $Theme.Hello } }
@@ -482,8 +487,13 @@ function Initialize-PackVisuels {
 function Update-ThemeChoix {
     $g = $ui.ThemeChoix
     $g.Children.Clear()
-    # Copie gérée : le thème (thèmes personnalisés compris) se choisit seulement dans Mindset (suite.ps1)
-    if ($GereParMindset) { $g.Visibility = 'Collapsed'; $ui.ThemeInfo.Parent.Visibility = 'Collapsed'; return }
+    # Copie gérée : le thème (thèmes personnalisés compris) se choisit seulement dans Mindset (suite.ps1) : aucun
+    # choix ni import, seulement le thème actuel
+    if ($GereParMindset) {
+        $g.Visibility = 'Collapsed'; $ui.ThemeChoixBas.Visibility = 'Collapsed'; $ui.ThemesPerso.Visibility = 'Collapsed'
+        $ui.ThemeActuel.Text = "Thème actuel : $(Get-ThemeActuelNom)"
+        return
+    }
     if (-not $script:ThemeChoisi) { $script:ThemeChoisi = $ThemeSetting }
     # Les 5 thèmes de base, puis les thèmes personnalisés installés sur ce PC
     $choix = @(foreach ($k in @($AppThemes.Keys | Where-Object { -not $AppThemes[$_].Pack })) { @{ Cle = $k; Base = $k; Name = $AppThemes[$k].Name; Desc = $AppThemes[$k].Desc; Pack = $null } })
@@ -543,6 +553,7 @@ function Update-ThemeChoix {
 
 # « Importer un thème » : un zip choisi sur le PC, copié dans le dossier des thèmes, puis choisi
 function Invoke-ImportTheme {
+    if ($GereParMindset) { return }   # copie gérée : le thème se choisit dans Mindset
     $dlg = New-Object Microsoft.Win32.OpenFileDialog
     $dlg.Title = 'Choisis le thème (.zip)'; $dlg.Filter = 'Thème Evermind (*.zip)|*.zip'
     $bureau = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Thème-Evermind'
@@ -556,12 +567,14 @@ function Invoke-ImportTheme {
     } catch { $ui.ThemeInfo.Text = "Ce thème n'a pas pu être ajouté : $($_.Exception.Message)" }
 }
 
+# Thème choisi dans Evermind (copie autonome seulement). Copie gérée par Mindset : sans effet, le thème se choisit
+# seulement dans Mindset, et Evermind ne l'écrit jamais dans suite.json (suite.ps1).
 function Set-AppTheme([string]$Id) {
+    if ($GereParMindset) { Write-Log "Thème $Id ignoré : le thème se choisit dans Mindset"; return }
     if ($Id -like 'pack:*') { if (-not (Get-ThemePack $Id.Substring(5))) { return } }
     elseif (-not $AppThemes.Contains($Id)) { return }
     Set-Setting 'Theme' $Id
     Write-Log "Thème : $Id"
-    if ($GereParMindset) { Write-SuiteTheme $Id }   # un des 5 thèmes : toute la suite le prend (suite.ps1)
     if ($EnTest) { $ui.ThemeInfo.Text = "Thème « $Id » choisi (test : pas de relance)."; return }
     Restart-App
 }

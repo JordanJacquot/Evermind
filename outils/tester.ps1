@@ -177,16 +177,19 @@ foreach ($s in @(@('maj-sans-signature', 'sa signature est introuvable'), @('maj
     } else { $ok = $false }
 }
 # Mindset : copie gérée (faux suite.json qui donne ce dossier) : thème, micro et casque de la suite pris ; dans Réglages,
-# Son et Thème, le bouton qui ouvre les réglages de Mindset à la place des choix
+# Son et Thème, le bouton qui ouvre les réglages de Mindset à la place des choix. Evermind lit suite.json sans jamais
+# l'écrire (le thème se choisit seulement dans Mindset ; détail dans tester-themes.ps1).
 $suite = Join-Path $test 'suite.json'
 [IO.File]::WriteAllText($suite, (ConvertTo-Json -InputObject ([ordered]@{ theme = 'arcade'; applis = [ordered]@{ evermind = (Join-Path $racine 'Evermind\'); nevermind = 'C:\Program Files\Mindset\Nevermind' }; micro = 'Micro de test (USB)'; casque = ''; modifie = '2026-10-14T16:00:00' })), $utf8)
 # Une nouvelle version imaginaire est « en ligne » : une copie gérée ne doit pas la chercher elle-même (c'est Mindset
 # qui le fait ; la page Code signing policy le promet)
+$suiteTexte = [IO.File]::ReadAllText($suite, [Text.Encoding]::UTF8)
 foreach ($s in @(@('mindset-gere', 'Son'), @('mindset-gere-theme', 'Theme'))) {
     if (Invoke-Scenario $s[0] @{ EVERMIND_SUITE = $suite; EVERMIND_REGLAGES = $s[1]; EVERMIND_MAJ_VERSION = '9.9.9'; EVERMIND_MAJ_ZIP = $zipTest } -Exemples) {
         $reg = ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $script:Donnees 'reglages.json'), [Text.Encoding]::UTF8))
         if ($script:Journal -notmatch 'Thème de la suite \(Mindset\) : arcade' -or $script:Journal -notmatch 'Géré par Mindset' -or $reg.Micro -ne 'Micro de test (USB)' -or [string]$reg.Casque -ne '') { Write-Host "ÉCHEC  $($s[0]) : thème, micro ou casque de la suite pas pris" -ForegroundColor Red; $ok = $false }
         elseif ($script:Journal -match 'Mise à jour (disponible|: recherche|: téléchargement)') { Write-Host "ÉCHEC  $($s[0]) : une copie gérée par Mindset a cherché sa mise à jour elle-même" -ForegroundColor Red; $ok = $false }
+        elseif ([IO.File]::ReadAllText($suite, [Text.Encoding]::UTF8) -ne $suiteTexte) { Write-Host "ÉCHEC  $($s[0]) : suite.json a été modifié par Evermind" -ForegroundColor Red; $ok = $false }
         else { Write-Host '       thème (arcade), micro et casque de la suite pris, mises à jour par Mindset (aucune recherche par Evermind)' -ForegroundColor DarkGray }
     } else { $ok = $false }
 }

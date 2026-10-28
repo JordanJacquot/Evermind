@@ -1,12 +1,14 @@
 ﻿# Evermind : la suite Mindset (le portail qui installe, met à jour et lance Nevermind et Evermind).
 # suite.json est lu par mindset.ps1, qui décide aussi si cette copie est gérée par Mindset ($GereParMindset).
 #
-#   Copie gérée    elle prend le thème de la suite au démarrage, l'écrit dans suite.json quand on en choisit un dans
-#                  Evermind, et se relance quand il change (choisi dans Mindset ou dans Nevermind). Mindset la met à
-#                  jour et la lance avec Windows : ni recherche de mise à jour ni démarrage avec Windows ici.
-#                  Le micro et le casque viennent aussi de Mindset (pris au démarrage et dès qu'ils changent, sans
-#                  relance) : dans Réglages, Son et Thème, un bouton ouvre les réglages de Mindset à la place des choix.
-#                  Les thèmes personnalisés aussi : « pack:<id> » dans suite.json, installé par Mindset dans nos packs.
+#   Copie gérée    le thème de toute la suite se choisit seulement dans Mindset : elle le prend au démarrage et se
+#                  relance quand il change, mais ne l'écrit jamais dans suite.json (elle le lit seulement). Dans
+#                  Réglages, Thème, aucun choix ni import : le thème actuel et un bouton qui ouvre les réglages de
+#                  Mindset (Set-AppTheme et l'import sont sans effet, themes.ps1). Les thèmes personnalisés aussi :
+#                  « pack:<id> » dans suite.json, installé par Mindset dans nos packs. Mindset la met à jour et la
+#                  lance avec Windows : ni recherche de mise à jour ni démarrage avec Windows ici. Le micro et le
+#                  casque viennent aussi de Mindset (pris au démarrage et dès qu'ils changent, sans relance) : dans
+#                  Réglages, Son, un bouton ouvre les réglages de Mindset à la place des choix.
 #   Copie autonome seulement un dossier de travail (les autres sont arrêtées au lancement, mindset.ps1) : comme avant.
 # Tests : EVERMIND_SUITE (un faux suite.json, voir mindset.ps1).
 # Chargé par Evermind.ps1 juste après donnees.ps1, avant themes.ps1.
@@ -75,21 +77,6 @@ function Open-ReglagesMindset([string]$Page) {
     } catch { Write-Log "Mindset : $($_.Exception.Message)" }
 }
 
-# Le thème choisi dans Evermind devient celui de toute la suite. Seuls « theme » et « modifie » changent : le reste
-# (les applis de Mindset...) est gardé tel quel. Écrit à côté puis remplacé d'un coup, comme le fait Mindset.
-function Write-SuiteTheme([string]$Id) {
-    if (-not $GereParMindset -or $Id -notin $ThemesSuite -or -not $SuiteFile) { return }
-    try {
-        $j = [IO.File]::ReadAllText($SuiteFile, [Text.Encoding]::UTF8) | ConvertFrom-Json
-        if ($j -isnot [Management.Automation.PSCustomObject]) { throw 'contenu inattendu' }
-        foreach ($k in 'theme', 'modifie') { if (-not $j.PSObject.Properties[$k]) { $j | Add-Member -NotePropertyName $k -NotePropertyValue $null } }
-        $j.theme = $Id; $j.modifie = (Get-Date).ToString('s')
-        Save-JsonFile $SuiteFile $j
-        $script:SuiteDate = (New-Object IO.FileInfo $SuiteFile).LastWriteTimeUtc   # (notre propre écriture n'est pas un changement)
-        Write-Log "Thème de la suite écrit dans suite.json : $Id"
-    } catch { Write-Log "suite.json : thème non écrit ($($_.Exception.Message))" }
-}
-
 # Evermind est en train de faire quelque chose qu'une relance couperait : écoute, dictée, demande à l'assistant,
 # phrase dite, « OK Evermind » entendu, alerte affichée, téléchargement, mise à jour, formulaire ouvert
 function Test-RelanceGenante {
@@ -134,9 +121,12 @@ function Initialize-Suite {
     Write-Log 'Géré par Mindset : mises à jour et démarrage avec Windows par Mindset'
     $ui.DemarrageOption.Visibility = 'Collapsed'   # c'est Mindset qui lance Evermind avec Windows
     $ui.ReglagesMindset.Visibility = 'Visible'     # Réglages, Général : « les mises à jour passent par Mindset »
-    # Réglages, Son et Thème : le micro, le casque et le thème (thèmes personnalisés compris) se règlent dans Mindset
+    # Réglages, Son et Thème : le micro, le casque et le thème (thèmes personnalisés compris) se règlent dans Mindset.
+    # Thème : aucun choix ni import ici, seulement le thème actuel et le bouton vers Mindset (Update-ThemeChoix aussi)
     $ui.SonChoix.Visibility = 'Collapsed'; $ui.SonMindset.Visibility = 'Visible'
     $ui.ThemeTexte.Visibility = 'Collapsed'; $ui.ThemeMindset.Visibility = 'Visible'; $ui.ThemesPerso.Visibility = 'Collapsed'
+    $ui.ThemeChoix.Visibility = 'Collapsed'; $ui.ThemeChoixBas.Visibility = 'Collapsed'
+    $ui.ThemeActuel.Text = "Thème actuel : $(Get-ThemeActuelNom)"
     $ui.BtnSonMindset.Add_Click({ Open-ReglagesMindset 'parametres:son' })
     $ui.BtnThemeMindset.Add_Click({ Open-ReglagesMindset 'parametres:apparence' })
     $script:SuiteDate = [datetime]::MinValue
